@@ -15,6 +15,7 @@ def replace_nan_inf(data: torch.Tensor, nan_repl=0.0, pos_inf_repl=1e15, neg_inf
     out[out == float('-inf')] = neg_inf_repl
     return out
 
+
 def create_points(x: torch.Tensor, dim: int, exp_dim: int) -> torch.Tensor:
     """
     For each row in x (shape [N, D]), create exp_dim evaluation points for column `dim`
@@ -28,10 +29,12 @@ def create_points(x: torch.Tensor, dim: int, exp_dim: int) -> torch.Tensor:
     y_vec = torch.linspace(mn, mx, exp_dim, device=device, dtype=x.dtype)
     out_rows = []
     for i in range(N):
-        row = x[i].clone().unsqueeze(0).expand(exp_dim, -1)
+        # Use clone() after expand to ensure unique memory allocation
+        row = x[i].clone().unsqueeze(0).expand(exp_dim, -1).clone()
         row[:, dim] = y_vec
         out_rows.append(row)
     return torch.cat(out_rows, dim=0)
+
 
 def smooth_moving_average(arr: torch.Tensor, window_len: int = 4) -> torch.Tensor:
     """Compute simple moving average smoothing."""
