@@ -1,4 +1,4 @@
-# Distributed Vine Copula Library in PyTorch
+# Distributed Vine Copula
 
 This repository implements a full vine copula library in PyTorch. It provides functionality for:
 
