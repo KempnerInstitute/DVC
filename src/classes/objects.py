@@ -114,29 +114,45 @@ class vine_obj_bin:
                 self.copulas.append({'type': 'param', 'families': best_fams, 'theta': best_thetas})
         print("[vine_obj_bin.fit] Completed fitting.")
 
+
     def evaluation(self, points: torch.Tensor):
         """
-        Evaluate the vine joint density at points.
-        The joint density is computed as the product of margin densities and the copula density.
-        Here we approximate the copula density contribution by differences in theta.
+        Evaluate the joint density at new points.
+        Compute the product of margin densities and add the copula density contributions
+        from each vine tree level.
         """
         N, d = points.shape
         device = points.device
         p = torch.ones(N, device=device, dtype=points.dtype)
         logf = torch.zeros(N, device=device, dtype=points.dtype)
-        # Evaluate margins:
+        margin_cdf = torch.zeros(N, d, device=device, dtype=points.dtype)
         for i in range(d):
             loc, scale = self.margin[i].theta
             dist = torch.distributions.Normal(loc, scale)
             pdf_i = torch.exp(dist.log_prob(points[:, i]))
+            cdf_i = dist.cdf(points[:, i])
             p *= pdf_i
             logf += torch.log(pdf_i + 1e-16)
-        # Add copula contributions:
-        for tr in range(1, d):
-            # For simplicity, add the log of theta differences as a surrogate for copula log-density.
-            logf += torch.log(self.theta[:, tr, tr:] + 1e-16).sum(dim=1)
+            margin_cdf[:, i] = cdf_i
+        # For each vine tree level, add copula contributions.
+        # In our trivial vine, for each level tr (0 <= tr <= d-2), we assume one edge per level.
+        for tr in range(0, d - 1):
+            # In our trivial vine, edge index is: (tr, tr+1)
+            edge_idx = tr + 1
+            uv = torch.stack([margin_cdf[:, tr], margin_cdf[:, edge_idx]], dim=1)
+            # Assume a parametric branch was used at tree level tr.
+            cop_info = self.copulas[tr]
+            if cop_info['type'] == 'param':
+                fam = cop_info['families'][0]  # In our trivial vine, one edge per tree.
+                th = cop_info['theta'][0]
+                cop_density = __import__('param.cond_copula', fromlist=['copulapdf']).copulapdf(fam, th, uv)
+                logf += torch.log(cop_density + 1e-16)
+            else:
+                # For nonparam branch, use a default of 0 contribution.
+                logf += 0.0
         p_cop = torch.exp(logf)
         return p, p_cop, logf
+
 
     def sample(self, shape: tuple):
         """
