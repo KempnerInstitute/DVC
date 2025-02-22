@@ -82,10 +82,11 @@ class vine_obj_bin:
                     grid[:, 1, j] = grid_vals
                 # Evaluate kernel density over grid and compute approximate CDF by cumulative sum:
                 for j in range(n_edges):
-                    ker_sum = __import__('param.local_lik', fromlist=['loclik_batch_eval']).loclik_batch_eval(bw, data_u[:, :, j], grid[:, :, j].unsqueeze(-1), 1, batch_size=10)
+                    ker_sum = __import__('param.local_lik', fromlist=['loclik_batch_eval']).loclik_batch_eval(
+                        bw, data_u[:, :, j].unsqueeze(-1), grid[:, :, j].unsqueeze(-1), 1, batch_size=10
+                    )
                     ker_sum = ker_sum.squeeze(-1)
                     cdf_grid = torch.cumsum(ker_sum, dim=0)
-                    # For each sample, we update theta at level tr+1 for the second variable of the edge.
                     self.theta[:, tr+1, edges[j][1]] = cdf_grid[-1].expand(N)
             else:
                 # Parametric fitting:
@@ -105,7 +106,6 @@ class vine_obj_bin:
                             bestTh = theta_list[idx][j]
                     best_fams.append(bestF)
                     best_thetas.append(bestTh)
-                    # For each sample, compute copula CDF using the fitted param.
                     c_vals = torch.zeros(N, device=device, dtype=x.dtype)
                     for m in range(N):
                         uv = data_u[m, :, j].unsqueeze(0)
