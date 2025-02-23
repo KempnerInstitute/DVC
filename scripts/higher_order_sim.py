@@ -4,6 +4,10 @@ fit a vine-copula, and compare how the tree-level log-likelihood increments line
 the 'ground truth' synergy level.
 """
 
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
