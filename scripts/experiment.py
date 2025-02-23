@@ -57,8 +57,8 @@ def main():
     margin_list = [margin_obj('norm', [0.0, 1.0], True) for _ in range(vine_depth)]
     knots = 50
     vine = vine_obj_bin(vine_type, "kercop", vine_depth, margin_list, knots, method, r_matrix)
-    x_data = torch.tensor(sample, dtype=torch.float32, device=device)
-
+    x_data = sample.clone().detach().to(device=device, dtype=torch.float32)
+    
     # 4) Preprocess data
     sort_n = 'rand'
     x_prep = prep_cop(x_data, vine, sort_n)
