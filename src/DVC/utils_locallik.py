@@ -51,8 +51,10 @@ def dense_naive_batch(B: torch.Tensor,
     c = grid_exp - data_exp
 
     # bandwidth shapes => [2,n_cop], we broadcast to [1,1,1,n_cop]
-    b0 = B[0,:].view(1,1,1,n_cop)  # bw_x
-    b1 = B[1,:].view(1,1,1,n_cop)  # bw_y
+    if B.dim() == 1:
+        B = B.view(2,1)
+    b0 = B[0, :].view(1,1,1,n_cop)  # bw_x
+    b1 = B[1, :].view(1,1,1,n_cop)  # bw_y
 
     # exponent = exp( - ( delta_x^2 / (2*b0^2) + delta_y^2 / (2*b1^2 ) ) )
     val_x = (c[:,:,0,:]**2) / (2.0 * b0**2)  # shape [N,M,n_cop]
@@ -61,7 +63,7 @@ def dense_naive_batch(B: torch.Tensor,
 
     # factor => 1/(2*pi*bw_x*bw_y*N)
     pi_val = math.pi
-    const = 1.0/(2.0 * pi_val) * (1.0/(b0*b1)) * (1.0/float(N))  # shape => [1,1,1,n_cop]
+    const = 1.0/(2.0 * pi_val) * (1.0/(b0*b1)) * (1.0/float(N))  # shape [1,1,1,n_cop]
     # broadcast => a => shape [N,M,n_cop]
     a = val_exp * const.squeeze(2)
 
@@ -100,20 +102,22 @@ def kern_LL(B: torch.Tensor,
     Returns:
       ker_grid_fin: shape [M,n_cop]
     """
-    b0 = B[0,:].unsqueeze(0)  # [1,n_cop]
-    b1 = B[1,:].unsqueeze(0)  # [1,n_cop]
+    if B.dim() == 1:
+        B = B.unsqueeze(1)
+    b0 = B[0, :].unsqueeze(0)  # [1,n_cop]
+    b1 = B[1, :].unsqueeze(0)  # [1,n_cop]
 
     ratio1 = ker_grid2 / ker_grid1
     ratio2 = ker_grid3 / ker_grid1
     ratio4 = ker_grid4 / ker_grid1
     ratio5 = ker_grid5 / ker_grid1
 
-    val_e1 = b0 * torch.sqrt( torch.abs( ratio4 - ratio1**2 ) )
-    val_e2 = b1 * torch.sqrt( torch.abs( ratio5 - ratio2**2 ) )
+    val_e1 = b0 * torch.sqrt(torch.abs(ratio4 - ratio1**2))
+    val_e2 = b1 * torch.sqrt(torch.abs(ratio5 - ratio2**2))
 
     small_val = 1e-12
-    c_part1 = - ( val_e1**2 * ( ratio1**2 / (2.0*(b0**2 + small_val)) ) )
-    c_part2 = - ( val_e2**2 * ( ratio2**2 / (2.0*(b1**2 + small_val)) ) )
+    c_part1 = - (val_e1**2 * (ratio1**2 / (2.0*(b0**2 + small_val))))
+    c_part2 = - (val_e2**2 * (ratio2**2 / (2.0*(b1**2 + small_val))))
     C = c_part1 + c_part2
 
     ker_grid_fin = ker_grid1 * val_e1 * val_e2 * torch.exp(C)
@@ -161,10 +165,9 @@ def loclik_batch_eval(B: torch.Tensor,
 
     for i in range(batch_size):
         end_idx = start_idx + batch_len
-        if i == batch_size -1:
+        if i == batch_size - 1:
             end_idx += remainder
         grid_chunk = grid_x[start_idx:end_idx]  # shape [chunk_size,2,n_cop]
-        # partial sums
         ker1, ker2, ker3, ker4, ker5 = dense_naive_batch(B, data, grid_chunk)
         ker1_list.append(ker1)
         ker2_list.append(ker2)
@@ -173,13 +176,11 @@ def loclik_batch_eval(B: torch.Tensor,
         ker5_list.append(ker5)
         start_idx = end_idx
 
-    # combine
     ker_grid1 = torch.cat(ker1_list, dim=0)
     ker_grid2 = torch.cat(ker2_list, dim=0)
     ker_grid3 = torch.cat(ker3_list, dim=0)
     ker_grid4 = torch.cat(ker4_list, dim=0)
     ker_grid5 = torch.cat(ker5_list, dim=0)
 
-    # final aggregator
     ker_grid_fin = kern_LL(B, ker_grid1, ker_grid2, ker_grid3, ker_grid4, ker_grid5)
     return ker_grid_fin
