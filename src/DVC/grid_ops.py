@@ -1,13 +1,13 @@
 ###############################################
-# src/DVC/grid_ops.py   (or src/torch_vine/grid_ops.py)
+# src/DVC/grid_ops.py
 ###############################################
 
 import torch
 
 class grid_obj:
     """
-    A simple object to hold a 2D grid 'ex' of shape [K^2, 2], 
-    and provide:
+    A simple object to hold a 2D grid 'ex' of shape [K^2, 2],
+    plus methods:
       - axis() => unique x and y coordinates
       - diff() => difference arrays
       - min_grid(), max_grid()
@@ -17,7 +17,7 @@ class grid_obj:
     def __init__(self, ex: torch.Tensor):
         """
         Args:
-          ex: A tensor of shape [K^2, 2], holding the (x,y) points of the grid.
+          ex: A tensor of shape [K^2, 2], holding (x,y) points of the grid.
         """
         self.ex = ex            # shape [K^2, 2]
         self.ax1 = None         # unique x coords
@@ -30,10 +30,8 @@ class grid_obj:
 
     def axis(self):
         """
-        Extract unique x and y coordinates from 'ex' by looking at the 
-        first and second columns. Stores them in self.ax1, self.ax2.
-        Returns:
-          (ax1, ax2): 1D tensors of unique coordinates.
+        Extract unique x and y from 'ex' by looking at columns 0,1.
+        Stores them in self.ax1, self.ax2. Returns (ax1, ax2).
         """
         ax1 = torch.unique(self.ex[:, 0])
         ax2 = torch.unique(self.ex[:, 1])
@@ -46,10 +44,9 @@ class grid_obj:
         Compute difference arrays for self.ax1, self.ax2.
         If not yet set, calls axis() first.
         Stores in self.diff1, self.diff2, each of shape [K].
-        The last element is duplicated to keep the same shape as input, 
-        matching your original code logic.
-        Returns:
-          (d1, d2)
+        The last element is duplicated to maintain shape
+        consistent with original code logic.
+        Returns (d1, d2).
         """
         if self.ax1 is None or self.ax2 is None:
             self.axis()
@@ -70,8 +67,7 @@ class grid_obj:
     def min_grid(self):
         """
         Determine the minimum x and y in ex, store in self.min.
-        Returns:
-          A tensor of shape [2] => (min_x, min_y).
+        Returns a tensor [2] => (min_x, min_y).
         """
         mi1 = self.ex[:, 0].min()
         mi2 = self.ex[:, 1].min()
@@ -81,8 +77,7 @@ class grid_obj:
     def max_grid(self):
         """
         Determine the maximum x and y in ex, store in self.max.
-        Returns:
-          A tensor of shape [2] => (max_x, max_y).
+        Returns a tensor [2] => (max_x, max_y).
         """
         ma1 = self.ex[:, 0].max()
         ma2 = self.ex[:, 1].max()
@@ -91,20 +86,16 @@ class grid_obj:
 
     def step_grid(self, tolerance=1e-7):
         """
-        Check if the grid is uniformly spaced in x and y. 
-        If yes, store (step_x, step_y) in self.step; else store None.
+        Check if the grid is uniformly spaced in x and y.
+        If yes, store (step_x, step_y) in self.step; else None.
 
-        Returns:
-          self.step => (step_x, step_y) if uniform, else None
+        Returns self.step => (step_x, step_y) or None
         """
         if self.diff1 is None or self.diff2 is None:
             self.diff()
-        # self.diff1, self.diff2 each shape [K], but we only have [K-1] unique steps 
-        # ignoring the final duplicated step
-        # We'll drop the last element:
+        # self.diff1,2 each shape [K], but last element is repeated
         d1_core = self.diff1[:-1]
         d2_core = self.diff2[:-1]
-        # check if all are nearly the same
         d1_min, d1_max = d1_core.min(), d1_core.max()
         d2_min, d2_max = d2_core.min(), d2_core.max()
 
@@ -116,3 +107,18 @@ class grid_obj:
         else:
             self.step = None
         return self.step
+
+
+def mk_grid(knots: int, dtype=torch.float32):
+    """
+    A minimal function to create a [knots^2,2] grid
+    over some domain, e.g. [-3.2..3.2]^2.
+    If your code references mk_grid, import from this file.
+
+    Returns:
+      A tensor ex of shape [knots^2,2].
+    """
+    x_lin = torch.linspace(-3.2, 3.2, knots, dtype=dtype)
+    xx, yy = torch.meshgrid(x_lin, x_lin, indexing='ij')
+    ex = torch.stack([xx.reshape(-1), yy.reshape(-1)], dim=1)
+    return ex
