@@ -1,15 +1,23 @@
 ###############################################
 # scripts/main_example.py
 ###############################################
-
+import sys
+import os
+this_file_dir = os.path.dirname(os.path.abspath(__file__))        # scripts folder
+project_root = os.path.dirname(this_file_dir)                     # project_root
+src_folder = os.path.join(project_root, "src")                    # "src"
+if src_folder not in sys.path:
+    sys.path.insert(0, src_folder)
+    
+    
 import numpy as np
 import torch
 
 # Import your library modules
-from torch_vine.objects import vine_obj_bin, margin_obj
-from torch_vine.preparation import prep_cop
-from torch_vine.vine_model import fit_vine, evaluate_vine, sample_vine
-from torch_vine.info_estimation import vine_entropy
+from DVC.objects import vine_obj_bin, margin_obj
+from DVC.preparation import prep_cop
+from DVC.vine_model import fit_vine, evaluate_vine, sample_vine
+from DVC.info_estimation import vine_entropy
 
 def main():
     # 1) Generate synthetic data
