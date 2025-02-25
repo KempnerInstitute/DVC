@@ -8,116 +8,100 @@ from torch.distributions import Normal
 
 class Transform:
     """
-    Transform class for mapping:
-      - uniform u -> normal s space (via inverse CDF, clipped to [-3.2,3.2])
-      - optional PCA or SVD-based rotation on the 's' space => 'x' space
-
-    Typically:
-      1) forward_u(obj_u):  apply Normal icdf
-      2) forward_s(obj_s):  if self.coeff is None, do an SVD or PCA to get 'coeff', then transform
+    Transform class for mapping between copula spaces:
+    - uniform u-space [0,1]^2
+    - normal s-space [-3.2,3.2]^2
+    - rotated x-space via SVD/PCA
     """
-
-    def __init__(self,
-                 n_cop: int,
-                 use_pca: bool = False):
+    def __init__(self, n_cop: int):
         """
         Args:
-          n_cop: number of bivariate edges or dimension (some contexts)
-          use_pca: if True, we actually do a PCA transform in forward_s
+            n_cop: number of copulas
         """
         self.n_cop = n_cop
-        self.use_pca = use_pca
-
-        # If we do PCA or SVD, we store them here
-        self.coeff = None   # shape [2,2,...] if we do 2D, or (d,d) for general
-        self.mu = None      # shape [*,2], the mean, or [d] for general dimension
-
-    def forward_u(self, obj_u: torch.Tensor):
+        self.mu = None
+        self.coeff = None
+    
+    def forward_u(self, obj_u: torch.Tensor) -> torch.Tensor:
         """
-        Maps from uniform in [0,1] => normal in [-3.2,3.2], by icdf & clamp.
-
+        Transform from uniform [0,1] space to normal [-3.2,3.2] space
+        using inverse normal CDF.
+        
         Args:
-          obj_u: shape [*, D], typically in [0,1]
+            obj_u: tensor in [0,1] space, shape [..., 2, n_cop] or [..., 2]
         Returns:
-          obj_s: shape same, in ~[-3.2,3.2]
+            obj_s: tensor in normal space, same shape
         """
-        eps = 1e-7
-        clipped = torch.clamp(obj_u, eps, 1.0 - eps)
-        s = Normal(0.,1.).icdf(clipped)  # shape same
-        # clamp to [-3.2, 3.2]
-        s = torch.clamp(s, -3.2, 3.2)
-        return s
-
-    def forward_s(self, obj_s: torch.Tensor):
+        device = obj_u.device
+        dtype = obj_u.dtype
+        
+        # Handle extreme values
+        obj_u_safe = torch.clamp(obj_u, 1e-9, 1-1e-9)
+        
+        # Transform via inverse normal CDF
+        normal_dist = torch.distributions.Normal(0., 1.)
+        obj_s = normal_dist.icdf(obj_u_safe)
+        
+        # Clamp to [-3.2, 3.2] for numerical stability
+        obj_s = torch.clamp(obj_s, -3.2, 3.2)
+        
+        return obj_s
+    
+    def forward_s(self, obj_s: torch.Tensor) -> torch.Tensor:
         """
-        Optionally apply a PCA or SVD-based transform to 'obj_s'.
-
-        Steps:
-          1) If use_pca=False => return obj_s as-is.
-          2) Else => if self.coeff is None:
-               - compute mu => the mean of obj_s
-               - center => obj_s - mu
-               - SVD => s,u,coeff => store 'coeff' for rotation
-             Then transform => (obj_s - mu) @ coeff
-
-        The shape is expected to be [N,2] or [N,2,k], so we do multiple columns if needed.
-        For simpler usage, if dimension>2, you'd do an alternative approach.
+        Transform from s-space to rotated x-space using SVD/PCA.
+        
+        Args:
+            obj_s: tensor in normal space, shape [N, 2, n_cop] or [N, 2]
+        Returns:
+            obj_x: tensor in rotated space, same shape
         """
-        if not self.use_pca:
-            # do nothing
-            return obj_s
-
-        # we assume a 2D shape or [N,2,...]. We'll handle [N,2,k].
-        shape_ = obj_s.shape
-        # e.g. [N,2] or [N,2,k]
+        device = obj_s.device
+        dtype = obj_s.dtype
+        
+        # Handle 2D input
         if obj_s.dim() == 2:
-            # shape [N,2]
-            if self.coeff is None:
-                # compute mu => [2]
-                self.mu = obj_s.mean(dim=0)
-                # center data
-                centered = obj_s - self.mu
-                # do SVD => shape [N,2], we want [2,2]
-                # for 2D => s, u, v => we get (u*s)@v^T => data
-                # We'll do a torch.linalg.svd
-                # note: 'centered' => shape [N,2]
-                u_, s_, v_ = torch.linalg.svd(centered, full_matrices=False)
-                # v_ => shape [2,2], we'll use that as the rotation
-                # we want to ensure a consistent sign => typical approach
-                # we'll just store v_ as is
-                self.coeff = v_
-            # now transform
-            centered = obj_s - self.mu
-            obj_x = centered @ self.coeff
-            return obj_x
-
-        elif obj_s.dim() == 3:
-            # shape [N,2,k]. We'll do a loop over k or replicate logic.
-            N, two, k = shape_
-            # if self.coeff is None, we build it for each 'k' or handle them separately
-            # for demonstration, we'll do a single transform for each slice => store an array
-            if self.coeff is None:
-                # we store a list of v_ => one per k
-                self.mu = []
-                self.coeff = []
-                for i in range(k):
-                    slice_i = obj_s[:,:,i]  # shape [N,2]
-                    mean_i = slice_i.mean(dim=0)
-                    centered_i = slice_i - mean_i
-                    u_, s_, v_ = torch.linalg.svd(centered_i, full_matrices=False)
-                    self.mu.append(mean_i)
-                    self.coeff.append(v_)
-            # now transform each slice
-            out_slices = []
-            for i in range(k):
-                slice_i = obj_s[:,:,i]
-                mean_i = self.mu[i]
-                v_ = self.coeff[i]
-                centered_i = slice_i - mean_i
-                obj_x_i = centered_i @ v_
-                out_slices.append(obj_x_i.unsqueeze(2))
-            obj_x = torch.cat(out_slices, dim=2)  # shape [N,2,k]
-            return obj_x
+            obj_s = obj_s.unsqueeze(-1)
+            expand_needed = True
         else:
-            # fallback => no transform
-            return obj_s
+            expand_needed = False
+        
+        # Make compatible with n_cop if needed
+        if obj_s.size(2) != self.n_cop:
+            obj_s = obj_s.expand(-1, -1, self.n_cop)
+        
+        # Compute PCA coefficients if not already done
+        if self.coeff is None:
+            self.coeff = torch.zeros(2, 2, self.n_cop, dtype=dtype, device=device)
+            for i in range(self.n_cop):
+                # Compute SVD for each copula
+                u, s, v = torch.linalg.svd(obj_s[:,:,i])
+                coeff = v  # Use V as the rotation matrix (shape [2,2])
+                
+                # Ensure consistent sign (like TF implementation)
+                # Find index of max abs value in first row
+                max_idx = torch.argmax(torch.abs(coeff[0]))
+                max_val = coeff[0, max_idx]
+                sign_val = torch.sign(max_val)
+                
+                # Multiply by sign to ensure consistent direction
+                coeff = coeff * sign_val
+                
+                # Store
+                self.coeff[:,:,i] = coeff
+        
+        # Compute mean if not already done
+        if self.mu is None:
+            self.mu = obj_s.mean(dim=0)  # shape [2, n_cop]
+        
+        # Apply transformation: (x - mu) @ coeff
+        obj_x = torch.zeros_like(obj_s)
+        for i in range(self.n_cop):
+            centered = obj_s[:,:,i] - self.mu[:,i]
+            obj_x[:,:,i] = centered @ self.coeff[:,:,i]
+        
+        # Return in original format
+        if expand_needed:
+            obj_x = obj_x.squeeze(-1)
+            
+        return obj_x

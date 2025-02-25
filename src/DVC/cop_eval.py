@@ -112,53 +112,49 @@ def cdf_grid_fun(pd_grid_uv: torch.Tensor,
                  u2d: torch.Tensor,
                  n_cop: int) -> torch.Tensor:
     """
-    Compute a 2D CDF on the grid from 'pd_grid_uv' by cumulative sums,
-    mirroring the original TF code logic:
-
-    Steps:
-      - we have pd_grid_uv shape [X, X, n_cop], representing f(x_i, x_j) over a 2D grid
-      - multiply each row by u2d (the differential in the 'y' axis), do cumsum => partial integral
-      - divide by total integrals => ensures it's in [0,1]
-      - reorder the axes if needed, produce cdf array shape [X,X,n_cop]
-
+    Compute 2D CDF on the grid from PDF values.
+    
     Args:
-      pd_grid_uv: shape [X, X, n_cop], final PDF on a 2D grid
-      ex_u:       shape [X*X, 2], not used here except for referencing min/max if needed
-      u1d:        shape [X], differential along x
-      u2d:        shape [X], differential along y
-      n_cop:      number of copulas
-
+        pd_grid_uv: shape [knots, knots, n_cop], the PDF on grid
+        ex_u: shape [knots*knots, 2], expanded grid
+        u1d: shape [knots], differential along x
+        u2d: shape [knots], differential along y
+        n_cop: number of copulas
+    
     Returns:
-      cdf_grid: shape [X, X, n_cop], the 2D CDF on the grid
+        cdf: shape [knots, knots, n_cop], the 2D CDF on grid
     """
     device = pd_grid_uv.device
-    X = pd_grid_uv.shape[0]
-    # we interpret "multiply each column by u2d => cumsum along axis=0"
-    # The original code does something like:
-    #   pd_transp = tf.transpose(pd_grid_uv, perm=[1,0,2])
-    #   integ = cumsum( pd_transp*u2d_tile, axis=0)
-    #   norm_p= reduce_sum(pd_grid_uv*u2d_tile, axis=0)
-    #   cdf1= tf.transpose( integ/norm_p, perm=[1,0,2])
-    #
-    # We'll replicate that in PyTorch.
-
-    # 1) expand u2d => shape [X,1,1], tile to [X,X,n_cop], multiply
-    u2d_tile = u2d.view(X, 1, 1).expand(-1, X, n_cop)
-    pd_grid_uv_t = pd_grid_uv.transpose(0,1)  # shape [X,X,n_cop] => [X,X,n_cop], swapped
-    # multiply
-    mul_ = pd_grid_uv_t * u2d_tile
-
-    # cumsum along axis=0 => shape => [X,X,n_cop]
-    integ = torch.cumsum(mul_, dim=0)  # integrate along 'y'
-    # norm_p => sum( pd_grid_uv * u2d, axis=0 ) => shape [X,n_cop]
-    norm_p = torch.sum(mul_, dim=0)  # shape [X,n_cop]
-    # avoid zero => clamp
-    norm_p = torch.where(norm_p==0., torch.ones_like(norm_p)*1e-12, norm_p)
-
-    cdf1 = integ / norm_p.unsqueeze(0)  # shape => [X,X,n_cop]
-    # transpose back => shape [X,X,n_cop]
-    cdf1 = cdf1.transpose(0,1)
-
-    # We do a final clamp to [0,1]
-    cdf1 = torch.clamp(cdf1, 0.0, 1.0)
-    return cdf1
+    dtype = pd_grid_uv.dtype
+    
+    # Get knots size
+    knots = pd_grid_uv.shape[0]
+    
+    # Reshape u2d for broadcasting
+    u2d_expanded = u2d.view(knots, 1, 1).expand(-1, knots, n_cop)
+    
+    # Transpose the PDF for cumulative sum along rows
+    pd_transposed = pd_grid_uv.permute(1, 0, 2)  # [knots, knots, n_cop] -> [knots, knots, n_cop]
+    
+    # Multiply by differentials and cumsum
+    weighted_pd = pd_transposed * u2d_expanded
+    integ = torch.cumsum(weighted_pd, dim=0)  # cumulative sum along y
+    
+    # Total sum for normalization
+    norm_p = weighted_pd.sum(dim=0)  # shape [knots, n_cop]
+    
+    # Handle zero entries in norm_p
+    zero_mask = (norm_p == 0)
+    if zero_mask.any():
+        norm_p = torch.where(zero_mask, torch.ones_like(norm_p), norm_p)
+    
+    # Normalize and transpose back
+    cdf = integ / norm_p.unsqueeze(0)  # shape [knots, knots, n_cop]
+    cdf = cdf.permute(1, 0, 2)  # back to [knots, knots, n_cop]
+    
+    # Flatten, bound check, and reshape
+    cdf_flat = cdf.reshape(-1)
+    cdf_flat = torch.clamp(cdf_flat, 0.0, 1.0)
+    cdf = cdf_flat.reshape(knots, knots, n_cop)
+    
+    return cdf

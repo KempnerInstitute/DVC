@@ -108,17 +108,44 @@ class grid_obj:
             self.step = None
         return self.step
 
-
 def mk_grid(knots: int, dtype=torch.float32):
     """
-    A minimal function to create a [knots^2,2] grid
-    over some domain, e.g. [-3.2..3.2]^2.
-    If your code references mk_grid, import from this file.
-
+    Create a grid matching the TensorFlow implementation:
+    - Uses Normal quantile function to transform linspace points
+    - Returns both coordinates and expanded grid
+    
+    Args:
+        knots: number of knots of the grid
+        dtype: torch dtype
     Returns:
-      A tensor ex of shape [knots^2,2].
+        coordinates: matrix grid [knots, 2]
+        expanded: expanded grid [knots^2, 2]
     """
-    x_lin = torch.linspace(-3.2, 3.2, knots, dtype=dtype)
-    xx, yy = torch.meshgrid(x_lin, x_lin, indexing='ij')
-    ex = torch.stack([xx.reshape(-1), yy.reshape(-1)], dim=1)
-    return ex
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Create normal distribution for transformation
+    normal_dist = torch.distributions.Normal(0., 1.)
+    
+    # Transform uniform points [-3.2, 3.2] through normal quantile
+    points = normal_dist.icdf(torch.linspace(
+        normal_dist.cdf(torch.tensor(-3.2, dtype=dtype, device=device)),
+        normal_dist.cdf(torch.tensor(3.2, dtype=dtype, device=device)),
+        knots, dtype=dtype, device=device
+    ))
+    
+    # Create grid
+    xx, yy = torch.meshgrid(points, points, indexing='ij')
+    
+    # For compatibility with TF implementation
+    coordinates = torch.cat([
+        xx[0,:].reshape(-1, 1),  # first row of xx
+        yy[:,0].reshape(-1, 1)   # first column of yy
+    ], dim=1)
+    
+    # Expanded grid
+    expanded = torch.cat([
+        xx.reshape(-1, 1),
+        yy.reshape(-1, 1)
+    ], dim=1)
+    
+    return coordinates, expanded

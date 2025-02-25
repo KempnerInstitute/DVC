@@ -69,82 +69,98 @@ def nearestInterp2d(sample_s: torch.Tensor,
                     pro_s2: torch.Tensor,
                     pd_grid_uv: torch.Tensor) -> torch.Tensor:
     """
-    Nearest-neighbor 2D interpolation, matching original code's approach.
-    For each sample_s[i], we find the closest index in pro_s1 and in pro_s2, 
-    then take that cell of pd_grid_uv.
-
-    This is a naive O(N*M) python loop approach if sample_s is large.
-    For advanced usage, see grid_sample_2d or other approach.
-
+    Efficient nearest-neighbor 2D interpolation using pure PyTorch operations.
+    
     Args:
-      sample_s: shape [N,2], queries
-      pro_s1:   shape [K], sorted x coords
-      pro_s2:   shape [K], sorted y coords
-      pd_grid_uv: shape [K,K], the 2D array to interpolate from
-
+        sample_s: shape [N, 2], query points
+        pro_s1: shape [K], unique x-coordinates of the grid
+        pro_s2: shape [K], unique y-coordinates of the grid
+        pd_grid_uv: shape [K, K], values on the grid
+    
     Returns:
-      out: shape [N], the interpolated values.
+        interp_values: shape [N], interpolated values at query points
     """
-    # move everything to CPU numpy to do the old naive approach
-    sample_cpu = sample_s.detach().cpu().numpy()
-    s1_cpu = pro_s1.detach().cpu().numpy()
-    s2_cpu = pro_s2.detach().cpu().numpy()
-    grid_cpu = pd_grid_uv.detach().cpu().numpy()
+    device = sample_s.device
+    dtype = sample_s.dtype
+    
+    # Extract dimensions
+    N = sample_s.shape[0]
+    K = pro_s1.shape[0]
+    
+    # For each query point, find the nearest grid point
+    # This is done by finding the index in pro_s1 and pro_s2 that minimizes
+    # the distance to the query point's x and y coordinates
+    
+    # Vectorized nearest neighbor finding
+    # Create distance matrices
+    # [K, N] matrices where each column is the distance from a query point
+    # to all grid points along the specified axis
+    x_dists = torch.abs(pro_s1.unsqueeze(1) - sample_s[:, 0].unsqueeze(0))  # shape [K, N]
+    y_dists = torch.abs(pro_s2.unsqueeze(1) - sample_s[:, 1].unsqueeze(0))  # shape [K, N]
+    
+    # Find indices of nearest grid points
+    x_indices = torch.argmin(x_dists, dim=0)  # shape [N]
+    y_indices = torch.argmin(y_dists, dim=0)  # shape [N]
+    
+    # Use these indices to gather the interpolated values
+    # This is equivalent to pd_grid_uv[x_indices, y_indices] but works for batched inputs
+    interp_values = pd_grid_uv[x_indices, y_indices]
+    
+    return interp_values
 
-    out_list = []
-    for i in range(sample_cpu.shape[0]):
-        val1 = sample_cpu[i,0]
-        val2 = sample_cpu[i,1]
-        ix1 = np.argmin(np.abs(s1_cpu - val1))
-        ix2 = np.argmin(np.abs(s2_cpu - val2))
-        out_list.append(grid_cpu[ix1, ix2])
-
-    out = torch.tensor(out_list, dtype=sample_s.dtype, device=sample_s.device)
-    return out
-
-
-def grid_sample_2d(data_2d: torch.Tensor,
-                   x_coords: torch.Tensor,
-                   y_coords: torch.Tensor,
-                   queries: torch.Tensor,
-                   mode='bilinear'):
+def grid_sample_2d(pd_grid_uv: torch.Tensor,
+                  pro_s1: torch.Tensor,
+                  pro_s2: torch.Tensor,
+                  sample_s: torch.Tensor,
+                  mode: str = 'bilinear') -> torch.Tensor:
     """
-    An advanced 2D interpolation using PyTorch's F.grid_sample. 
-    Typically:
-      - data_2d shape: [1,1,H,W] like an image
-      - x_coords => sorted x-locs => width dimension
-      - y_coords => sorted y-locs => height dimension
-      - queries => shape [N,2], each is (qx, qy)
-      - mode => 'bilinear','bicubic','nearest'
-
-    Steps:
-      1) convert (qx,qy) to normalized [-1,+1]
-      2) build grid shape [1,N,1,2]
-      3) call F.grid_sample
-      4) reshape => [N]
-
+    More advanced grid sampling using PyTorch's grid_sample function.
+    This supports bilinear, bicubic, and nearest interpolation.
+    
+    Args:
+        pd_grid_uv: shape [K, K], the 2D grid values
+        pro_s1: shape [K], x coordinates
+        pro_s2: shape [K], y coordinates
+        sample_s: shape [N, 2], query points
+        mode: 'bilinear', 'bicubic', or 'nearest'
+    
     Returns:
-      out_val => shape [N], interpolated result
+        interp_values: shape [N], interpolated values
     """
-    device_ = data_2d.device
-    # check data_2d shape => [1,1,H,W]
-    # parse domain
-    x_min, x_max = x_coords[0], x_coords[-1]
-    y_min, y_max = y_coords[0], y_coords[-1]
-
-    # queries => shape [N,2]
-    qx = queries[:,0].clamp(x_min, x_max)
-    qy = queries[:,1].clamp(y_min, y_max)
-
-    # normalize => nx in [-1,+1], ny in [-1,+1]
-    nx = 2.0*(qx - x_min)/max((x_max - x_min),1e-12) -1.0
-    ny = 2.0*(qy - y_min)/max((y_max - y_min),1e-12) -1.0
-
-    # build grid => shape [1,N,1,2]
-    N = queries.shape[0]
-    grid = torch.stack([nx, ny], dim=1).view(1, N, 1, 2)
-
-    # call F.grid_sample => returns [1,1,N,1]
-    out = F.grid_sample(data_2d, grid, mode=mode, align_corners=True)
-    out_val = out.view(-1)
-    return out_val
+    device = pd_grid_uv.device
+    dtype = pd_grid_uv.dtype
+    
+    # We need to normalize sample_s to [-1, 1] range for grid_sample
+    x_min, x_max = pro_s1.min(), pro_s1.max()
+    y_min, y_max = pro_s2.min(), pro_s2.max()
+    
+    # Clamp query points to valid range
+    sample_s_clamped = torch.zeros_like(sample_s)
+    sample_s_clamped[:, 0] = torch.clamp(sample_s[:, 0], x_min, x_max)
+    sample_s_clamped[:, 1] = torch.clamp(sample_s[:, 1], y_min, y_max)
+    
+    # Normalize to [-1, 1]
+    sample_s_norm = torch.zeros_like(sample_s)
+    sample_s_norm[:, 0] = 2.0 * (sample_s_clamped[:, 0] - x_min) / (x_max - x_min) - 1.0
+    sample_s_norm[:, 1] = 2.0 * (sample_s_clamped[:, 1] - y_min) / (y_max - y_min) - 1.0
+    
+    # Reshape grid for grid_sample ([batch, channels, height, width])
+    grid_reshaped = pd_grid_uv.unsqueeze(0).unsqueeze(0)  # [1, 1, K, K]
+    
+    # Format query points for grid_sample ([batch, height, width, 2])
+    # Here we have a batch of 1, with N query points
+    grid_coords = sample_s_norm.unsqueeze(0)  # [1, N, 2]
+    
+    # Use grid_sample
+    # The output will be [1, 1, N, 1]
+    output = torch.nn.functional.grid_sample(
+        grid_reshaped, 
+        grid_coords.unsqueeze(1),  # [1, 1, N, 2]
+        mode=mode,
+        align_corners=True
+    )
+    
+    # Extract and reshape
+    interp_values = output.squeeze()  # [N]
+    
+    return interp_values
