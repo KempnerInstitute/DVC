@@ -12,7 +12,7 @@ Usage
 
 import copy
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 try:
     import yaml  # type: ignore
@@ -36,6 +36,10 @@ DEFAULT_CFG: Dict[str, Any] = {
         "max_iter_phase2": 100,
         "lr_phase2": 0.03,
         "tol_phase2": 5e-5,
+        # optional JIT / torch.compile
+        "jit": False,
+        # limit #edges per optimisation batch (None => all)
+        "max_edges_per_batch": None,
     },
     "bandwidth": {
         # Available: "rule_of_thumb", "knn"
@@ -69,7 +73,7 @@ def _recursive_update(base: Dict[str, Any], override: Dict[str, Any]):
             base[k] = v
 
 
-def load_config(path: str | Path | None = None) -> Dict[str, Any]:
+def load_config(path: Union[str, Path, None] = None) -> Dict[str, Any]:
     """Load a YAML config file and merge with :pydata:`DEFAULT_CFG`.
 
     If *path* is ``None`` or the file does not exist / cannot be parsed the

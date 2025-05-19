@@ -184,3 +184,16 @@ def loclik_batch_eval(B: torch.Tensor,
 
     ker_grid_fin = kern_LL(B, ker_grid1, ker_grid2, ker_grid3, ker_grid4, ker_grid5)
     return ker_grid_fin
+
+# ------------------ optional JIT / torch.compile ------------------
+try:
+    import torch
+    from DVC.config import DEFAULT_CFG
+    _jit_flag = DEFAULT_CFG["optimizer"].get("jit", False)
+    if _jit_flag:
+        if hasattr(torch, 'compile'):
+            loclik_batch_eval = torch.compile(loclik_batch_eval, fullgraph=True)
+        else:
+            loclik_batch_eval = torch.jit.script(loclik_batch_eval)
+except Exception:
+    pass

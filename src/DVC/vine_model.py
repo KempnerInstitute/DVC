@@ -7,6 +7,7 @@ import numpy as np
 import random
 from scipy.stats import kendalltau, norm
 import math
+from typing import Optional, Union
 
 # NEW IMPORTS --------------------------------------------------
 # The new PyTorch implementation relies on helper utilities that
@@ -162,6 +163,17 @@ def _optimize_bw_ll_batch(bw_init: torch.Tensor,
         a_final = torch.exp(a_log).clamp(0.005, 5.0)
     return bw_init * a_final.unsqueeze(0)  # 2×E
 
+# optional JIT compile for speed
+from DVC.config import DEFAULT_CFG as _CFG_JIT
+if _CFG_JIT["optimizer"].get("jit", False):
+    try:
+        if hasattr(torch, 'compile'):
+            _optimize_bw_ll_batch = torch.compile(_optimize_bw_ll_batch, fullgraph=False)
+        else:
+            _optimize_bw_ll_batch = torch.jit.script(_optimize_bw_ll_batch)
+    except Exception:
+        pass
+
 
 ############################################################
 # 3) The main fit function
@@ -173,7 +185,7 @@ def fit_vine(vine: vine_obj_bin,
              npc_dict: dict,
              par_dict: dict,
              bin_dict: dict,
-             cfg: dict | None = None):
+             cfg: Optional[dict] = None):
     """
     Fit the vine on data x with all fixes incorporated.
     
@@ -408,60 +420,59 @@ def fit_vine(vine: vine_obj_bin,
                 # ----- batch all edges on this level ----------
                 pair_u_cat = torch.stack(data_u, dim=2)         # N×2×E
                 E = pair_u_cat.shape[2]
-                transformer = Transform(E)  # re-init for correct n_cop
-                pair_s_cat = transformer.forward_u(pair_u_cat)
-                pair_x_cat = transformer.forward_s(pair_s_cat)
-
-                # bandwidth ------------------------------------------------
-                if opt_method_global == "LL1":
-                    bw_init = bandwidth_sqrt_cov(pair_x_cat)
-                else:  # LL2
-                    from .utils_bandwidth import bandwidth_sqrt_cov
-                    bw_init = bandwidth_sqrt_cov(pair_x_cat)
-
-                grid_x = transformer.forward_s(vine.grid_s.ex).unsqueeze(2).expand(-1,-1,E)
-
-                # ------ MISE optimisation: phase 1 ------------------------
-                if opt_method_global == "LL1":
-                    # batched LL1 optimiser
-                    bw_final = _optimize_bw_ll_batch(
-                        bw_init, pair_s_cat, device,
-                        max_iter=opt_cfg["max_iter_phase1"],
-                        lr=opt_cfg["lr_phase1"],
-                        conv_tol=opt_cfg["tol_phase1"])
+                maxE = opt_cfg.get("max_edges_per_batch")
+                if maxE is None:
+                    edge_chunks = [(0,E)]
                 else:
-                    # ------ MISE optimisation: phase 1 ------------------------
-                    a_init = torch.tensor([0.5], device=device)
-                    a_opt = mise_optimization(
-                        a_init, bw_init,
-                        vine.grid_u, vine.grid_s, grid_x,
-                        pair_x_cat, pair_s_cat, E,
-                        opt_cfg["batch_size"], NORM[:, :, :E],
-                        False,
-                        opt_cfg["max_iter_phase1"],
-                        opt_cfg["lr_phase1"],
-                        opt_cfg["tol_phase1"],
-                        axis_separate=True)
+                    edge_chunks = [(s, min(s+maxE, E)) for s in range(0,E,maxE)]
 
-                    # ------ phase 2 (copula-normalised) -----------------------
-                    a_opt2 = mise_optimization(
-                        a_opt, bw_init,
-                        vine.grid_u, vine.grid_s, grid_x,
-                        pair_x_cat, pair_s_cat, E,
-                        opt_cfg["batch_size"], NORM[:, :, :E],
-                        True,
-                        opt_cfg["max_iter_phase2"],
-                        opt_cfg["lr_phase2"],
-                        opt_cfg["tol_phase2"],
-                        axis_separate=True)
+                bw_final_all = []
+                pd_grids = []
+                cdf_grids = []
+                grad_u_list=[]
+                grad_v_list=[]
 
-                    bw_final = a_opt2 * bw_init                       # 2×E
+                for start,stop in edge_chunks:
+                    sub_u = pair_u_cat[:,:,start:stop]
+                    sub_s = pair_u_cat[:,:,start:stop]
+                    sub_x = pair_u_cat[:,:,start:stop]
 
-                # Evaluate grids once for all edges ------------------------
-                pd_grid, cdf_grid, _, gu, gv = evaluate_fit(
-                    {"data_s": pair_s_cat, "data_x": pair_x_cat},
-                    {"grid_u": vine.grid_u, "grid_s": vine.grid_s, "grid_x": grid_x},
-                    {"bw": bw_final, "n_cop": E, "batch": opt_cfg["batch_size"], "grad_precompute": npc_cfg.get("grad_precompute", False)})
+                    subE = stop-start
+                    grid_x_sub = transformer.forward_s(vine.grid_s.ex).view(-1,2,1).expand(-1,-1,subE)
+
+                    if opt_method_global=="LL1":
+                        bw_init_sub = bw_init[:,start:stop]
+                        bw_fin = _optimize_bw_ll_batch(
+                            bw_init_sub, sub_s, device,
+                            max_iter=opt_cfg["max_iter_phase1"],
+                            lr=opt_cfg["lr_phase1"],
+                            conv_tol=opt_cfg["tol_phase1"])
+                    else:
+                        bw_init_sub = bw_init[:,start:stop]
+                        a_init = torch.tensor([0.5],device=device)
+                        a_opt = mise_optimization(a_init,bw_init_sub,vine.grid_u,vine.grid_s,grid_x_sub,
+                                                   sub_x,sub_s,subE,opt_cfg["batch_size"],NORM[:,:,start:stop],False,
+                                                   opt_cfg["max_iter_phase1"],opt_cfg["lr_phase1"],opt_cfg["tol_phase1"],axis_separate=True)
+                        a_opt2 = mise_optimization(a_opt,bw_init_sub,vine.grid_u,vine.grid_s,grid_x_sub,
+                                                   sub_x,sub_s,subE,opt_cfg["batch_size"],NORM[:,:,start:stop],True,
+                                                   opt_cfg["max_iter_phase2"],opt_cfg["lr_phase2"],opt_cfg["tol_phase2"],axis_separate=True)
+                        bw_fin = a_opt2 * bw_init_sub
+
+                    bw_final_all.append(bw_fin)
+
+                    pd_grid, cdf_grid, _, gu, gv = evaluate_fit(
+                        {"data_s": sub_s, "data_x": sub_x},
+                        {"grid_u": vine.grid_u, "grid_s": vine.grid_s, "grid_x": grid_x_sub},
+                        {"bw": bw_fin, "n_cop": subE, "batch": opt_cfg["batch_size"], "grad_precompute": npc_cfg.get("grad_precompute", False)})
+                    pd_grids.append(pd_grid); cdf_grids.append(cdf_grid)
+                    if gu is not None:
+                        grad_u_list.append(gu); grad_v_list.append(gv)
+
+                bw_final = torch.cat(bw_final_all, dim=1)
+                pd_grid = torch.cat(pd_grids, dim=2)
+                cdf_grid = torch.cat(cdf_grids, dim=2)
+                gu = torch.cat(grad_u_list, dim=2) if grad_u_list else None
+                gv = torch.cat(grad_v_list, dim=2) if grad_v_list else None
 
                 copulas_level = []
                 for e in range(E):
@@ -613,7 +624,7 @@ def evaluate_vine(vine: vine_obj_bin, points: torch.Tensor):
 def _h_function(u_root: torch.Tensor,
                 u_other: torch.Tensor,
                 cobj,
-                grid_u: grid_obj | None,
+                grid_u: Optional[grid_obj],
                 side: str = "left") -> torch.Tensor:
     """Return h_{other|root}(u_root,u_other).
 
@@ -755,7 +766,7 @@ def _inv2d(u1, u2, x_lin, y_lin, cdf2d):
     return x_lin[i].item(), y_lin[j].item()
 
 
-def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: dict | None = None):
+def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
     """
     Sample from c-vine. For param => partial approach. For nonparam => build local cdf.
     We'll store final in an array [nsamples, d], assume standard normal margins for demonstration.
@@ -773,11 +784,18 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: dict | None = None):
 
     for i in range(1, d):
         lvl = i-1
+        # Robust edge selection irrespective of vine family
         edges = vine.copulas[lvl]
-        idx = i - (lvl+1)
-        if idx<0 or idx>=len(edges):
-            idx=0
-        cobj = edges[idx]
+        struct_edges = vine.ind_vine[lvl] if lvl < len(vine.ind_vine) else []
+        root = lvl
+        match_idx = 0
+        for ei, e in enumerate(struct_edges):
+            if (e[0] == root and e[1] == i) or (e[1] == root and e[0] == i):
+                match_idx = ei
+                break
+        if match_idx >= len(edges):          # variable not present on this level
+            continue                         # move on to next i
+        cobj = edges[match_idx]
         if vine.param and fast_param:
             root_val = samples[:,lvl]
             root_u = normal.cdf(root_val)
