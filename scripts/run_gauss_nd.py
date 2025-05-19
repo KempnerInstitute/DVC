@@ -3,15 +3,15 @@ import torch
 import matplotlib.pyplot as plt
 import networkx as nx
 from pathlib import Path
-from src.DVC.config import load_config, DEFAULT_CFG
-from src.DVC.objects import vine_obj_bin, margin_obj
-from src.DVC.utils_prob import biv_norm
+from DVC.config import load_config, DEFAULT_CFG
+from DVC.objects import vine_obj_bin, margin_obj
+from DVC.utils_prob import biv_norm
 from scipy.stats import multivariate_normal
 
 # ------------------------------------------------------------
 # Load configuration
 # ------------------------------------------------------------
-CFG_PATH = Path(__file__).with_suffix('.yaml')
+CFG_PATH = Path(__file__).parent.parent / "configs" / "gauss_nd.yaml"
 cfg = load_config(CFG_PATH if CFG_PATH.exists() else None)
 
 # Data generation parameters
