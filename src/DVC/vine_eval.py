@@ -67,13 +67,28 @@ def evaluate_fit(data_dict, grid_dict, par_dict):
     # 4) compute cdf => cdf_grid_fun => shape [knots, knots, n_cop]
     cdf_grid = cdf_grid_fun(pd_grid_norm, grid_u.ex, adu11, adu22, n_cop)
 
+    # optional gradient grids
+    grad_u = grad_v = None
+    if par_dict.get('grad_precompute', False):
+        step_u = adu11[0].item()
+        step_v = adu22[0].item()
+        # central differences
+        grad_u = torch.zeros_like(cdf_grid)
+        grad_v = torch.zeros_like(cdf_grid)
+        grad_u[1:-1,:,:] = (cdf_grid[2:,:,:]-cdf_grid[:-2,:,:])/(2*step_u)
+        grad_u[0,:,:] = grad_u[1,:,:]
+        grad_u[-1,:,:] = grad_u[-2,:,:]
+        grad_v[:,1:-1,:] = (cdf_grid[:,2:,:]-cdf_grid[:,:-2,:])/(2*step_v)
+        grad_v[:,0,:] = grad_v[:,1,:]
+        grad_v[:,-1,:] = grad_v[:,-2,:]
+
     # 5) optionally update data_dict['theta']
     updated_theta = None
     if 'theta' in data_dict:
         # If we want to do partial updates by interpolation, we do it here. 
         updated_theta = None
 
-    return pd_grid_norm, cdf_grid, updated_theta
+    return pd_grid_norm, cdf_grid, updated_theta, grad_u, grad_v
 
 
 def evaluate_points(points_s, batch_size, grid_s, cdf1, pd_grid_uv):

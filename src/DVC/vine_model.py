@@ -26,6 +26,7 @@ from .vine_eval import evaluate_fit_bin, evaluate_fit
 from .utils_prob import biv_norm  # from your older logic
 from .config import load_config, DEFAULT_CFG
 from .utils_bandwidth import bandwidth_rule_of_thumb, bandwidth_knn, bandwidth_sqrt_cov
+from .utils_interpolation import nearestInterp2d
 
 ############################################################
 # 1) The row/column normalization-based local-likelihood Cost
@@ -457,16 +458,19 @@ def fit_vine(vine: vine_obj_bin,
                     bw_final = a_opt2 * bw_init                       # 2×E
 
                 # Evaluate grids once for all edges ------------------------
-                pd_grid, cdf_grid, _ = evaluate_fit(
+                pd_grid, cdf_grid, _, gu, gv = evaluate_fit(
                     {"data_s": pair_s_cat, "data_x": pair_x_cat},
                     {"grid_u": vine.grid_u, "grid_s": vine.grid_s, "grid_x": grid_x},
-                    {"bw": bw_final, "n_cop": E, "batch": opt_cfg["batch_size"]})
+                    {"bw": bw_final, "n_cop": E, "batch": opt_cfg["batch_size"], "grad_precompute": npc_cfg.get("grad_precompute", False)})
 
                 copulas_level = []
                 for e in range(E):
                     cop_obj = copula_obj(bw_final[:, e:e+1])
                     cop_obj.pd_grid_uv = pd_grid[:, :, e]
                     cop_obj.cdf = cdf_grid[:, :, e]
+                    if gu is not None:
+                        cop_obj.grad_u = gu[:, :, e]
+                        cop_obj.grad_v = gv[:, :, e]
                     copulas_level.append(cop_obj)
             else:
                 # fallback to per-edge loop (existing logic)
@@ -526,22 +530,36 @@ def fit_vine(vine: vine_obj_bin,
                     
                     # Pre-compute grid values for PDF and CDF
                     # This will be used during evaluation
-                    pd_grid, cdf_grid, _ = evaluate_fit(
+                    pd_grid, cdf_grid, _, gu, gv = evaluate_fit(
                         {'data_s': pair_data_s, 'data_x': pair_data_x},
                         {'grid_u': vine.grid_u, 'grid_s': vine.grid_s, 'grid_x': grid_x[:,:,0:1]},
-                        {'bw': bw_final, 'n_cop': 1, 'batch': 5}
+                        {'bw': bw_final, 'n_cop': 1, 'batch': 5, 'grad_precompute': npc_cfg.get("grad_precompute", False)}
                     )
                     
                     cop_obj.pd_grid_uv = pd_grid
                     cop_obj.cdf = cdf_grid
+                    if gu is not None:
+                        cop_obj.grad_u = gu
+                        cop_obj.grad_v = gv
                     
                     copulas_level.append(cop_obj)
         
         # Store this level's copulas
         vine.copulas.append(copulas_level)
         
-        # Update theta matrices for next level
-        # ...code to update theta and theta_flip...
+        # ---- propagate theta / theta_flip for next level ----
+        next_level = tr + 1
+        if next_level < d:
+            for e_idx, edge in enumerate(edges_now):
+                i, j = edge  # left, right variables
+                cobj_now = copulas_level[e_idx]
+                u_i = vine.theta[:, tr, i]
+                u_j = vine.theta[:, tr, j]
+                # main direction
+                vine.theta[:, next_level, j] = _h_function(u_i, u_j, cobj_now, vine.grid_u, side="left")
+                # flipped direction
+                vine.theta_flip[:, next_level, i] = _h_function(u_j, u_i, cobj_now, vine.grid_u, side="left")
+        # ------------------------------------------------------
     
     vine.fitted = True
     return vine
@@ -586,6 +604,102 @@ def evaluate_vine(vine: vine_obj_bin, points: torch.Tensor):
     logp = log_marg + log_cop
     p = torch.exp(logp)
     return p, torch.exp(log_cop), log_marg
+
+
+############################################################
+# 4b) h-function utility (conditional CDF)
+############################################################
+
+def _h_function(u_root: torch.Tensor,
+                u_other: torch.Tensor,
+                cobj,
+                grid_u: grid_obj | None,
+                side: str = "left") -> torch.Tensor:
+    """Return h_{other|root}(u_root,u_other).
+
+    Works for both *parametric* (`cop_par_obj`) and *non-parametric*
+    (`copula_obj`) edges.
+    """
+    if u_root.dim() == 2:
+        u_root = u_root.squeeze(1)
+    if u_other.dim() == 2:
+        u_other = u_other.squeeze(1)
+
+    device = u_root.device
+    N = u_root.shape[0]
+
+    # ---------- Parametric --------------------------------------------
+    if hasattr(cobj, "family"):
+        fam = cobj.family
+        param = cobj.theta
+        ur = torch.clamp(u_root, 1e-9, 1-1e-9)
+        vo = torch.clamp(u_other, 1e-9, 1-1e-9)
+        normal = torch.distributions.Normal(0.,1.)
+
+        if fam == "ind":
+            return vo.clone()
+
+        elif fam == "gaussian":
+            rho = float(param)
+            rho = max(min(rho, 0.999999), -0.999999)
+            x = normal.icdf(ur)
+            y = normal.icdf(vo)
+            z = (y - rho*x) / math.sqrt(1.0 - rho*rho)
+            return torch.clamp(normal.cdf(z), 1e-9, 1-1e-9)
+
+        elif fam == "clayton":
+            alpha = float(param)
+            u_m = ur.pow(-alpha-1.0)
+            common = (ur.pow(-alpha) + vo.pow(-alpha) - 1.0).pow(-1.0/alpha -1.0)
+            h = u_m * common
+            return torch.clamp(h, 1e-9, 1-1e-9)
+
+        elif fam == "claytonrot90":
+            ur_f = 1.0 - ur
+            # treat as clayton then flip result
+            alpha = float(param)
+            u_m = ur_f.pow(-alpha-1.0)
+            common = (ur_f.pow(-alpha) + vo.pow(-alpha) - 1.0).pow(-1.0/alpha -1.0)
+            h = u_m * common
+            return torch.clamp(1.0 - h, 1e-9, 1-1e-9)
+
+        else:
+            # fallback – numerical derivative via small epsilon
+            eps = 1e-4
+            ur2 = torch.clamp(ur + eps, 1e-9, 1-1e-9)
+            uv1 = torch.stack([ur, vo], dim=1)
+            uv2 = torch.stack([ur2, vo], dim=1)
+            from .utils_prob import copulaccdf
+            c1 = copulaccdf(cobj, uv2)
+            c0 = copulaccdf(cobj, uv1)
+            h = (c1 - c0) / eps
+            return torch.clamp(h, 1e-9, 1-1e-9)
+
+    # ---------- Non-parametric ----------------------------------------
+    else:
+        # if gradients precomputed use bilinear interpolation
+        if hasattr(cobj, 'grad_u') and cobj.grad_u is not None:
+            x_axis, y_axis = grid_u.axis()
+            points = torch.stack([u_root, u_other], dim=1)
+            if side == "left":
+                return bilinearInterp2d(points, x_axis, y_axis, cobj.grad_u)
+            else:
+                return bilinearInterp2d(points, x_axis, y_axis, cobj.grad_v)
+
+        # else fallback to finite difference
+        if grid_u is None or cobj.cdf is None:
+            raise RuntimeError("Grid information required for nonparam h-function.")
+        x_axis, y_axis = grid_u.axis()
+        step = (x_axis[1]-x_axis[0]).item() if x_axis.numel()>1 else 1e-3
+        eps = step
+        # prepare tensors [N,2]
+        points0 = torch.stack([u_root, u_other], dim=1)
+        points1 = torch.stack([torch.clamp(u_root+eps,0.0,1.0), u_other], dim=1)
+        # interpolate C on grid
+        c0 = nearestInterp2d(points0, x_axis, y_axis, cobj.cdf)
+        c1 = nearestInterp2d(points1, x_axis, y_axis, cobj.cdf)
+        h = (c1 - c0)/(eps+1e-12)
+        return torch.clamp(h, 1e-9, 1-1e-9)
 
 
 ############################################################
@@ -641,18 +755,21 @@ def _inv2d(u1, u2, x_lin, y_lin, cdf2d):
     return x_lin[i].item(), y_lin[j].item()
 
 
-def sample_vine(vine: vine_obj_bin, nsamples: int):
+def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: dict | None = None):
     """
     Sample from c-vine. For param => partial approach. For nonparam => build local cdf.
     We'll store final in an array [nsamples, d], assume standard normal margins for demonstration.
     """
     d = vine.n_cop
-    samples = np.zeros((nsamples, d), dtype=np.float64)
+    cfg_all = DEFAULT_CFG if cfg is None else cfg
+    samp_cfg = cfg_all.get("sampler", {})
+    fast_param = samp_cfg.get("fast_parametric", True)
+    fast_np    = samp_cfg.get("fast_nonparam", True)
 
-    # col0 => standard normal
-    for n in range(nsamples):
-        r_ = random.random()
-        samples[n,0] = norm.ppf(r_, 0,1)
+    samples = torch.zeros((nsamples, d), dtype=torch.float32)
+
+    normal = torch.distributions.Normal(0.,1.)
+    samples[:,0] = normal.icdf(torch.rand(nsamples))
 
     for i in range(1, d):
         lvl = i-1
@@ -661,33 +778,74 @@ def sample_vine(vine: vine_obj_bin, nsamples: int):
         if idx<0 or idx>=len(edges):
             idx=0
         cobj = edges[idx]
-        if vine.param:
+        if vine.param and fast_param:
+            root_val = samples[:,lvl]
+            root_u = normal.cdf(root_val)
+            rand_u = torch.rand(nsamples)
+            if cobj.family == "ind":
+                vi = rand_u
+            elif cobj.family == "gaussian":
+                rho = float(cobj.theta)
+                z = normal.icdf(root_u)
+                e = normal.icdf(rand_u)
+                y = rho*z + math.sqrt(1.0-rho*rho)*e
+                vi = normal.cdf(y)
+            elif cobj.family == "clayton":
+                alpha = float(cobj.theta)
+                u1 = root_u
+                c2 = rand_u
+                val = (c2.pow(-alpha/(1+alpha)) - u1.pow(-alpha) +1.0).clamp_min(1e-12)
+                vi = val.pow(-1.0/alpha)
+            else:
+                # fallback per-sample
+                vi = torch.zeros(nsamples)
+                for n in range(nsamples):
+                    uv = torch.tensor([[root_u[n].item(), rand_u[n].item()]])
+                    vi[n] = copulainvccdf(cobj, uv).item()
+            samples[:,i] = normal.icdf(vi.clamp(1e-9,1-1e-9))
+        elif vine.param:
+            # slow loop fallback
             for n in range(nsamples):
-                # root => samples[n,lvl]
                 root_val = samples[n,lvl]
-                root_u = norm.cdf(root_val,0,1)
+                root_u = normal.cdf(root_val)
                 rand_u = random.random()
                 uv = torch.tensor([[root_u, rand_u]], dtype=torch.float32)
                 valU = copulainvccdf(cobj, uv).item()
-                # transform to real
-                samples[n,i] = norm.ppf(valU,0,1)
+                samples[n,i] = normal.icdf(torch.tensor(valU))
         else:
-            # if no cdf grid => build
-            if not hasattr(cobj, 'cdf_xlin'):
-                device_ = 'cuda' if cobj.data_s.is_cuda else 'cpu'
-                x_lin, y_lin, cdf2d = _build_cdf_grid_nonparam(cobj, n_grid=50, device=device_)
-                cobj.cdf_xlin = x_lin
-                cobj.cdf_ylin = y_lin
-                cobj.cdf_2d   = cdf2d
-            for n in range(nsamples):
-                root_val = samples[n,lvl]
-                root_u = norm.cdf(root_val,0,1)
-                rand_u = random.random()
-                # partial approach => invert2d
-                x_val, y_val = _inv2d(root_u, rand_u, cobj.cdf_xlin, cobj.cdf_ylin, cobj.cdf_2d)
-                samples[n,i] = y_val
+            if fast_np and hasattr(cobj, 'cdf'):
+                if not hasattr(cobj, 'cdf_xlin'):
+                    x_axis, y_axis = vine.grid_u.axis()
+                    cobj.cdf_xlin = x_axis
+                    cobj.cdf_ylin = y_axis
+                x_axis = cobj.cdf_xlin
+                y_axis = cobj.cdf_ylin
+                root_u = normal.cdf(samples[:,lvl])
+                rand_u = torch.rand(nsamples)
+                # row index per sample
+                row_idx = torch.bucketize(root_u, x_axis)
+                row_idx = torch.clamp(row_idx, 1, x_axis.numel()-1)
+                row_idx = row_idx - 1
+                cdf_rows = cobj.cdf[row_idx]
+                from .utils_interpolation import inverse_cdf_row
+                vi = inverse_cdf_row(rand_u, cdf_rows, y_axis)
+                samples[:,i] = normal.icdf(vi.clamp(1e-9,1-1e-9))
+            else:
+                # legacy slow loop
+                if not hasattr(cobj, 'cdf_xlin'):
+                    device_ = 'cuda' if cobj.data_s.is_cuda else 'cpu'
+                    x_lin, y_lin, cdf2d = _build_cdf_grid_nonparam(cobj, n_grid=50, device=device_)
+                    cobj.cdf_xlin = x_lin
+                    cobj.cdf_ylin = y_lin
+                    cobj.cdf_2d   = cdf2d
+                for n in range(nsamples):
+                    root_val = samples[n,lvl]
+                    root_u = normal.cdf(root_val)
+                    rand_u = random.random()
+                    x_val, y_val = _inv2d(root_u, rand_u, cobj.cdf_xlin, cobj.cdf_ylin, cobj.cdf_2d)
+                    samples[n,i] = y_val
 
-    return samples
+    return samples.cpu().numpy()
 
 
 ############################################################
@@ -825,3 +983,39 @@ def mise_optimization(a_init: torch.Tensor,
         else:
             a_final = torch.exp(a_log).clamp(0.05, 20.0)[0:1]
     return a_final.detach()
+
+############################################################
+# 6) Convenience API helpers (logpdf, pdf, cdf)
+############################################################
+
+def logpdf_vine(vine: vine_obj_bin, points: torch.Tensor):
+    """Return log-pdf of the fitted vine at *points* (N×d tensor)."""
+    p, _, _ = evaluate_vine(vine, points)
+    return torch.log(p.clamp_min(1e-30))
+
+def pdf_vine(vine: vine_obj_bin, points: torch.Tensor):
+    """Return pdf at *points* — just a thin wrapper."""
+    p, _, _ = evaluate_vine(vine, points)
+    return p
+
+def cdf_vine(vine: vine_obj_bin, points: torch.Tensor, nsim: int = 2000):
+    """Monte-Carlo approximation of the d-dimensional CDF F(x₁,…,x_d).
+
+    Draw *nsim* samples from the fitted vine and return the empirical
+    probability that every coordinate is ≤ the corresponding entry in
+    *points* (vectorised for a batch of query points).
+    """
+    device = points.device
+    samples_np = vine.sample(nsim)  # returns numpy
+    samples = torch.tensor(samples_np, dtype=points.dtype, device=device)
+    # for each query point evaluate indicator and mean over sim
+    out = []
+    for q in points:
+        mask = (samples <= q.cpu().numpy()).all(axis=1)
+        out.append(mask.mean())
+    return torch.tensor(out, dtype=points.dtype, device=device)
+
+# register --------------------------------------------------
+vine_obj_bin.logpdf = logpdf_vine
+vine_obj_bin.pdf    = pdf_vine
+vine_obj_bin.cdf    = cdf_vine

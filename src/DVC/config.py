@@ -45,7 +45,14 @@ DEFAULT_CFG: Dict[str, Any] = {
     },
     "npc": {
         # Local-likelihood variant: "LL1" (original), "LL2" (squared), etc.
-        "opt_method": "LL1"
+        "opt_method": "LL1",
+        # If true compute CDF gradient grid once and use it for h-function
+        "grad_precompute": False
+    },
+    "sampler": {
+        "fast_parametric": True,
+        "fast_nonparam": True,
+        "nspline": 200
     },
 }
 

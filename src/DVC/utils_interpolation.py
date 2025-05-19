@@ -164,3 +164,63 @@ def grid_sample_2d(pd_grid_uv: torch.Tensor,
     interp_values = output.squeeze()  # [N]
     
     return interp_values
+
+def bilinearInterp2d(points: torch.Tensor,
+                      x_axis: torch.Tensor,
+                      y_axis: torch.Tensor,
+                      grid_vals: torch.Tensor) -> torch.Tensor:
+    """Bilinear interpolation of *grid_vals* at arbitrary *points*.
+
+    • points : [N,2] in [0,1]×[0,1] (u,v)
+    • x_axis : [K] grid coordinates (assumed uniform)
+    • y_axis : [K]
+    • grid_vals : [K,K,E]  (E arbitrary features)
+    Returns
+    --------
+    out : [N,E]
+    """
+    K = x_axis.numel()
+    step_x = (x_axis[1]-x_axis[0]).item() if K>1 else 1.0
+    step_y = (y_axis[1]-y_axis[0]).item() if K>1 else 1.0
+    xi = (points[:,0] - x_axis[0]) / step_x
+    yi = (points[:,1] - y_axis[0]) / step_y
+    x0 = torch.clamp(xi.floor().long(), 0, K-2)
+    y0 = torch.clamp(yi.floor().long(), 0, K-2)
+    x1 = x0+1
+    y1 = y0+1
+    wx = (xi - x0.float()).unsqueeze(1)
+    wy = (yi - y0.float()).unsqueeze(1)
+    # gather four corners
+    g00 = grid_vals[x0, y0]
+    g10 = grid_vals[x1, y0]
+    g01 = grid_vals[x0, y1]
+    g11 = grid_vals[x1, y1]
+    interp = (1-wx)*(1-wy)*g00 + wx*(1-wy)*g10 + (1-wx)*wy*g01 + wx*wy*g11
+    return interp
+
+def inverse_cdf_row(rand_u: torch.Tensor,
+                     cdf_rows: torch.Tensor,
+                     y_axis: torch.Tensor) -> torch.Tensor:
+    """Vectorised 1-D inversion on multiple CDF rows.
+
+    Parameters
+    ----------
+    rand_u   : [N]  uniform(0,1) values.
+    cdf_rows : [N,K]  cumulative values monotonically increasing in last dim.
+    y_axis   : [K]   y grid (monotone asc).
+
+    Returns
+    -------
+    torch.Tensor  shape [N]  – sampled y values.
+    """
+    K = y_axis.numel()
+    idx = torch.searchsorted(cdf_rows, rand_u.unsqueeze(1))  # [N,1]
+    idx = idx.squeeze(1)
+    idx = torch.clamp(idx, 1, K-1)
+    idx0 = idx - 1
+    c0 = cdf_rows.gather(1, idx0.unsqueeze(1)).squeeze(1)
+    c1 = cdf_rows.gather(1, idx.unsqueeze(1)).squeeze(1)
+    y0 = y_axis[idx0]
+    y1 = y_axis[idx]
+    w = (rand_u - c0) / (c1 - c0 + 1e-12)
+    return y0 + w*(y1 - y0)
