@@ -6,6 +6,15 @@ import torch
 import numpy as np
 import random
 from scipy.stats import kendalltau, norm
+import math
+
+# NEW IMPORTS --------------------------------------------------
+# The new PyTorch implementation relies on helper utilities that
+# were defined in sibling modules but never imported, leading to
+# run-time NameError exceptions. We explicitly import them here.
+from .transformation import Transform
+from .dataset_ops import create_bins, check_bins
+# -------------------------------------------------------------
 
 # Basic objects
 from .objects import vine_obj_bin, copula_obj, cop_par_obj
@@ -15,6 +24,8 @@ from .vine_tree import parent_var, flip_check_all
 from .grid_ops import grid_obj, mk_grid
 from .vine_eval import evaluate_fit_bin, evaluate_fit
 from .utils_prob import biv_norm  # from your older logic
+from .config import load_config, DEFAULT_CFG
+from .utils_bandwidth import bandwidth_rule_of_thumb, bandwidth_knn, bandwidth_sqrt_cov
 
 ############################################################
 # 1) The row/column normalization-based local-likelihood Cost
@@ -95,6 +106,63 @@ def _optimize_bw_ll(bw_init: torch.Tensor,
 
 
 ############################################################
+# 2b) Batched LL1 optimiser (scalar per edge)
+############################################################
+
+def _optimize_bw_ll_batch(bw_init: torch.Tensor,
+                          data_s: torch.Tensor,
+                          device,
+                          max_iter=70, lr=0.05, conv_tol=1e-5):
+    """Batched version of `_optimize_bw_ll` for E edges.
+
+    Parameters
+    ----------
+    bw_init : torch.Tensor  shape `[2, E]`
+    data_s  : torch.Tensor  shape `[N, 2, E]`
+    Returns
+    -------
+    torch.Tensor  shape `[2, E]`  – optimised bandwidths.
+    """
+    E = bw_init.shape[1]
+    # one scalar per edge -> parameter vector length E
+    a_log = torch.zeros(E, device=device, dtype=bw_init.dtype, requires_grad=True)
+
+    optimizer = torch.optim.Adam([a_log], lr=lr)
+    old_cost = 1e10
+
+    # Precompute grid once
+    knots = 50
+    _, ex_coords = mk_grid(knots, dtype=data_s.dtype)
+    ex_coords = ex_coords.to(device)
+    grid_3d = ex_coords.unsqueeze(2).expand(-1, -1, E)  # [K^2,2,E]
+    data_3d = data_s  # [N,2,E]
+
+    for it in range(max_iter):
+        optimizer.zero_grad()
+        a_val = torch.exp(a_log)              # [E]
+        B = bw_init * a_val.unsqueeze(0)      # 2×E
+        # --- cost
+        ker_grid = loclik_batch_eval(B, data_3d, grid_3d, E, batch_size=5)  # [K^2,E]  (unused but keeps symmetry)
+        pdf_data = loclik_batch_eval(B, data_3d, data_3d, E, batch_size=5)  # [N,E]
+        pdf_data = pdf_data.clamp_min(1e-30)
+        logpdf = torch.log(pdf_data)
+        measure = torch.mean(logpdf, dim=0)   # [E]
+        cost = -measure.mean()                # scalar
+        cost.backward()
+        optimizer.step()
+        with torch.no_grad():
+            # keep parameters in (0.005,5) range via bandwidth
+            a_log.clamp_(math.log(0.005), math.log(5.0))
+        if abs(cost.item() - old_cost) < conv_tol:
+            break
+        old_cost = cost.item()
+
+    with torch.no_grad():
+        a_final = torch.exp(a_log).clamp(0.005, 5.0)
+    return bw_init * a_final.unsqueeze(0)  # 2×E
+
+
+############################################################
 # 3) The main fit function
 ############################################################
 
@@ -103,7 +171,8 @@ def fit_vine(vine: vine_obj_bin,
              gen_dict: dict,
              npc_dict: dict,
              par_dict: dict,
-             bin_dict: dict):
+             bin_dict: dict,
+             cfg: dict | None = None):
     """
     Fit the vine on data x with all fixes incorporated.
     
@@ -194,6 +263,13 @@ def fit_vine(vine: vine_obj_bin,
         from .vine_tree import prepare_vine
         vine.r_matrix, vine.ind_vine, vine.nodes, vine.matrix_edges = prepare_vine(vine.vine_family, d)
     
+    # configuration ----------------------------------------------------
+    cfg_all = DEFAULT_CFG if cfg is None else cfg
+    opt_cfg = cfg_all["optimizer"]
+    bw_cfg  = cfg_all["bandwidth"]
+    npc_cfg = cfg_all.get("npc", {})
+    opt_method_global = npc_cfg.get("opt_method", "LL1")
+    
     # Now fit level by level
     for tr in range(d-1):
         # Print level info
@@ -250,11 +326,12 @@ def fit_vine(vine: vine_obj_bin,
         # Initialize list for this level's copulas
         copulas_level = []
         
-        # Fit each edge
-        for j, pair_data in enumerate(data_u):
-            edge = edges_now[j]
-            
-            if vine.param:
+        # ------------- PARAMETRIC edges processed one-by-one -------------
+        if vine.param:
+            # Fit each edge
+            for j, pair_data in enumerate(data_u):
+                edge = edges_now[j]
+                
                 # Parametric fitting
                 families = par_dict.get('param_families', ["ind", "gaussian"])
                 
@@ -324,9 +401,77 @@ def fit_vine(vine: vine_obj_bin,
                     cop_p = cop_par_obj(fam_best, param_best)
                     copulas_level.append(cop_p)
                     
+        # ----------------- NON-PARAMETRIC batched option -----------------
+        if not vine.param:
+            if opt_cfg.get("batch_edges", True) and len(data_u)>0 and opt_method_global in ("LL1","LL2"):
+                # ----- batch all edges on this level ----------
+                pair_u_cat = torch.stack(data_u, dim=2)         # N×2×E
+                E = pair_u_cat.shape[2]
+                transformer = Transform(E)  # re-init for correct n_cop
+                pair_s_cat = transformer.forward_u(pair_u_cat)
+                pair_x_cat = transformer.forward_s(pair_s_cat)
+
+                # bandwidth ------------------------------------------------
+                if opt_method_global == "LL1":
+                    bw_init = bandwidth_sqrt_cov(pair_x_cat)
+                else:  # LL2
+                    from .utils_bandwidth import bandwidth_sqrt_cov
+                    bw_init = bandwidth_sqrt_cov(pair_x_cat)
+
+                grid_x = transformer.forward_s(vine.grid_s.ex).unsqueeze(2).expand(-1,-1,E)
+
+                # ------ MISE optimisation: phase 1 ------------------------
+                if opt_method_global == "LL1":
+                    # batched LL1 optimiser
+                    bw_final = _optimize_bw_ll_batch(
+                        bw_init, pair_s_cat, device,
+                        max_iter=opt_cfg["max_iter_phase1"],
+                        lr=opt_cfg["lr_phase1"],
+                        conv_tol=opt_cfg["tol_phase1"])
+                else:
+                    # ------ MISE optimisation: phase 1 ------------------------
+                    a_init = torch.tensor([0.5], device=device)
+                    a_opt = mise_optimization(
+                        a_init, bw_init,
+                        vine.grid_u, vine.grid_s, grid_x,
+                        pair_x_cat, pair_s_cat, E,
+                        opt_cfg["batch_size"], NORM[:, :, :E],
+                        False,
+                        opt_cfg["max_iter_phase1"],
+                        opt_cfg["lr_phase1"],
+                        opt_cfg["tol_phase1"],
+                        axis_separate=True)
+
+                    # ------ phase 2 (copula-normalised) -----------------------
+                    a_opt2 = mise_optimization(
+                        a_opt, bw_init,
+                        vine.grid_u, vine.grid_s, grid_x,
+                        pair_x_cat, pair_s_cat, E,
+                        opt_cfg["batch_size"], NORM[:, :, :E],
+                        True,
+                        opt_cfg["max_iter_phase2"],
+                        opt_cfg["lr_phase2"],
+                        opt_cfg["tol_phase2"],
+                        axis_separate=True)
+
+                    bw_final = a_opt2 * bw_init                       # 2×E
+
+                # Evaluate grids once for all edges ------------------------
+                pd_grid, cdf_grid, _ = evaluate_fit(
+                    {"data_s": pair_s_cat, "data_x": pair_x_cat},
+                    {"grid_u": vine.grid_u, "grid_s": vine.grid_s, "grid_x": grid_x},
+                    {"bw": bw_final, "n_cop": E, "batch": opt_cfg["batch_size"]})
+
+                copulas_level = []
+                for e in range(E):
+                    cop_obj = copula_obj(bw_final[:, e:e+1])
+                    cop_obj.pd_grid_uv = pd_grid[:, :, e]
+                    cop_obj.cdf = cdf_grid[:, :, e]
+                    copulas_level.append(cop_obj)
             else:
+                # fallback to per-edge loop (existing logic)
                 # Non-parametric fitting
-                opt_method = npc_dict.get('opt_method', 'LL1')
+                opt_method = opt_method_global
                 
                 # Transform to s and x spaces
                 pair_data_s = transformer.forward_u(pair_data)
@@ -344,10 +489,14 @@ def fit_vine(vine: vine_obj_bin,
                     # ...
                     
                 else:
-                    # Standard non-parametric fit
-                    # Get bandwidth estimates via rule of thumb
-                    from .utils_bandwidth import bandwidth_rule_of_thumb
-                    bw_init = bandwidth_rule_of_thumb(pair_data_x, 2, 1)
+                    # Bandwidth initialisation
+                    if opt_method == "LL1":
+                        bw_init = bandwidth_sqrt_cov(pair_data_x)
+                    else:
+                        if bw_cfg["method"] == "knn":
+                            bw_init = bandwidth_knn(pair_data_x, k=bw_cfg.get("knn_k",10))
+                        else:
+                            bw_init = bandwidth_rule_of_thumb(pair_data_x, 2, 1)
                     
                     # Grid in x-space
                     grid_x = transformer.forward_s(vine.grid_s.ex)
@@ -358,16 +507,16 @@ def fit_vine(vine: vine_obj_bin,
                         a_init, bw_init,
                         vine.grid_u, vine.grid_s, grid_x,
                         pair_data_x, pair_data_s, 1, 5, NORM[:,:,0:1],
-                        False, 70, 0.1, 1e-5
-                    )
+                        False, 70, 0.1, 1e-5,
+                        axis_separate=False)
                     
                     # Second phase with normalization
                     a_opt2 = mise_optimization(
                         a_opt, bw_init,
                         vine.grid_u, vine.grid_s, grid_x,
                         pair_data_x, pair_data_s, 1, 5, NORM[:,:,0:1],
-                        True, 100, 0.03, 5e-5
-                    )
+                        True, 100, 0.03, 5e-5,
+                        axis_separate=False)
                     
                     # Scale final bandwidth
                     bw_final = a_opt2 * bw_init
@@ -547,3 +696,132 @@ def sample_vine(vine: vine_obj_bin, nsamples: int):
 vine_obj_bin.fit = fit_vine
 vine_obj_bin.evaluation = evaluate_vine
 vine_obj_bin.sample = sample_vine
+
+############################################################
+# Utility: simple surrogate for the missing ``mise_optimization``
+############################################################
+
+# The original TensorFlow codebase used a two-phase MISE bandwidth
+# optimisation routine. The function call is still present in the
+# regenerated PyTorch code but the actual implementation was never
+# ported, so importing / calling it inevitably raises a ``NameError``.
+#
+# To keep the high-level API intact while we re-implement the full
+# optimisation later, we provide a *minimal* placeholder that simply
+# returns the incoming scale factor unchanged. This makes the module
+# importable and the main ``fit_vine`` execution path functional,
+# albeit with a conservative bandwidth choice (rule-of-thumb only).
+#
+# NOTE: once a faithful PyTorch version of the MISE routine is ready
+# this stub can be replaced transparently without touching callers.
+
+def mise_optimization(a_init: torch.Tensor,
+                     bw_init: torch.Tensor,
+                     grid_u: grid_obj,
+                     grid_s: grid_obj,
+                     grid_x: torch.Tensor,
+                     data_x: torch.Tensor,
+                     data_s: torch.Tensor,
+                     n_cop: int,
+                     batch_size: int,
+                     ref_norm: torch.Tensor,
+                     renorm_flag: bool,
+                     max_iter: int,
+                     lr: float,
+                     tol: float,
+                     axis_separate: bool = False):
+    """Optimise a *scalar* multiplier ``a`` for the base bandwidth ``bw_init``.
+
+    The objective is a crude yet effective proxy for the Mean Integrated
+    Squared Error (MISE) between the local-likelihood kernel estimate and a
+    reference density (`ref_norm`, typically a standard bivariate normal).
+
+    We follow an extremely simple recipe:
+      1.  Build the candidate bandwidth B = a * bw_init (shape ``[2, n_cop]``).
+      2.  Compute the corresponding local-likelihood PDF on the supplied grid
+          via :func:`loclik_batch_eval`.
+      3.  Optionally (``renorm_flag``) project that PDF back to a bona-fide
+          copula density using :func:`eval_rs_cop` (row/column normalisation).
+      4.  Evaluate   cost = mean( (pdf_est − ref_norm) ** 2 ).
+
+    A tiny Adam loop (``max_iter`` iterations, learning-rate ``lr``) is run on
+    the *log* of ``a`` to enforce positivity. The search terminates when the
+    relative improvement in the cost falls below ``tol``.
+
+    Parameters
+    ----------
+    a_init : torch.Tensor shape `[1]`
+        Initial scaling factor.
+    bw_init : torch.Tensor shape `[2, n_cop]`
+        Baseline bandwidth matrix.
+    grid_u / grid_s / grid_x : grid descriptions
+        Pre-computed grids used by the caller (see original code).
+    data_x / data_s : torch.Tensor
+        Training data in x- and s-spaces respectively.
+    n_cop, batch_size : int
+        Copula count and batching parameter for ``loclik_batch_eval``.
+    ref_norm : torch.Tensor
+        Reference density evaluated on the same grid (shape `[K,K,n_cop]`).
+    renorm_flag : bool
+        If ``True`` we apply copula row/column renormalisation.
+    max_iter, lr, tol : optimisation hyper-parameters.
+
+    Returns
+    -------
+    torch.Tensor shape `[1]`
+        Optimised scale factor ``a_opt`` (detached).
+    """
+    device = a_init.device
+    # Parameterisation: scalar (LL1) or per-axis (LL2)
+    if axis_separate:
+        if a_init.dim()==0 or a_init.numel()==1:
+            a_init = a_init.expand_as(bw_init)  # shape 2×n_cop
+        a_log = a_init.log().clone().detach().requires_grad_(True)
+    else:
+        # single scalar shared by both axes and all edges
+        if a_init.numel()>1:
+            a_init = a_init.flatten()[0:1]
+        a_log = a_init.log().clone().detach().requires_grad_(True)
+
+    optim = torch.optim.Adam([a_log], lr=lr)
+
+    # Pre-compute grid differentials for eval_rs_cop if needed.
+    adu11, adu22 = grid_u.diff()  # each shape [K]
+
+    prev_cost = 1e12
+    for _ in range(max_iter):
+        optim.zero_grad()
+        if axis_separate:
+            a_val = torch.exp(a_log)                  # 2×n_cop
+            B = bw_init * a_val
+        else:
+            a_val = torch.exp(a_log)[0]
+            B = bw_init * a_val
+
+        # Local-likelihood estimate on the grid → [M, n_cop]
+        ker_flat = loclik_batch_eval(B, data_s, grid_x, n_cop, batch_size)
+        K = grid_s.ax1.shape[0]
+        ker_pdf = ker_flat.view(K, K, n_cop)  # reshape to 2-D grid
+
+        if renorm_flag:
+            from .cop_eval import eval_rs_cop  # local import to avoid cycles
+            ker_pdf = eval_rs_cop(adu11, adu22, ker_pdf, ref_norm, n_cop)
+
+        # MISE proxy (mean squared error against reference)
+        mse = torch.mean((ker_pdf - ref_norm) ** 2)
+        mse.backward()
+        optim.step()
+
+        # Convergence check
+        cost_now = mse.item()
+        if abs(prev_cost - cost_now) < tol:
+            break
+        prev_cost = cost_now
+
+    # Clamp to a sensible range for safety
+    with torch.no_grad():
+        if axis_separate:
+            a_final = torch.exp(a_log).clamp(0.05, 20.0)
+        else:
+            a_final = torch.exp(a_log).clamp(0.05, 20.0)[0:1]
+    return a_final.detach()
