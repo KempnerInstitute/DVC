@@ -7,66 +7,100 @@ import numpy as np
 
 def vine_entropy(vine, info_dict: dict):
     """
-    Approximate the vine's entropy by Monte Carlo sampling.
-
-    We do repeated sampling from 'vine' (cases each time),
-    estimate the mean of log(p(x)) in an incremental / running fashion,
-    and track an approximate variance so that a standard error
-    or confidence interval can be computed.
-
+    Compute vine entropy using Monte Carlo sampling.
+    
     Args:
-      vine: a fitted vine object with a .sample() and .evaluation() method
-      info_dict: dictionary with possible keys:
-        'alpha': float, e.g. 0.05 => confidence level
-        'cases': number of samples each iteration
-        'iterations': max number of Monte Carlo iterations
-
+        vine: fitted vine object
+        info_dict: dictionary with parameters
+            'alpha': confidence level (e.g., 0.05)
+            'cases': number of samples per iteration
+            'iterations': maximum number of iterations
+    
     Returns:
-      H_est: the estimated mean of log p(X), i.e. an approximate "entropy" if you interpret -E[log p(X)].
-             If you want the Shannon entropy in nats, you might do -H_est.
+        entropy estimate (H_est)
     """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Extract parameters
     alpha = info_dict.get('alpha', 0.05)
     cases = info_dict.get('cases', 1000)
     max_iter = info_dict.get('iterations', 10)
-
-    import math
-    from torch.distributions import Normal
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # 'conf' is the z-value for alpha (confidence intervals)
-    norm = Normal(0.,1.)
-    conf = norm.icdf(torch.tensor([1 - alpha], device=device)).item()
-
-    # Running stats
-    mo = 0                 # iteration count
-    varsum = 0.0           # sum of squared deviations for incremental variance
-    H_est = 0.0            # running average of log p
-
-    # We'll do a simple repeated approach:
-    for i in range(max_iter):
+    d = vine.n_cop
+    
+    # Get confidence interval multiplier
+    normal_dist = torch.distributions.Normal(0., 1.)
+    conf = normal_dist.icdf(torch.tensor([1 - alpha], device=device)).item()
+    
+    # Initialization
+    mo = 0              # iteration counter
+    varsum1 = 0.0       # sum of squared deviations
+    H_est = 0.0         # running entropy estimate
+    stderr1 = 1e6       # standard error
+    erreps = 1e-3       # convergence threshold
+    
+    # Find min/max for grid
+    if hasattr(vine, 'grid_u') and vine.grid_u is not None:
+        mag = vine.grid_u.ex.max().item()
+        mig = vine.grid_u.ex.min().item()
+    else:
+        mag = 1.0
+        mig = 0.0
+    
+    # Monte Carlo iterations
+    while (stderr1 >= erreps) and (mo < max_iter):
         mo += 1
-        # 1) sample from vine
-        sample_np = vine.sample(cases)  # shape [cases, dimension]
-        sample_t = torch.tensor(sample_np, device=device, dtype=torch.float32)
-
-        # 2) evaluate pdf => p, p_cop, etc.
-        p, p_cop, logmarg = vine.evaluation(sample_t)
-        # p => shape [cases], p(x)
-        # 3) compute log p
-        log_p = torch.log(torch.clamp(p, 1e-30, 1e30))
-
-        # 4) average log p for this batch
-        mean_lp = log_p.mean().item()
-
-        # 5) incremental update H_est
-        old_est = H_est
-        H_est += (mean_lp - H_est) / mo
-
-        # 6) track sum of squared deviations for variance estimate
-        varsum += (mean_lp - H_est)*(mean_lp - old_est)*cases
-
-    # If desired, we can compute a standard error:
-    #    stderr = conf * sqrt(varsum / (mo*cases*( mo*cases -1 ))) 
-    # or we can simply return H_est.
-
+        
+        # Generate samples
+        if not vine.param:
+            # Non-parametric vine
+            sample = vine.sample(cases)
+            
+            # Convert to torch tensor if needed
+            if isinstance(sample, np.ndarray):
+                sample_t = torch.tensor(sample, dtype=torch.float32, device=device)
+            else:
+                sample_t = sample
+                
+            # Evaluate PDF
+            p, p_copula, _ = vine.evaluation(sample_t)
+            
+            # Convert to log2 and handle zeros
+            p_copula_np = p_copula.cpu().numpy()
+            log2pp = np.log2(p_copula_np)
+            log2pp[p_copula_np == 0] = 0
+            
+            # Update running average
+            old_H_est = H_est
+            H_est += (np.mean(log2pp) - H_est) / mo
+            
+            # Update variance sum for standard error
+            varsum1 += np.sum((log2pp - H_est) * (log2pp - old_H_est))
+            stderr1 = conf * np.sqrt(varsum1 / (mo * cases * (mo * cases - 1)))
+            
+        else:
+            # Parametric vine
+            sample = vine.sample(cases)
+            
+            # Convert to torch tensor if needed
+            if isinstance(sample, np.ndarray):
+                sample_t = torch.tensor(sample, dtype=torch.float32, device=device)
+            else:
+                sample_t = sample
+                
+            # Evaluate PDF
+            p, p_copula, _ = vine.evaluation(sample_t)
+            
+            # Convert to log2 and handle zeros
+            p_copula_np = p_copula.cpu().numpy()
+            log2pp = np.log2(p_copula_np)
+            log2pp[p_copula_np == 0] = 0
+            
+            # Update running average
+            old_H_est = H_est
+            H_est += (np.mean(log2pp) - H_est) / mo
+            
+            # Update variance sum for standard error
+            varsum1 += np.sum((log2pp - H_est) * (log2pp - old_H_est))
+            stderr1 = conf * np.sqrt(varsum1 / (mo * cases * (mo * cases - 1)))
+    
     return H_est

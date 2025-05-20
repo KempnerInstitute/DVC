@@ -1,0 +1,27 @@
+data:
+  n_samples: 10000
+  dim: 5
+  rho: 0.6
+
+vine:
+  family: c-vine        # c-vine | d-vine | r-vine
+  method: optimal       # random | optimal | matrix
+  knots: 40
+
+general:
+  param: true
+  binning: false
+
+optimizer:
+  jit: true
+  batch_edges: true
+  max_edges_per_batch: 16
+
+npc:
+  opt_method: LL1
+  grad_precompute: true
+
+sampler:
+  fast_parametric: true
+  fast_nonparam: true
+  nspline: 200 

@@ -25,13 +25,33 @@ def fit_gaussian(u: torch.Tensor):
     z = torch.clamp(u, eps, 1-eps)
     z = torch.distributions.Normal(0.,1.).icdf(z)
     corr = torch.corrcoef(z.T)[0,1].item()
-    rho = corr
+    # guard against NaN/Inf (happens if variance is ~0)
+    if not math.isfinite(corr):
+        corr = 0.0
+
+    # The standard approach for estimating rho in a Gaussian copula is to use Kendall's tau
+    # with the relationship: rho = sin(pi * tau/2)
+    # But we can also use the direct correlation of normal scores (z) which is sometimes more accurate
+    # Here we'll use a weighted average of both methods
+    z_np = z.detach().cpu().numpy()
+    tau, _ = kendalltau(z_np[:,0], z_np[:,1])
+    if not math.isfinite(tau):
+        tau = 0.0
+    tau = max(min(tau, 0.999), -0.999)  # Clamp tau
+    rho_tau = np.sin(np.pi * tau / 2)
+    
+    # Final rho is a weighted combination favoring the direct correlation
+    rho = corr * 0.8 + rho_tau * 0.2
+    
+    # Ensure rho is in valid range
+    rho = max(min(rho, 0.999), -0.999)
+    
     # approximate log-likelihood
     r = max(min(rho,0.999999), -0.999999)
     z1 = z[:,0]
     z2 = z[:,1]
     one_m_r2 = 1.0 - r*r
-    if one_m_r2 < 1e-12:
+    if one_m_r2 < 1e-12 or not math.isfinite(one_m_r2):
         one_m_r2 = 1e-12
     logC = -0.5 * math.log(one_m_r2)
     num = z1*z1 - 2*r*z1*z2 + z2*z2
@@ -200,6 +220,8 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         rho = float(param)
         r = max(min(rho,0.999999), -0.999999)
         one_m_r2 = 1.0 - r*r
+        if one_m_r2 < 1e-12 or not math.isfinite(one_m_r2):
+            one_m_r2 = 1e-12
         normal_dist = torch.distributions.Normal(0.,1.)
         z = normal_dist.icdf(uv_clamped)  # shape [N,2]
         z1 = z[:,0]
@@ -241,7 +263,6 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         uv_flip = uv_clamped.clone()
         uv_flip[:,0] = 1.0 - uv_clamped[:,0]
         # then use the clayton pdf with alpha
-        # define a temp cop_p
         from copy import deepcopy
         cop_p_temp = deepcopy(cop_p)
         cop_p_temp.family='clayton'
@@ -337,8 +358,11 @@ def copulainvccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         return uv_clamped[:,1]
 
     elif fam=='gaussian':
-        rho = float(param)
+        rho = float(param) if param is not None else 0.0
+        if not math.isfinite(rho):
+            rho = 0.0
         r = max(min(rho,0.999999), -0.999999)
+        
         # approach:
         #  let u1= uv[:,0], => x=Phi^-1(u1)
         #  we want y => F^-1( u2 | x )
@@ -346,14 +370,41 @@ def copulainvccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         # then we take the cdf^-1 => y= mu + sigma *Phi^-1( u2)
         # then transform y-> v=Phi(y).
         normal_dist = torch.distributions.Normal(0.,1.)
+        
+        # Check for extreme values in u1 - will cause instability
         x = normal_dist.icdf(uv_clamped[:,0])
-        # v2= uv_clamped[:,1]
+        # Replace extreme values as they cause issues in conditional mean
+        x = torch.clamp(x, -8.0, 8.0)
+        
+        # Get standard normal quantile for u2
         e = normal_dist.icdf(uv_clamped[:,1])
-        # y= r*x + sqrt(1-r^2)* e
-        y = r*x + math.sqrt(1.0 - r*r)* e
+        
+        # For numerical stability, directly calculate y with protection
+        # y = r*x + sqrt(1-r^2)*e  (standard formula)
+        denom = 1.0 - r*r
+        if denom < 1e-12:
+            denom = 1e-12
+        y = r*x + math.sqrt(denom)*e
+        
         # final => Phi(y)
         v2 = normal_dist.cdf(y)
-        return torch.clamp(v2, 0.0, 1.0)
+        
+        # additional logging for extreme values
+        extreme_mask = (v2 < 1e-6) | (v2 > 1.0 - 1e-6)
+        if extreme_mask.any():
+            extreme_count = extreme_mask.sum().item()
+            if extreme_count > 0:
+                ext_x = x[extreme_mask]
+                ext_e = e[extreme_mask]
+                ext_y = y[extreme_mask]
+                ext_v2 = v2[extreme_mask]
+                print(f"Warning: {extreme_count} extreme values in Gaussian h-function:")
+                print(f"   x range: [{ext_x.min().item():.2f}, {ext_x.max().item():.2f}]")
+                print(f"   e range: [{ext_e.min().item():.2f}, {ext_e.max().item():.2f}]")
+                print(f"   y range: [{ext_y.min().item():.2f}, {ext_y.max().item():.2f}]")
+                print(f"   rho: {r:.4f}")
+        
+        return torch.clamp(v2, 1e-9, 1-1e-9)
 
     elif fam=='student':
         raise NotImplementedError("Student copula inverse CCDF not implemented. Use partial logic or external library.")
