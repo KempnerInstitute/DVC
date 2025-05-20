@@ -1161,22 +1161,14 @@ vine_obj_bin.evaluation = evaluate_vine
 vine_obj_bin.sample = sample_vine
 
 ############################################################
-# Utility: simple surrogate for the missing ``mise_optimization``
+# Utility: bandwidth optimisation via ``mise_optimization``
 ############################################################
 
-# The original TensorFlow codebase used a two-phase MISE bandwidth
-# optimisation routine. The function call is still present in the
-# regenerated PyTorch code but the actual implementation was never
-# ported, so importing / calling it inevitably raises a ``NameError``.
-#
-# To keep the high-level API intact while we re-implement the full
-# optimisation later, we provide a *minimal* placeholder that simply
-# returns the incoming scale factor unchanged. This makes the module
-# importable and the main ``fit_vine`` execution path functional,
-# albeit with a conservative bandwidth choice (rule-of-thumb only).
-#
-# NOTE: once a faithful PyTorch version of the MISE routine is ready
-# this stub can be replaced transparently without touching callers.
+# The original TensorFlow codebase included a two-phase MISE bandwidth
+# optimiser.  Here we implement a lightweight alternative in PyTorch:
+# an Adam search over a positive scale factor applied to the baseline
+# bandwidth matrix.  The routine is self-contained and can be swapped
+# in place of the TensorFlow version.
 
 def mise_optimization(a_init: torch.Tensor,
                      bw_init: torch.Tensor,
@@ -1193,46 +1185,17 @@ def mise_optimization(a_init: torch.Tensor,
                      lr: float,
                      tol: float,
                      axis_separate: bool = False):
-    """Optimise a *scalar* multiplier ``a`` for the base bandwidth ``bw_init``.
+    """Optimise the bandwidth scaling factor ``a`` via a short Adam loop.
 
-    The objective is a crude yet effective proxy for the Mean Integrated
-    Squared Error (MISE) between the local-likelihood kernel estimate and a
-    reference density (`ref_norm`, typically a standard bivariate normal).
-
-    We follow an extremely simple recipe:
-      1.  Build the candidate bandwidth B = a * bw_init (shape ``[2, n_cop]``).
-      2.  Compute the corresponding local-likelihood PDF on the supplied grid
-          via :func:`loclik_batch_eval`.
-      3.  Optionally (``renorm_flag``) project that PDF back to a bona-fide
-          copula density using :func:`eval_rs_cop` (row/column normalisation).
-      4.  Evaluate   cost = mean( (pdf_est − ref_norm) ** 2 ).
-
-    A tiny Adam loop (``max_iter`` iterations, learning-rate ``lr``) is run on
-    the *log* of ``a`` to enforce positivity. The search terminates when the
-    relative improvement in the cost falls below ``tol``.
-
-    Parameters
-    ----------
-    a_init : torch.Tensor shape `[1]`
-        Initial scaling factor.
-    bw_init : torch.Tensor shape `[2, n_cop]`
-        Baseline bandwidth matrix.
-    grid_u / grid_s / grid_x : grid descriptions
-        Pre-computed grids used by the caller (see original code).
-    data_x / data_s : torch.Tensor
-        Training data in x- and s-spaces respectively.
-    n_cop, batch_size : int
-        Copula count and batching parameter for ``loclik_batch_eval``.
-    ref_norm : torch.Tensor
-        Reference density evaluated on the same grid (shape `[K,K,n_cop]`).
-    renorm_flag : bool
-        If ``True`` we apply copula row/column renormalisation.
-    max_iter, lr, tol : optimisation hyper-parameters.
+    The optimiser operates on ``log(a)`` so the candidate bandwidth
+    ``B = a * bw_init`` remains positive.  At each step a mean squared
+    error between the estimated density and ``ref_norm`` is minimised.
+    The search stops when improvements fall below ``tol``.
 
     Returns
     -------
-    torch.Tensor shape `[1]`
-        Optimised scale factor ``a_opt`` (detached).
+    torch.Tensor of shape `[1]`
+        The optimised bandwidth multiplier.
     """
     device = a_init.device
     # Parameterisation: scalar (LL1) or per-axis (LL2)
