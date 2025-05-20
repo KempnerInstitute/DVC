@@ -668,103 +668,89 @@ def fit_vine(vine: vine_obj_bin,
 ############################################################
 
 def evaluate_vine(vine: vine_obj_bin, points: torch.Tensor):
-    """
-    Evaluate the vine PDF at 'points'. 
-    
-    This function computes the PDF as the product of:
-    1. Marginal densities using the fitted margins (or transformations thereof)
-    2. Copula densities for all pairs in the vine structure
-    
-    For numerical stability, calculations are done in log space.
-    
-    Args:
-        vine: A fitted vine copula object
-        points: Data points tensor of shape [N, D] where N is the number of samples
-               and D is the dimensionality
-               
-    Returns:
-        Tuple of (pdf, copula_contribution, margin_contribution)
-    """
-    device = points.device
-    d = vine.n_cop
-    log_marg = torch.zeros(points.shape[0], device=device)
-    
-    # 1. Evaluate marginal densities using appropriate margins
-    # If the margins are specified in the vine object, use them
-    # Otherwise, fall back to standard normal as the default transformation
-    for i in range(d):
-        if hasattr(vine, 'margin') and vine.margin is not None and i < len(vine.margin):
-            margin = vine.margin[i]
-            if hasattr(margin, 'family') and margin.family == 'norm' and hasattr(margin, 'theta'):
-                # Normal margin with specified parameters
-                loc, scale = margin.theta
-                normal_dist = torch.distributions.Normal(loc, scale)
-                log_marg += normal_dist.log_prob(points[:,i])
-            else:
-                # Default to standard normal if no margins specified
-                normal_dist = torch.distributions.Normal(0., 1.)
-                log_marg += normal_dist.log_prob(points[:,i])
-        else:
-            # Default to standard normal if no margins specified
-            normal_dist = torch.distributions.Normal(0., 1.)
-            log_marg += normal_dist.log_prob(points[:,i])
+    """Return PDF of ``vine`` evaluated at ``points`` (N×d tensor)."""
 
-    log_cop = torch.zeros(points.shape[0], device=device)
-    
-    # 2. Evaluate copula densities at each level of the vine
-    # For C-vine and D-vine, ensure all copula edges are included
-    for level in range(d-1):
-        edges = vine.copulas[level]
-        edge_structure = vine.ind_vine[level] if level < len(vine.ind_vine) else []
-        
-        # Handle each edge in this level
-        for e_idx, edge in enumerate(edge_structure):
-            if e_idx >= len(edges):
-                # Skip if we don't have a fitted copula for this edge
-                continue
-            
-            # Extract the variables for this edge
-            var1, var2 = edge
-            cobj = edges[e_idx]
-            
-            # Extract data for these variables
-            uv = points[:, [var1, var2]]
-            
-            # Compute copula density based on type
-            if vine.param:
-                # For parametric copulas, use the provided implementation
-                pdf_val = copulapdf(cobj, uv).clamp(min=1e-30)
-                # Guard against NaN values
-                pdf_val = torch.where(torch.isfinite(pdf_val), pdf_val, torch.ones_like(pdf_val)*1e-30)
-                log_cop += torch.log(pdf_val)
+    device = points.device
+    n, d = points.shape
+
+    # --- Margins -------------------------------------------------
+    log_marg = torch.zeros(n, device=device)
+    theta = torch.zeros((n, d, d), device=device)
+    theta_flip = torch.zeros_like(theta)
+
+    for i in range(d):
+        if (hasattr(vine, "margin") and vine.margin is not None
+                and i < len(vine.margin)):
+            mobj = vine.margin[i]
+            if getattr(mobj, "family", "norm") == "norm" and hasattr(mobj, "theta"):
+                loc, scale = mobj.theta
+                dist = torch.distributions.Normal(loc, scale)
             else:
-                # For non-parametric copulas
-                if hasattr(cobj, 'opt_bw'):
-                    # Use kernel density approach
-                    bw = cobj.opt_bw
-                    # Simple Gaussian kernel approximation
-                    dx = uv[:,0] - uv[:,0].mean()
-                    dy = uv[:,1] - uv[:,1].mean()
-                    scale_x = bw[0,0].item()
-                    scale_y = bw[1,0].item()
-                    e = -0.5*((dx/scale_x)**2 + (dy/scale_y)**2)
-                    log_cop += e
-                elif hasattr(cobj, 'pd_grid_uv'):
-                    # Use precomputed grid if available
+                dist = torch.distributions.Normal(0.0, 1.0)
+        else:
+            dist = torch.distributions.Normal(0.0, 1.0)
+
+        log_marg += dist.log_prob(points[:, i])
+        u_val = dist.cdf(points[:, i])
+        theta[:, 0, i] = u_val
+        theta_flip[:, 0, i] = u_val
+
+    log_cop = torch.zeros(n, device=device)
+
+    # --- Traverse vine level by level ---------------------------------
+    for tr in range(d - 1):
+        edges_now = vine.ind_vine[tr] if tr < len(vine.ind_vine) else []
+        copulas_now = vine.copulas[tr] if tr < len(vine.copulas) else []
+        next_lvl = tr + 1
+
+        for e_idx, edge in enumerate(edges_now):
+            if e_idx >= len(copulas_now):
+                continue
+            cobj = copulas_now[e_idx]
+            i, j = edge
+
+            if tr == 0:
+                ui = theta[:, tr, i]
+                uj = theta[:, tr, j]
+            else:
+                prev_len = len(vine.ind_vine[tr - 1])
+                if i < prev_len and j < prev_len:
+                    parent, _, _ = parent_var(tr, vine.ind_vine, edge)
+                    try:
+                        left_edge = vine.ind_vine[tr - 1][i]
+                        left_first = left_edge[0]
+                    except Exception:
+                        left_first = None
+                    if left_first is not None and left_first != parent:
+                        ui = theta_flip[:, tr, i]
+                    else:
+                        ui = theta[:, tr, i]
+                    uj = theta[:, tr, j]
+                else:
+                    ui = theta[:, tr, i]
+                    uj = theta[:, tr, j]
+
+            uv = torch.stack([ui, uj], dim=1)
+
+            if vine.param:
+                pdf_val = copulapdf(cobj, uv).clamp(min=1e-30)
+            else:
+                if hasattr(cobj, "pd_grid_uv"):
                     from .utils_interpolation import bilinearInterp2d
                     x_axis, y_axis = vine.grid_u.axis()
-                    
-                    # Transform to uniform margins for grid lookup
-                    u1 = normal_dist.cdf(uv[:,0])
-                    u2 = normal_dist.cdf(uv[:,1])
-                    points_uv = torch.stack([u1, u2], dim=1)
-                    
-                    # Interpolate density from grid
-                    pdf_grid = bilinearInterp2d(points_uv, x_axis, y_axis, cobj.pd_grid_uv)
-                    pdf_grid = pdf_grid.clamp(min=1e-30)
-                    log_cop += torch.log(pdf_grid)
+                    pdf_val = bilinearInterp2d(uv, x_axis, y_axis, cobj.pd_grid_uv)
+                    pdf_val = pdf_val.clamp(min=1e-30)
+                else:
+                    pdf_val = torch.ones_like(ui)
 
-    # Ensure no NaN propagation
+            pdf_val = torch.where(torch.isfinite(pdf_val), pdf_val,
+                                   torch.full_like(pdf_val, 1e-30))
+            log_cop += torch.log(pdf_val)
+
+            if next_lvl < d:
+                theta[:, next_lvl, j] = _h_function(ui, uj, cobj, vine.grid_u, side="left")
+                theta_flip[:, next_lvl, i] = _h_function(uj, ui, cobj, vine.grid_u, side="right")
+
     log_marg = torch.where(torch.isfinite(log_marg), log_marg, torch.zeros_like(log_marg))
     log_cop = torch.where(torch.isfinite(log_cop), log_cop, torch.zeros_like(log_cop))
 
