@@ -60,7 +60,23 @@ def optimal_tree(data, data_flip, ind_vine, tr, rand_flag=False):
     if dimension < 1:
         return edges, weights
 
-    start_ = random.randint(0, dimension-1)
+    # Instead of random start, pick the variable with highest average correlation
+    if not rand_flag and dimension > 1:
+        avg_corrs = []
+        for i in range(dimension):
+            corr_sum = 0.0
+            count = 0
+            for j in range(dimension):
+                if i != j:
+                    tau, _ = kendalltau(data[:, i], data[:, j])
+                    if math.isfinite(tau):
+                        corr_sum += abs(tau)
+                        count += 1
+            avg_corrs.append(corr_sum / max(1, count))
+        start_ = np.argmax(avg_corrs)
+    else:
+        start_ = random.randint(0, dimension-1)
+
     Q.add(start_)
     V.remove(start_)
 
@@ -73,6 +89,12 @@ def optimal_tree(data, data_flip, ind_vine, tr, rand_flag=False):
                     tau_val = random.uniform(-1., 1.)
                 else:
                     tau_val,_ = kendalltau(data[:, i], data[:, j])
+                    # Ensure valid correlation - in rare cases kendalltau can return nan
+                    if not math.isfinite(tau_val):
+                        # Fallback to Pearson correlation
+                        tau_val = np.corrcoef(data[:, i], data[:, j])[0, 1]
+                        if not math.isfinite(tau_val):
+                            tau_val = 0.0  # Last resort
                 if abs(tau_val) > abs(best_abs_tau):
                     best_abs_tau = tau_val
                     best_u = i
@@ -219,23 +241,45 @@ def prepare_vine(vine_family, dim):
     d-vine => diag => [dim..1] plus a pattern in the below diag
     Then we pass to prepare_regular(...) to get E, ind_vine, nodes, matrix_edges.
     """
-    if vine_family=='c-vine':
-        arr_ = np.arange(dim,0,-1)
-        mat_ = np.tile(arr_, (dim,1))
+    if vine_family == 'c-vine':
+        # Diagonal (dim .. 1)
+        arr_ = np.arange(dim, 0, -1)
+        mat_ = np.tile(arr_, (dim, 1))
         r_matrix = np.tril(mat_.T)
-    elif vine_family=='d-vine':
-        r_matrix = np.zeros((dim,dim), dtype=int)
-        for i in range(dim):
-            r_matrix[i,i] = dim - i
-        for j in range(dim-1):
-            c = 1
-            for i in range(j+1, dim):
-                r_matrix[i,j] = c
-                c += 1
-    else:
-        r_matrix = np.eye(dim, dtype=int)
 
-    E, ind_vine, nodes, matrix_edges = prepare_regular(r_matrix)
+        # Build explicit edge list: root variable k connected to k+1 .. d-1
+        ind_vine = []
+        for k in range(dim - 1):
+            lvl_edges = [[k, j] for j in range(k + 1, dim)]
+            ind_vine.append(lvl_edges)
+
+    elif vine_family == 'd-vine':
+        # Construct canonical d-vine R-matrix (lower-triangular numbering)
+        r_matrix = np.zeros((dim, dim), dtype=int)
+        for i in range(dim):
+            r_matrix[i, i] = dim - i
+        for j in range(dim - 1):
+            c = 1
+            for i in range(j + 1, dim):
+                r_matrix[i, j] = c
+                c += 1
+
+        # Edge list – consecutive chain on level-0, shorter ranges after
+        ind_vine = []
+        # level-0
+        ind_vine.append([[j, j + 1] for j in range(dim - 1)])
+        # higher levels
+        for k in range(1, dim - 1):
+            lvl_edges = [[j, j + k + 1] for j in range(dim - k - 1)]
+            ind_vine.append(lvl_edges)
+
+    else:
+        # Fallback: identity matrix, no edges.
+        r_matrix = np.eye(dim, dtype=int)
+        ind_vine = []
+
+    # Nodes and matrix_edges reused from prepare_regular for consistency.
+    _, _, nodes, matrix_edges = prepare_regular(r_matrix)
     return r_matrix, ind_vine, nodes, matrix_edges
 
 

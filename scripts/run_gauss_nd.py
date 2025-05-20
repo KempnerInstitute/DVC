@@ -65,10 +65,33 @@ def gauss_entropy(d, det):
 # Monte-Carlo estimate of vine entropy
 samples = vine.sample(5000, cfg)
 logp    = vine.logpdf(torch.tensor(samples, dtype=torch.float32))
-H_est   = -logp.mean().item()
-H_true  = gauss_entropy(dim, np.linalg.det(cov_true))
 
-kl = (logp - torch.tensor(multivariate_normal.logpdf(samples, mean=np.zeros(dim), cov=cov_true))).mean().item()
+# Filter out NaN/Inf values from logp before computing statistics
+valid_mask = torch.isfinite(logp)
+logp_valid = logp[valid_mask]
+
+# Compute entropy only if we have valid values
+if len(logp_valid) > 0:
+    H_est = -logp_valid.mean().item()
+else:
+    print("Warning: All samples produced NaN log-pdf values")
+    H_est = float('nan')
+
+H_true = gauss_entropy(dim, np.linalg.det(cov_true))
+
+# Compute KL divergence robustly
+true_logp = torch.tensor(multivariate_normal.logpdf(samples, mean=np.zeros(dim), cov=cov_true))
+# Only use points where both model and true density give valid values
+both_valid = torch.isfinite(logp) & torch.isfinite(true_logp)
+if both_valid.sum() > 0:
+    kl = (logp[both_valid] - true_logp[both_valid]).mean().item()
+else:
+    print("Warning: No valid points for KL divergence calculation")
+    kl = float('nan')
+
+# Add diagnostic info
+valid_percent = 100 * valid_mask.sum().item() / len(logp)
+print(f"Valid log-pdf values: {valid_mask.sum().item()}/{len(logp)} ({valid_percent:.1f}%)")
 
 print(f"True Gaussian entropy : {H_true:.3f}")
 print(f"Vine   entropy (MC)   : {H_est:.3f}")

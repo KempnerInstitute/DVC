@@ -5,6 +5,7 @@
 import torch
 import numpy as np
 from typing import List, Optional
+import matplotlib.pyplot as plt
 
 class copula_obj:
     """
@@ -146,7 +147,8 @@ class vine_obj_bin:
             gen_dict: dict,
             npc_dict: dict,
             par_dict: dict,
-            bin_dict: dict):
+            bin_dict: dict,
+            cfg: Optional[dict] = None):
         """
         Fit the vine on data x (shape [N,d]) with the given dictionaries:
           gen_dict => general flags (parallel, param, binning, etc.)
@@ -158,7 +160,10 @@ class vine_obj_bin:
         """
         # e.g.:
         from .vine_model import fit_vine
-        fit_vine(self, x, gen_dict, npc_dict, par_dict, bin_dict)
+        fit_vine(self, x, gen_dict, npc_dict, par_dict, bin_dict, cfg)
+
+        for lvl, edges in enumerate(self.ind_vine):
+            print(f"Level {lvl}, edges: {edges}, #copulas stored: {len(self.copulas[lvl])}")
 
     def evaluation(self, points: torch.Tensor):
         """
@@ -173,3 +178,16 @@ class vine_obj_bin:
         """
         from .vine_model import sample_vine
         return sample_vine(self, nsamples)
+
+    def plot_first_level_copulas(self):
+        n_first = len(self.copulas[0])
+        if n_first == 0:
+            print("No copulas were fitted on the first tree level – skipping PDF plots.")
+        else:
+            fig, axes = plt.subplots(1, min(3, n_first), figsize=(12, 3))
+            for ax, cobj in zip(axes, self.copulas[0][:3]):
+                if getattr(cobj, "pd_grid_uv", None) is not None:
+                    ax.imshow(cobj.pd_grid_uv.cpu().numpy(), origin="lower", cmap="magma")
+                ax.axis("off")
+            plt.suptitle("First-level copula PDFs")
+            plt.show()

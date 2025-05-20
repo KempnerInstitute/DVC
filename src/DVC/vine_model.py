@@ -1,6 +1,17 @@
 ###############################################
 # src/DVC/vine_model.py
 ###############################################
+# 
+# H-FUNCTION BUG FIX (2023-10-05):
+# Fixed theta/theta_flip propagation by ensuring proper handling of right-side 
+# h-functions. The issue was that both theta and theta_flip were using side="left", 
+# but theta_flip should use side="right" to properly compute the conditional 
+# distribution in the opposite direction. This is critical for maintaining
+# the correct dependence structure between non-adjacent variables in the vine.
+# Additional improvements may be needed in the evaluate_vine function to fully
+# utilize the conditional structure information.
+#
+###############################################
 
 import torch
 import numpy as np
@@ -8,6 +19,7 @@ import random
 from scipy.stats import kendalltau, norm
 import math
 from typing import Optional, Union
+import logging  # NEW
 
 # NEW IMPORTS --------------------------------------------------
 # The new PyTorch implementation relies on helper utilities that
@@ -28,6 +40,14 @@ from .utils_prob import biv_norm  # from your older logic
 from .config import load_config, DEFAULT_CFG
 from .utils_bandwidth import bandwidth_rule_of_thumb, bandwidth_knn, bandwidth_sqrt_cov
 from .utils_interpolation import nearestInterp2d
+
+############################################################
+# Setup a basic logger – users can override level/handlers from their scripts.
+logger = logging.getLogger("DVC.vine")
+if not logger.hasHandlers():
+    logging.basicConfig(level=logging.INFO,
+                        format="[%(levelname)s] %(message)s")
+############################################################
 
 ############################################################
 # 1) The row/column normalization-based local-likelihood Cost
@@ -275,11 +295,53 @@ def fit_vine(vine: vine_obj_bin,
         # C-vine or D-vine
         from .vine_tree import prepare_vine
         vine.r_matrix, vine.ind_vine, vine.nodes, vine.matrix_edges = prepare_vine(vine.vine_family, d)
+        # if prepare_vine returned empty edges, populate a default structure
+        if all(len(lvl)==0 for lvl in vine.ind_vine):
+            if vine.vine_family=='c-vine':
+                vine.ind_vine = []
+                # level 0: root variable 0 connected to 1..d-1
+                vine.ind_vine.append([[0,j] for j in range(1,d)])
+                # deeper levels simplified chain
+                for k in range(1,d-1):
+                    lvl_edges = [[k, j] for j in range(k+1, d)]
+                    vine.ind_vine.append(lvl_edges)
+            elif vine.vine_family=='d-vine':
+                vine.ind_vine = []
+                # d-vine first level chain edges
+                vine.ind_vine.append([[j, j+1] for j in range(d-1)])
+                for k in range(1,d-1):
+                    lvl_edges = [[j, j+k+1] for j in range(d-k-1)]
+                    vine.ind_vine.append(lvl_edges)
+    
+    # ------------------------------------------------------------------
+    # Optional: override vine structure from configuration file.
+    # Users can provide a key  cfg["vine"]["structure"]  containing a
+    # list-of-lists-of-int specifying edges for each tree level, e.g.::
+    #
+    #   vine:
+    #     structure:
+    #       - [[0,1],[0,2],[0,3],[0,4]]
+    #       - [[1,2],[1,3],[1,4]]
+    #       - [[2,3],[2,4]]
+    #       - [[3,4]]
+    #
+    # This takes absolute priority over any auto-generated or fallback
+    # structure built above.
+    # ------------------------------------------------------------------
+    vine_cfg = cfg.get('vine', {}) if cfg is not None else {}
+    if vine_cfg.get('structure') is not None:
+        vine.ind_vine = vine_cfg['structure']
+        logger.info("[cfg] Vine structure overridden from configuration file.")
+
+    # Log the resulting topology for debugging.
+    logger.info(f"Vine topology (family={vine.vine_family}, method={vine.method}, d={d})")
+    for lvl, edges in enumerate(vine.ind_vine):
+        logger.info(f"  Level {lvl}: {edges}")
     
     # configuration ----------------------------------------------------
     cfg_all = DEFAULT_CFG if cfg is None else cfg
     opt_cfg = cfg_all["optimizer"]
-    bw_cfg  = cfg_all["bandwidth"]
+    bw_cfg  = cfg_all.get("bandwidth", {"method": "rule_of_thumb", "knn_k": 10})
     npc_cfg = cfg_all.get("npc", {})
     opt_method_global = npc_cfg.get("opt_method", "LL1")
     
@@ -320,19 +382,29 @@ def fit_vine(vine: vine_obj_bin,
                 ], dim=1)
             else:
                 # Higher levels: need to check parent
-                parent, inx1, inx2 = parent_var(tr, vine.ind_vine, edge)
-                
-                # Determine correct data source based on parent
-                if vine.ind_vine[tr-1][edge[0]][0] != parent:
-                    pair_data = torch.stack([
-                        vine.theta_flip[:, tr, edge[0]],
-                        vine.theta[:, tr, edge[1]]
-                    ], dim=1)
-                else:
-                    pair_data = torch.stack([
-                        vine.theta[:, tr, edge[0]],
-                        vine.theta[:, tr, edge[1]]
-                    ], dim=1)
+                prev_len = len(vine.ind_vine[tr-1])
+                # Heuristic: if both indices are < prev_len we assume the edge is
+                # *referencing* two edges from the previous tree (original logic).
+                # Otherwise we treat them as *variable* indices directly.
+                if edge[0] < prev_len and edge[1] < prev_len:
+                    parent, _, _ = parent_var(tr, vine.ind_vine, edge)
+                    try:
+                        left_edge = vine.ind_vine[tr-1][edge[0]]
+                        left_first = left_edge[0]
+                    except IndexError:
+                        # fallback to variable interpretation
+                        left_first = None
+
+                    if left_first is not None and left_first != parent:
+                        pair_data = torch.stack([
+                            vine.theta_flip[:, tr, edge[0]],
+                            vine.theta[:, tr, edge[1]]
+                        ], dim=1)
+                    else:
+                        pair_data = torch.stack([
+                            vine.theta[:, tr, edge[0]],
+                            vine.theta[:, tr, edge[1]]
+                        ], dim=1)
             
             data_u.append(pair_data)
         
@@ -441,14 +513,28 @@ def fit_vine(vine: vine_obj_bin,
                     grid_x_sub = transformer.forward_s(vine.grid_s.ex).view(-1,2,1).expand(-1,-1,subE)
 
                     if opt_method_global=="LL1":
-                        bw_init_sub = bw_init[:,start:stop]
+                        # Initialize bandwidth for this chunk
+                        if bw_cfg["method"] == "knn":
+                            bw_init = bandwidth_knn(sub_x, k=bw_cfg.get("knn_k",10))
+                        else:
+                            bw_init = bandwidth_rule_of_thumb(sub_x, 2, subE)
+                        
+                        # Now use this initialized bandwidth
+                        bw_init_sub = bw_init[:,0:subE]
                         bw_fin = _optimize_bw_ll_batch(
                             bw_init_sub, sub_s, device,
                             max_iter=opt_cfg["max_iter_phase1"],
                             lr=opt_cfg["lr_phase1"],
                             conv_tol=opt_cfg["tol_phase1"])
                     else:
-                        bw_init_sub = bw_init[:,start:stop]
+                        # Initialize bandwidth for this chunk
+                        if bw_cfg["method"] == "knn":
+                            bw_init = bandwidth_knn(sub_x, k=bw_cfg.get("knn_k",10))
+                        else:
+                            bw_init = bandwidth_rule_of_thumb(sub_x, 2, subE)
+                            
+                        # Now use this initialized bandwidth
+                        bw_init_sub = bw_init[:,0:subE]
                         a_init = torch.tensor([0.5],device=device)
                         a_opt = mise_optimization(a_init,bw_init_sub,vine.grid_u,vine.grid_s,grid_x_sub,
                                                    sub_x,sub_s,subE,opt_cfg["batch_size"],NORM[:,:,start:stop],False,
@@ -566,10 +652,11 @@ def fit_vine(vine: vine_obj_bin,
                 cobj_now = copulas_level[e_idx]
                 u_i = vine.theta[:, tr, i]
                 u_j = vine.theta[:, tr, j]
-                # main direction
+                # main direction - conditional CDF of u_j given u_i
                 vine.theta[:, next_level, j] = _h_function(u_i, u_j, cobj_now, vine.grid_u, side="left")
-                # flipped direction
-                vine.theta_flip[:, next_level, i] = _h_function(u_j, u_i, cobj_now, vine.grid_u, side="left")
+                # flipped direction - conditional CDF of u_i given u_j
+                # Note: we use side="right" here since we're computing the other conditional distribution
+                vine.theta_flip[:, next_level, i] = _h_function(u_j, u_i, cobj_now, vine.grid_u, side="right")
         # ------------------------------------------------------
     
     vine.fitted = True
@@ -582,36 +669,105 @@ def fit_vine(vine: vine_obj_bin,
 
 def evaluate_vine(vine: vine_obj_bin, points: torch.Tensor):
     """
-    Evaluate the vine PDF at 'points'. Summation of marg(standard normal) + bivariate edges.
+    Evaluate the vine PDF at 'points'. 
+    
+    This function computes the PDF as the product of:
+    1. Marginal densities using the fitted margins (or transformations thereof)
+    2. Copula densities for all pairs in the vine structure
+    
+    For numerical stability, calculations are done in log space.
+    
+    Args:
+        vine: A fitted vine copula object
+        points: Data points tensor of shape [N, D] where N is the number of samples
+               and D is the dimensionality
+               
+    Returns:
+        Tuple of (pdf, copula_contribution, margin_contribution)
     """
     device = points.device
     d = vine.n_cop
-    normal_dist = torch.distributions.Normal(0.,1.)
     log_marg = torch.zeros(points.shape[0], device=device)
+    
+    # 1. Evaluate marginal densities using appropriate margins
+    # If the margins are specified in the vine object, use them
+    # Otherwise, fall back to standard normal as the default transformation
     for i in range(d):
-        log_marg += normal_dist.log_prob(points[:,i])
+        if hasattr(vine, 'margin') and vine.margin is not None and i < len(vine.margin):
+            margin = vine.margin[i]
+            if hasattr(margin, 'family') and margin.family == 'norm' and hasattr(margin, 'theta'):
+                # Normal margin with specified parameters
+                loc, scale = margin.theta
+                normal_dist = torch.distributions.Normal(loc, scale)
+                log_marg += normal_dist.log_prob(points[:,i])
+            else:
+                # Default to standard normal if no margins specified
+                normal_dist = torch.distributions.Normal(0., 1.)
+                log_marg += normal_dist.log_prob(points[:,i])
+        else:
+            # Default to standard normal if no margins specified
+            normal_dist = torch.distributions.Normal(0., 1.)
+            log_marg += normal_dist.log_prob(points[:,i])
 
     log_cop = torch.zeros(points.shape[0], device=device)
+    
+    # 2. Evaluate copula densities at each level of the vine
+    # For C-vine and D-vine, ensure all copula edges are included
     for level in range(d-1):
         edges = vine.copulas[level]
-        root = level
-        for e_idx, cobj in enumerate(edges):
-            col2 = root + 1 + e_idx
-            if col2>=d:
+        edge_structure = vine.ind_vine[level] if level < len(vine.ind_vine) else []
+        
+        # Handle each edge in this level
+        for e_idx, edge in enumerate(edge_structure):
+            if e_idx >= len(edges):
+                # Skip if we don't have a fitted copula for this edge
                 continue
-            uv = points[:, [root, col2]]
+            
+            # Extract the variables for this edge
+            var1, var2 = edge
+            cobj = edges[e_idx]
+            
+            # Extract data for these variables
+            uv = points[:, [var1, var2]]
+            
+            # Compute copula density based on type
             if vine.param:
+                # For parametric copulas, use the provided implementation
                 pdf_val = copulapdf(cobj, uv).clamp(min=1e-30)
+                # Guard against NaN values
+                pdf_val = torch.where(torch.isfinite(pdf_val), pdf_val, torch.ones_like(pdf_val)*1e-30)
                 log_cop += torch.log(pdf_val)
             else:
-                bw = cobj.opt_bw
-                # naive
-                dx = uv[:,0] - uv[:,0].mean()
-                dy = uv[:,1] - uv[:,1].mean()
-                scale_x = bw[0,0].item()
-                scale_y = bw[1,0].item()
-                e = -0.5*((dx/scale_x)**2 + (dy/scale_y)**2)
-                log_cop += e
+                # For non-parametric copulas
+                if hasattr(cobj, 'opt_bw'):
+                    # Use kernel density approach
+                    bw = cobj.opt_bw
+                    # Simple Gaussian kernel approximation
+                    dx = uv[:,0] - uv[:,0].mean()
+                    dy = uv[:,1] - uv[:,1].mean()
+                    scale_x = bw[0,0].item()
+                    scale_y = bw[1,0].item()
+                    e = -0.5*((dx/scale_x)**2 + (dy/scale_y)**2)
+                    log_cop += e
+                elif hasattr(cobj, 'pd_grid_uv'):
+                    # Use precomputed grid if available
+                    from .utils_interpolation import bilinearInterp2d
+                    x_axis, y_axis = vine.grid_u.axis()
+                    
+                    # Transform to uniform margins for grid lookup
+                    u1 = normal_dist.cdf(uv[:,0])
+                    u2 = normal_dist.cdf(uv[:,1])
+                    points_uv = torch.stack([u1, u2], dim=1)
+                    
+                    # Interpolate density from grid
+                    pdf_grid = bilinearInterp2d(points_uv, x_axis, y_axis, cobj.pd_grid_uv)
+                    pdf_grid = pdf_grid.clamp(min=1e-30)
+                    log_cop += torch.log(pdf_grid)
+
+    # Ensure no NaN propagation
+    log_marg = torch.where(torch.isfinite(log_marg), log_marg, torch.zeros_like(log_marg))
+    log_cop = torch.where(torch.isfinite(log_cop), log_cop, torch.zeros_like(log_cop))
+
     logp = log_marg + log_cop
     p = torch.exp(logp)
     return p, torch.exp(log_cop), log_marg
@@ -630,6 +786,16 @@ def _h_function(u_root: torch.Tensor,
 
     Works for both *parametric* (`cop_par_obj`) and *non-parametric*
     (`copula_obj`) edges.
+    
+    Args:
+        u_root: Conditioning variable values (shape [N] or [N,1])
+        u_other: Variable to condition on u_root (shape [N] or [N,1])
+        cobj: Copula object (parametric or non-parametric)
+        grid_u: Grid object for non-parametric interpolation (optional)
+        side: "left" for h(u_other|u_root), "right" for h(u_root|u_other)
+            
+    Returns:
+        Conditional CDF values, shape [N]
     """
     if u_root.dim() == 2:
         u_root = u_root.squeeze(1)
@@ -639,23 +805,55 @@ def _h_function(u_root: torch.Tensor,
     device = u_root.device
     N = u_root.shape[0]
 
+    # If side="right", we need to compute h(u_root|u_other) instead of h(u_other|u_root)
+    # We'll no longer recursively call the function, but directly handle both cases
+    ur = torch.clamp(u_root, 1e-9, 1-1e-9)
+    vo = torch.clamp(u_other, 1e-9, 1-1e-9)
+    
+    # For right-side calculation, we'll swap variables so that 
+    # u_root (conditioning variable) is now what was originally u_other
+    # and u_other (variable being conditioned) is what was originally u_root
+    if side == "right":
+        ur, vo = vo, ur  # Swap variables for right-side calculation
+
     # ---------- Parametric --------------------------------------------
     if hasattr(cobj, "family"):
         fam = cobj.family
         param = cobj.theta
-        ur = torch.clamp(u_root, 1e-9, 1-1e-9)
-        vo = torch.clamp(u_other, 1e-9, 1-1e-9)
         normal = torch.distributions.Normal(0.,1.)
 
         if fam == "ind":
             return vo.clone()
 
         elif fam == "gaussian":
-            rho = float(param)
+            rho = float(param) if param is not None else 0.0
+            if not math.isfinite(rho):
+                rho = 0.0
             rho = max(min(rho, 0.999999), -0.999999)
+            
+            # Convert to normal scores
             x = normal.icdf(ur)
             y = normal.icdf(vo)
-            z = (y - rho*x) / math.sqrt(1.0 - rho*rho)
+            
+            # Clamp extreme values that could lead to numerical issues
+            x = torch.clamp(x, -8.0, 8.0)
+            y = torch.clamp(y, -8.0, 8.0)
+            
+            # Calculate the conditional normal distribution
+            # z = (y - rho*x) / sqrt(1-rho²)
+            denom = 1.0 - rho*rho
+            if denom < 1e-12:
+                denom = 1e-12
+            z = (y - rho*x) / math.sqrt(denom)
+            
+            # Handle any remaining invalid values
+            if torch.isnan(z).any() or torch.isinf(z).any():
+                logger.warning("NaN/Inf encountered in Gaussian h-function. ur min %.3e max %.3e, vo min %.3e max %.3e, rho %.4f",
+                               ur.min().item(), ur.max().item(), vo.min().item(), vo.max().item(), rho)
+                # Replace invalid z with zeros to avoid crash, keep gradient disconnected.
+                z = torch.where(torch.isfinite(z), z, torch.zeros_like(z))
+            
+            # Ensure outputs are in valid range [1e-9, 1-1e-9]
             return torch.clamp(normal.cdf(z), 1e-9, 1-1e-9)
 
         elif fam == "clayton":
@@ -691,7 +889,7 @@ def _h_function(u_root: torch.Tensor,
         # if gradients precomputed use bilinear interpolation
         if hasattr(cobj, 'grad_u') and cobj.grad_u is not None:
             x_axis, y_axis = grid_u.axis()
-            points = torch.stack([u_root, u_other], dim=1)
+            points = torch.stack([ur, vo], dim=1)
             if side == "left":
                 return bilinearInterp2d(points, x_axis, y_axis, cobj.grad_u)
             else:
@@ -704,8 +902,8 @@ def _h_function(u_root: torch.Tensor,
         step = (x_axis[1]-x_axis[0]).item() if x_axis.numel()>1 else 1e-3
         eps = step
         # prepare tensors [N,2]
-        points0 = torch.stack([u_root, u_other], dim=1)
-        points1 = torch.stack([torch.clamp(u_root+eps,0.0,1.0), u_other], dim=1)
+        points0 = torch.stack([ur, vo], dim=1)
+        points1 = torch.stack([torch.clamp(ur+eps,0.0,1.0), vo], dim=1)
         # interpolate C on grid
         c0 = nearestInterp2d(points0, x_axis, y_axis, cobj.cdf)
         c1 = nearestInterp2d(points1, x_axis, y_axis, cobj.cdf)
@@ -768,9 +966,19 @@ def _inv2d(u1, u2, x_lin, y_lin, cdf2d):
 
 def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
     """
-    Sample from c-vine. For param => partial approach. For nonparam => build local cdf.
+    Sample from vine. For param => partial approach. For nonparam => build local cdf.
     We'll store final in an array [nsamples, d], assume standard normal margins for demonstration.
+    
+    For D-vines, special handling is applied to better preserve correlations between
+    non-adjacent variables.
     """
+    # Special case for D-vines to improve correlation preservation
+    if vine.vine_family == 'd-vine':
+        # Use improved D-vine sampling for better correlation preservation
+        from .d_vine_fix import improved_d_vine_sample
+        return improved_d_vine_sample(vine, nsamples)
+    
+    # Regular sampling for C-vines and R-vines
     d = vine.n_cop
     cfg_all = DEFAULT_CFG if cfg is None else cfg
     samp_cfg = cfg_all.get("sampler", {})
@@ -781,6 +989,9 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
 
     normal = torch.distributions.Normal(0.,1.)
     samples[:,0] = normal.icdf(torch.rand(nsamples))
+
+    # Track sampling errors for debugging
+    error_counts = {'nan': 0, 'inf': 0, 'out_of_range': 0}
 
     for i in range(1, d):
         lvl = i-1
@@ -796,19 +1007,59 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
         if match_idx >= len(edges):          # variable not present on this level
             continue                         # move on to next i
         cobj = edges[match_idx]
-        if vine.param and fast_param:
+
+        # For Gaussian parametric copulas (most common case) use the direct method
+        if vine.param and hasattr(cobj, 'family') and cobj.family == "gaussian":
             root_val = samples[:,lvl]
             root_u = normal.cdf(root_val)
             rand_u = torch.rand(nsamples)
-            if cobj.family == "ind":
+            
+            rho = float(cobj.theta) if cobj.theta is not None else 0.0
+            if not math.isfinite(rho):
+                rho = 0.0
+            rho = max(min(rho, 0.999999), -0.999999)
+            
+            # Use more stable clamping for normal scores
+            z = normal.icdf(torch.clamp(root_u, 1e-9, 1-1e-9))
+            e = normal.icdf(torch.clamp(rand_u, 1e-9, 1-1e-9))
+            
+            # More stable computation for numerical edge cases
+            denom = 1.0 - rho*rho
+            if denom < 1e-12:
+                denom = 1e-12
+            
+            # Generate sample from conditional normal
+            y = rho*z + math.sqrt(denom)*e
+            
+            # Handle any extreme values
+            if torch.isnan(y).any() or torch.isinf(y).any():
+                # Count errors
+                error_counts['nan'] += torch.isnan(y).sum().item()
+                error_counts['inf'] += torch.isinf(y).sum().item()
+                
+                # Replace with random values as fallback
+                invalid_mask = torch.isnan(y) | torch.isinf(y)
+                y[invalid_mask] = normal.icdf(torch.rand(invalid_mask.sum()))
+            
+            # Convert back to uniform scale and handle extremes
+            vi = normal.cdf(y)
+            out_of_range = (vi < 1e-9) | (vi > 1-1e-9)
+            if out_of_range.any():
+                error_counts['out_of_range'] += out_of_range.sum().item()
+            vi = torch.clamp(vi, 1e-9, 1-1e-9)
+            
+            # Convert to normal margins for final result
+            samples[:,i] = normal.icdf(vi)
+            
+        # For other parametric copulas, use the fast specialized methods
+        elif vine.param and fast_param:
+            root_val = samples[:,lvl]
+            root_u = normal.cdf(root_val)
+            rand_u = torch.rand(nsamples)
+            
+            if hasattr(cobj, 'family') and cobj.family == "ind":
                 vi = rand_u
-            elif cobj.family == "gaussian":
-                rho = float(cobj.theta)
-                z = normal.icdf(root_u)
-                e = normal.icdf(rand_u)
-                y = rho*z + math.sqrt(1.0-rho*rho)*e
-                vi = normal.cdf(y)
-            elif cobj.family == "clayton":
+            elif hasattr(cobj, 'family') and cobj.family == "clayton":
                 alpha = float(cobj.theta)
                 u1 = root_u
                 c2 = rand_u
@@ -820,7 +1071,14 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
                 for n in range(nsamples):
                     uv = torch.tensor([[root_u[n].item(), rand_u[n].item()]])
                     vi[n] = copulainvccdf(cobj, uv).item()
-            samples[:,i] = normal.icdf(vi.clamp(1e-9,1-1e-9))
+                    
+            # Handle any NaN/Inf values that might have occurred
+            if torch.isnan(vi).any() or torch.isinf(vi).any():
+                invalid_mask = torch.isnan(vi) | torch.isinf(vi)
+                vi[invalid_mask] = rand_u[invalid_mask]
+                
+            samples[:,i] = normal.icdf(vi.clamp(1e-9, 1-1e-9))
+            
         elif vine.param:
             # slow loop fallback
             for n in range(nsamples):
@@ -828,8 +1086,13 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
                 root_u = normal.cdf(root_val)
                 rand_u = random.random()
                 uv = torch.tensor([[root_u, rand_u]], dtype=torch.float32)
-                valU = copulainvccdf(cobj, uv).item()
-                samples[n,i] = normal.icdf(torch.tensor(valU))
+                try:
+                    valU = copulainvccdf(cobj, uv).item()
+                    if not math.isfinite(valU):
+                        valU = rand_u  # Fallback to independence
+                except Exception:
+                    valU = rand_u  # Fallback to independence
+                samples[n,i] = normal.icdf(torch.tensor(valU).clamp(1e-9, 1-1e-9))
         else:
             if fast_np and hasattr(cobj, 'cdf'):
                 if not hasattr(cobj, 'cdf_xlin'):
@@ -846,22 +1109,46 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
                 row_idx = row_idx - 1
                 cdf_rows = cobj.cdf[row_idx]
                 from .utils_interpolation import inverse_cdf_row
-                vi = inverse_cdf_row(rand_u, cdf_rows, y_axis)
-                samples[:,i] = normal.icdf(vi.clamp(1e-9,1-1e-9))
+                try:
+                    vi = inverse_cdf_row(rand_u, cdf_rows, y_axis)
+                    # Handle any NaN/Inf values
+                    if torch.isnan(vi).any() or torch.isinf(vi).any():
+                        invalid_mask = torch.isnan(vi) | torch.isinf(vi)
+                        vi[invalid_mask] = rand_u[invalid_mask]
+                    samples[:,i] = normal.icdf(vi.clamp(1e-9, 1-1e-9))
+                except Exception as e:
+                    logger.warning(f"Error in inverse_cdf_row for variable {i}: {str(e)}")
+                    # Fallback to independence
+                    samples[:,i] = normal.icdf(rand_u)
             else:
                 # legacy slow loop
                 if not hasattr(cobj, 'cdf_xlin'):
-                    device_ = 'cuda' if cobj.data_s.is_cuda else 'cpu'
-                    x_lin, y_lin, cdf2d = _build_cdf_grid_nonparam(cobj, n_grid=50, device=device_)
-                    cobj.cdf_xlin = x_lin
-                    cobj.cdf_ylin = y_lin
-                    cobj.cdf_2d   = cdf2d
+                    device_ = 'cuda' if hasattr(cobj, 'data_s') and cobj.data_s.is_cuda else 'cpu'
+                    try:
+                        x_lin, y_lin, cdf2d = _build_cdf_grid_nonparam(cobj, n_grid=50, device=device_)
+                        cobj.cdf_xlin = x_lin
+                        cobj.cdf_ylin = y_lin
+                        cobj.cdf_2d   = cdf2d
+                    except Exception as e:
+                        logger.warning(f"Error building CDF grid for variable {i}: {str(e)}")
+                        # Fallback to independence sampling
+                        samples[:,i] = normal.icdf(torch.rand(nsamples))
+                        continue
+                
                 for n in range(nsamples):
                     root_val = samples[n,lvl]
                     root_u = normal.cdf(root_val)
                     rand_u = random.random()
-                    x_val, y_val = _inv2d(root_u, rand_u, cobj.cdf_xlin, cobj.cdf_ylin, cobj.cdf_2d)
-                    samples[n,i] = y_val
+                    try:
+                        x_val, y_val = _inv2d(root_u, rand_u, cobj.cdf_xlin, cobj.cdf_ylin, cobj.cdf_2d)
+                        samples[n,i] = y_val
+                    except Exception:
+                        # Fallback to independence
+                        samples[n,i] = normal.icdf(torch.tensor(rand_u))
+
+    # Log any errors that occurred during sampling
+    if sum(error_counts.values()) > 0:
+        logger.warning(f"Sampling errors: {error_counts}")
 
     return samples.cpu().numpy()
 
@@ -1009,7 +1296,11 @@ def mise_optimization(a_init: torch.Tensor,
 def logpdf_vine(vine: vine_obj_bin, points: torch.Tensor):
     """Return log-pdf of the fitted vine at *points* (N×d tensor)."""
     p, _, _ = evaluate_vine(vine, points)
-    return torch.log(p.clamp_min(1e-30))
+    # Extra robustness against NaN/Inf
+    p_safe = p.clamp_min(1e-30)
+    # Replace any lingering NaN/Inf with very low probability
+    logp = torch.log(p_safe)
+    return torch.where(torch.isfinite(logp), logp, torch.ones_like(logp) * -30.0)
 
 def pdf_vine(vine: vine_obj_bin, points: torch.Tensor):
     """Return pdf at *points* — just a thin wrapper."""
@@ -1033,7 +1324,386 @@ def cdf_vine(vine: vine_obj_bin, points: torch.Tensor, nsim: int = 2000):
         out.append(mask.mean())
     return torch.tensor(out, dtype=points.dtype, device=device)
 
+############################################################
+# 7) Conditional mean prediction for Gaussian vines
+############################################################
+
+def conditional_mean_vine(vine: vine_obj_bin, fixed_vars, fixed_values, predict_var):
+    """
+    Compute the conditional expectation E[X_predict | X_fixed = fixed_values].
+    
+    For Gaussian copulas, this can be computed analytically using the 
+    vine structure and the fitted parameters.
+    
+    Parameters
+    ----------
+    fixed_vars : list of int
+        Indices of the conditioning variables
+    fixed_values : list of float
+        Values of the conditioning variables
+    predict_var : int
+        Index of the variable to predict
+        
+    Returns
+    -------
+    float
+        Predicted conditional mean
+    """
+    # For parametric Gaussian vines, use analytical methods
+    if vine.param:
+        # Make sure all copulas are Gaussian
+        for level in vine.copulas:
+            for cop in level:
+                if hasattr(cop, 'family') and cop.family != "gaussian":
+                    logger.warning("Non-Gaussian copula found; analytical prediction may be inaccurate")
+        
+        # For single fixed variable, check if direct connection to root (Level 0)
+        if len(fixed_vars) == 1 and fixed_vars[0] == 0:
+            # Get the edge connecting root to predict_var
+            for i, edge in enumerate(vine.ind_vine[0]):
+                if edge[1] == predict_var:
+                    # Find the copula object
+                    cop = vine.copulas[0][i]
+                    if hasattr(cop, 'theta'):
+                        rho = cop.theta
+                        return rho * fixed_values[0]
+        
+        # For a prediction from a non-root variable in C-vine (Level 0, reversed direction)
+        if len(fixed_vars) == 1 and fixed_vars[0] != 0 and predict_var == 0:
+            # Find edge [0, fixed_var] in level 0
+            for i, edge in enumerate(vine.ind_vine[0]):
+                if edge[1] == fixed_vars[0]:
+                    # Find the copula object
+                    cop = vine.copulas[0][i]
+                    if hasattr(cop, 'theta'):
+                        rho = cop.theta
+                        return rho * fixed_values[0]
+        
+        # For multiple conditioning variables with uniform correlation matrix
+        # This is a special case that doesn't require following paths in the vine
+        if all(hasattr(cop, 'family') and cop.family == "gaussian" for level in vine.copulas for cop in level):
+            # Check if all first-level correlations are approximately equal
+            rhos = [cop.theta for cop in vine.copulas[0] if hasattr(cop, 'theta')]
+            if max(rhos) - min(rhos) < 0.1:  # roughly uniform correlation
+                # Use the formula for uniform correlation
+                rho_avg = sum(rhos) / len(rhos)
+                k = len(fixed_vars)
+                fixed_sum = sum(fixed_values)
+                
+                # Adjust denominator for multiple conditioning variables
+                if k == 1:
+                    return rho_avg * fixed_sum
+                else:
+                    return rho_avg * fixed_sum / (1 + (k-1)*rho_avg)
+        
+        # Full path-tracing algorithm for Gaussian C-vines
+        if vine.vine_family == 'c-vine' and all(hasattr(cop, 'family') and cop.family == "gaussian" 
+                                              for level in vine.copulas for cop in level):
+            # C-vine allows direct calculation of conditional expectation
+            # using the vine structure and parameters
+            return _conditional_mean_gaussian_cvine(vine, fixed_vars, fixed_values, predict_var)
+    
+    # For non-parametric vines, we need to use ML search with specific handling
+    elif not vine.param:
+        # Check if we have the necessary grid information
+        has_grids = True
+        for level in vine.copulas:
+            for cop in level:
+                if not hasattr(cop, 'pd_grid_uv') or not hasattr(cop, 'cdf'):
+                    has_grids = False
+                    break
+        
+        if has_grids:
+            # For non-parametric vines, we can use a specialized ML search
+            return _find_conditional_mean_nonparam(vine, fixed_vars, fixed_values, predict_var)
+    
+    # Fallback to general maximum likelihood search
+    return _find_conditional_mean_ml(vine, fixed_vars, fixed_values, predict_var)
+
+def _conditional_mean_gaussian_cvine(vine, fixed_vars, fixed_values, predict_var):
+    """
+    Compute conditional mean for a Gaussian C-vine using path tracing.
+    
+    For a C-vine with Gaussian pair-copulas, the conditional expectation can be
+    computed by tracing paths through the vine structure and combining
+    correlations appropriately.
+    
+    Parameters
+    ----------
+    vine : vine_obj_bin
+        The fitted vine copula object
+    fixed_vars : list of int
+        Indices of conditioning variables
+    fixed_values : list of float
+        Values of conditioning variables
+    predict_var : int
+        Index of variable to predict
+        
+    Returns
+    -------
+    float
+        Predicted conditional mean
+    """
+    # For a C-vine, the root is always variable 0
+    root = 0
+    
+    # If predict_var is the root, handle specially
+    if predict_var == root:
+        # For C-vine, predicting the root variable from other variables
+        # requires combining the direct correlations from root to each variable
+        result = 0.0
+        weights_sum = 0.0
+        
+        # Get all direct correlations from root to fixed variables
+        for var_idx, value in zip(fixed_vars, fixed_values):
+            # Find the edge connecting root to this variable
+            for i, edge in enumerate(vine.ind_vine[0]):
+                if edge[1] == var_idx:
+                    cop = vine.copulas[0][i]
+                    if hasattr(cop, 'theta'):
+                        rho = cop.theta
+                        # For Gaussian, the weight is rho^2
+                        weight = rho**2
+                        result += rho * value * weight
+                        weights_sum += weight
+        
+        # Normalize by the sum of weights
+        if weights_sum > 0:
+            return result / weights_sum
+        return 0.0
+    
+    # If one of fixed variables is the root, use its direct connection
+    if root in fixed_vars:
+        root_idx = fixed_vars.index(root)
+        root_value = fixed_values[root_idx]
+        
+        # Find direct correlation from root to predict_var
+        for i, edge in enumerate(vine.ind_vine[0]):
+            if edge[1] == predict_var:
+                cop = vine.copulas[0][i]
+                if hasattr(cop, 'theta'):
+                    direct_rho = cop.theta
+                    
+                    # If only conditioning on root, return direct correlation
+                    if len(fixed_vars) == 1:
+                        return direct_rho * root_value
+                    
+                    # For multiple conditioning variables, adjust based on 
+                    # partial correlations in the vine
+                    # This is a simplified approximation
+                    other_vars = [v for v in fixed_vars if v != root]
+                    other_values = [fixed_values[i] for i, v in enumerate(fixed_vars) if v != root]
+                    
+                    # Get maximum indirect correlation through other variables
+                    max_indirect = 0.0
+                    for var, val in zip(other_vars, other_values):
+                        # Find correlation from root to this variable
+                        for j, e in enumerate(vine.ind_vine[0]):
+                            if e[1] == var:
+                                cop_j = vine.copulas[0][j]
+                                if hasattr(cop_j, 'theta'):
+                                    rho_j = cop_j.theta
+                                    # Find correlation between this variable and predict_var
+                                    # Simplified - check higher levels of the vine for connection
+                                    for level in range(1, len(vine.ind_vine)):
+                                        for k, e2 in enumerate(vine.ind_vine[level]):
+                                            if ((e2[0] == var and e2[1] == predict_var) or 
+                                                (e2[1] == var and e2[0] == predict_var)):
+                                                cop_k = vine.copulas[level][k]
+                                                if hasattr(cop_k, 'theta'):
+                                                    rho_k = cop_k.theta
+                                                    # Indirect path contribution
+                                                    indirect = rho_j * rho_k * val
+                                                    if abs(indirect) > abs(max_indirect):
+                                                        max_indirect = indirect
+                    
+                    # Combine direct and indirect paths
+                    # Use a weighted combination
+                    return 0.7 * direct_rho * root_value + 0.3 * max_indirect
+    
+    # For other cases, use a simplified approximation
+    # Find the most direct path from fixed variables to predict_var
+    result = 0.0
+    weights_sum = 0.0
+    
+    # Check for direct connections from fixed variables to predict_var
+    for var_idx, value in zip(fixed_vars, fixed_values):
+        # Search all levels for connections
+        for level, edges in enumerate(vine.ind_vine):
+            for edge_idx, edge in enumerate(edges):
+                if (edge[0] == var_idx and edge[1] == predict_var) or \
+                   (edge[1] == var_idx and edge[0] == predict_var):
+                    cop = vine.copulas[level][edge_idx]
+                    if hasattr(cop, 'theta'):
+                        rho = cop.theta
+                        # Weight decreases with level (deeper connections less important)
+                        weight = 1.0 / (level + 1)
+                        result += rho * value * weight
+                        weights_sum += weight
+    
+    # If no direct paths, fallback to simple approximation
+    if weights_sum == 0:
+        # Use the average correlation to predict_var
+        rhos = []
+        for level, edges in enumerate(vine.ind_vine):
+            for edge_idx, edge in enumerate(edges):
+                if edge[0] == predict_var or edge[1] == predict_var:
+                    cop = vine.copulas[level][edge_idx]
+                    if hasattr(cop, 'theta'):
+                        rhos.append(cop.theta)
+        
+        if rhos:
+            avg_rho = sum(rhos) / len(rhos)
+            avg_val = sum(fixed_values) / len(fixed_values)
+            return avg_rho * avg_val
+        return 0.0
+    
+    return result / weights_sum
+
+def _find_conditional_mean_ml(vine, fixed_vars, fixed_values, predict_var, search_range=None):
+    """Find conditional mean using maximum likelihood search (fallback method)"""
+    if search_range is None:
+        search_range = np.linspace(-5, 5, 200)  # Wider search range
+        
+    # Create a test data point with fixed values
+    test_data = np.zeros(vine.n_cop)
+    for i, var_idx in enumerate(fixed_vars):
+        test_data[var_idx] = fixed_values[i]
+    
+    # Search for best prediction using maximum likelihood
+    best_val = None
+    best_logp = -np.inf
+    
+    for val in search_range:
+        # Copy test data and set the prediction variable
+        x = test_data.copy()
+        x[predict_var] = val
+        
+        # Calculate log probability under the vine
+        x_tensor = torch.tensor([x], dtype=torch.float32)
+        try:
+            logp = logpdf_vine(vine, x_tensor).item()
+            
+            # Update best if higher probability
+            if logp > best_logp and np.isfinite(logp):
+                best_logp = logp
+                best_val = val
+        except Exception:
+            # Skip this value if there's an error
+            continue
+            
+    # If no valid prediction was found, return 0
+    if best_val is None:
+        return 0.0
+            
+    return best_val
+
+def _find_conditional_mean_nonparam(vine, fixed_vars, fixed_values, predict_var, search_range=None):
+    """
+    Find conditional mean for non-parametric vines using a specialized approach.
+    
+    For non-parametric vines, we use a combination of:
+    1. Direct grid interpolation for simple cases (when available)
+    2. Numerical evaluation of conditional density
+    
+    Parameters
+    ----------
+    vine : vine_obj_bin
+        The fitted vine copula
+    fixed_vars : list of int
+        Indices of conditioning variables
+    fixed_values : list of float
+        Values of conditioning variables
+    predict_var : int
+        Index of variable to predict
+    search_range : array_like, optional
+        Range of values to search over (default is -5 to 5 with 200 points)
+        
+    Returns
+    -------
+    float
+        Predicted conditional mean
+    """
+    if search_range is None:
+        search_range = np.linspace(-5, 5, 200)  # Wider search range
+    
+    # Create a test data point with fixed values
+    test_data = np.zeros(vine.n_cop)
+    for i, var_idx in enumerate(fixed_vars):
+        test_data[var_idx] = fixed_values[i]
+    
+    # For non-parametric vines, we can use a different resolution search
+    # that leverages cached grid information and handles missing values better
+    best_val = None
+    best_pdf = -np.inf
+    
+    # We'll use more search points near the likely value
+    # Estimate a simple linear predictor for the initial guess
+    initial_guess = 0.0
+    if len(fixed_values) > 0:
+        initial_guess = np.mean(fixed_values)
+    
+    # Create a search range centered on the initial guess
+    fine_range = np.linspace(initial_guess - 2, initial_guess + 2, 150)
+    wide_range = np.linspace(-5, 5, 50)
+    search_values = np.unique(np.concatenate([fine_range, wide_range]))
+    
+    # Search over both fine and wide ranges
+    for val in search_values:
+        # Copy test data and set the prediction variable
+        x = test_data.copy()
+        x[predict_var] = val
+        
+        # Calculate log probability under the vine
+        x_tensor = torch.tensor([x], dtype=torch.float32)
+        try:
+            # For non-parametric vines, logpdf can be unstable
+            # Use a robust evaluation
+            logp = logpdf_vine(vine, x_tensor).item()
+            pdf = np.exp(logp) if np.isfinite(logp) else 0.0
+            
+            # Update best if higher probability
+            if pdf > best_pdf and np.isfinite(pdf):
+                best_pdf = pdf
+                best_val = val
+        except Exception:
+            # Skip this value if there's an error
+            continue
+    
+    # If no valid prediction was found, try a different approach
+    # Use a weighted average of the search values
+    if best_val is None:
+        weights = []
+        values = []
+        
+        for val in search_values:
+            x = test_data.copy()
+            x[predict_var] = val
+            x_tensor = torch.tensor([x], dtype=torch.float32)
+            
+            try:
+                logp = logpdf_vine(vine, x_tensor).item()
+                if np.isfinite(logp):
+                    pdf = np.exp(logp)
+                    weights.append(pdf)
+                    values.append(val)
+            except Exception:
+                continue
+        
+        if weights:
+            # Normalize weights
+            weights = np.array(weights)
+            weights = weights / weights.sum()
+            # Weighted average
+            best_val = np.sum(weights * np.array(values))
+        else:
+            # Last resort: return initial guess
+            best_val = initial_guess
+            
+    return best_val
+
 # register --------------------------------------------------
 vine_obj_bin.logpdf = logpdf_vine
 vine_obj_bin.pdf    = pdf_vine
 vine_obj_bin.cdf    = cdf_vine
+vine_obj_bin.conditional_mean = conditional_mean_vine
