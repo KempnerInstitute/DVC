@@ -1,0 +1,30 @@
+ex_clay20_1
+gauss_data_sim_MI
+main_all_check_sample_clayton_prob_boundary.ipynb
+main_all2.ipynb
+main_all3_fin.ipynb
+simulations_MI_same_data.ipynb
+.vscode/
+
+classes/__pycache__/
+evalu/__pycache__/
+experiments/__pycache__/
+grid/__pycache__/
+info/__pycache__/
+optim/__pycache__/
+param/__pycache__/
+vine_tree/__pycache__/
+pred/__pycache__/
+pre_proc/__pycache__/
+sampling/__pycache__/
+evalu/__pycache__/
+plot/__pycache__/
+
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so

@@ -4,7 +4,38 @@
 
 import torch
 import numpy as np
-from sklearn.model_selection import KFold
+
+# Optional dependency: scikit-learn provides KFold for data splitting.
+# Some environments may not have it installed, so we provide a very small
+# fallback with the same interface.  This keeps the public API unchanged and
+# avoids import errors during testing when sklearn is unavailable.
+try:  # pragma: no cover - behaviour tested via absence of sklearn
+    from sklearn.model_selection import KFold  # type: ignore
+except Exception:  # pragma: no cover - executed when sklearn missing
+    class KFold:  # minimal drop-in replacement
+        def __init__(self, n_splits=5, *, shuffle=True, random_state=None):
+            self.n_splits = int(n_splits)
+            self.shuffle = shuffle
+            self.random_state = random_state
+
+        def split(self, X):
+            n = len(X)
+            indices = np.arange(n)
+            if self.shuffle:
+                rng = np.random.RandomState(self.random_state)
+                rng.shuffle(indices)
+
+            fold_sizes = np.full(self.n_splits, n // self.n_splits, dtype=int)
+            fold_sizes[: n % self.n_splits] += 1
+
+            current = 0
+            for fold_size in fold_sizes:
+                start, stop = current, current + fold_size
+                test_index = indices[start:stop]
+                train_index = np.concatenate([indices[:start], indices[stop:]])
+                yield train_index, test_index
+                current = stop
+
 
 def kfold(data: np.ndarray, n_splits: int):
     """

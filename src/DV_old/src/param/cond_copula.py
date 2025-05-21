@@ -14,7 +14,7 @@ def copulapdf(family: str, theta, uv: torch.Tensor) -> torch.Tensor:
     if family.lower() == 'ind':
         return torch.ones(N, device=device, dtype=uv.dtype)
     elif family.lower() == 'gaussian':
-        r = theta
+        r = torch.as_tensor(theta, dtype=uv.dtype, device=device)
         dist = Normal(0.0, 1.0)
         x = dist.icdf(uv[:, 0])
         y = dist.icdf(uv[:, 1])
@@ -64,7 +64,8 @@ def copulaccdf(family: str, theta, uv: torch.Tensor) -> torch.Tensor:
     if family.lower() == 'ind':
         return uv[:, 0]
     elif family.lower() == 'gaussian':
-        r = theta
+        # ensure 'theta' is a tensor on the same device
+        r = torch.as_tensor(theta, dtype=uv.dtype, device=device)
         dist = Normal(0.0, 1.0)
         x = dist.icdf(uv[:, 0])
         y = dist.icdf(uv[:, 1])
