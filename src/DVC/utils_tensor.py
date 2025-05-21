@@ -35,19 +35,32 @@ def check_bound3(data: torch.Tensor, maxx: float, minn: float) -> torch.Tensor:
     return torch.clamp(data, minn + 1e-10, maxx - 1e-10)
 
 
-def replace_nan_inf(data: torch.Tensor) -> torch.Tensor:
+def replace_nan_inf(t: torch.Tensor, val: float = 1e-12) -> torch.Tensor:
     """
-    Replace any NaN or +/- Inf in 'data' with 0. 
+    Replace any NaN, +Inf, or -Inf values in tensor with val.
     This helps avoid errors in log-likelihood or further computations.
 
     Args:
-      data: shape [...]
+      t: input tensor
+      val: replacement value, defaults to 1e-12
     Returns:
-      out => same shape as data, with no NaN/Inf
+      Tensor with NaN and Inf values replaced
     """
-    data = torch.where(torch.isnan(data), torch.zeros_like(data), data)
-    data = torch.where(torch.isinf(data), torch.zeros_like(data), data)
-    return data
+    t = torch.nan_to_num(t, nan=val, posinf=val, neginf=val)
+    return t
+
+
+def clamp_probs(t: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
+    """
+    Clamp probability values to avoid numerical issues when computing log probabilities.
+
+    Args:
+      t: input tensor containing probability values
+      eps: minimum value to clamp to, defaults to 1e-12
+    Returns:
+      Tensor with values clamped between eps and 1.0-eps
+    """
+    return t.clamp(min=eps, max=1.0 - eps)
 
 
 def replace_negative(data: torch.Tensor, newval: float) -> torch.Tensor:

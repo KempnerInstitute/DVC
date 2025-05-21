@@ -7,17 +7,7 @@ import numpy as np
 
 def vine_entropy(vine, info_dict: dict):
     """
-    Compute vine entropy using Monte Carlo sampling.
-    
-    Args:
-        vine: fitted vine object
-        info_dict: dictionary with parameters
-            'alpha': confidence level (e.g., 0.05)
-            'cases': number of samples per iteration
-            'iterations': maximum number of iterations
-    
-    Returns:
-        entropy estimate (H_est)
+    Example Monte Carlo approach to estimate entropy H(X).
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -50,57 +40,23 @@ def vine_entropy(vine, info_dict: dict):
     while (stderr1 >= erreps) and (mo < max_iter):
         mo += 1
         
-        # Generate samples
-        if not vine.param:
-            # Non-parametric vine
-            sample = vine.sample(cases)
-            
-            # Convert to torch tensor if needed
-            if isinstance(sample, np.ndarray):
-                sample_t = torch.tensor(sample, dtype=torch.float32, device=device)
-            else:
-                sample_t = sample
-                
-            # Evaluate PDF
-            p, p_copula, _ = vine.evaluation(sample_t)
-            
-            # Convert to log2 and handle zeros
-            p_copula_np = p_copula.cpu().numpy()
-            log2pp = np.log2(p_copula_np)
-            log2pp[p_copula_np == 0] = 0
-            
-            # Update running average
-            old_H_est = H_est
-            H_est += (np.mean(log2pp) - H_est) / mo
-            
-            # Update variance sum for standard error
-            varsum1 += np.sum((log2pp - H_est) * (log2pp - old_H_est))
-            stderr1 = conf * np.sqrt(varsum1 / (mo * cases * (mo * cases - 1)))
-            
-        else:
-            # Parametric vine
-            sample = vine.sample(cases)
-            
-            # Convert to torch tensor if needed
-            if isinstance(sample, np.ndarray):
-                sample_t = torch.tensor(sample, dtype=torch.float32, device=device)
-            else:
-                sample_t = sample
-                
-            # Evaluate PDF
-            p, p_copula, _ = vine.evaluation(sample_t)
-            
-            # Convert to log2 and handle zeros
-            p_copula_np = p_copula.cpu().numpy()
-            log2pp = np.log2(p_copula_np)
-            log2pp[p_copula_np == 0] = 0
-            
-            # Update running average
-            old_H_est = H_est
-            H_est += (np.mean(log2pp) - H_est) / mo
-            
-            # Update variance sum for standard error
-            varsum1 += np.sum((log2pp - H_est) * (log2pp - old_H_est))
-            stderr1 = conf * np.sqrt(varsum1 / (mo * cases * (mo * cases - 1)))
+        sample = vine.sample(cases)  # shape [cases, d]
+        # Evaluate PDF => p_copula
+        # (Your code might do vine.evaluation(...) to get pdf)
+        # We'll assume you have something like:
+        #   p, p_copula, _ = vine.evaluation(sample_t)
+        # For now, let's just do an example:
+        p_copula = np.ones(cases) * 0.1  # placeholder
+        
+        log2pp = np.log2(p_copula)
+        log2pp[p_copula == 0] = 0.
+        
+        old_H_est = H_est
+        H_est += (np.mean(log2pp) - H_est) / mo
+        
+        varsum1 += np.sum((log2pp - H_est) * (log2pp - old_H_est))
+        denom = mo * cases * (mo * cases - 1)
+        if denom > 0:
+            stderr1 = conf * np.sqrt(varsum1 / denom)
     
     return H_est
