@@ -19,7 +19,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
+multidim_data/
 # Jupyter Notebook
 .ipynb_checkpoints
 
