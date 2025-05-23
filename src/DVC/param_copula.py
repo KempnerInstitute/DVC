@@ -217,6 +217,10 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
 
     elif fam=='gaussian':
         # param => rho
+        # Handle case where param might be a list
+        if isinstance(param, list):
+            rho = float(param[0])
+        else:
         rho = float(param)
         r = max(min(rho,0.999999), -0.999999)
         one_m_r2 = 1.0 - r*r
@@ -291,6 +295,10 @@ def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         return uv_clamped[:,0]*uv_clamped[:,1]
 
     elif fam=='gaussian':
+        # Handle case where param might be a list
+        if isinstance(param, list):
+            rho = float(param[0])
+        else:
         rho = float(param)
         from scipy.stats import mvn
         # We do bivariate normal cdf => for each point
@@ -358,6 +366,10 @@ def copulainvccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         return uv_clamped[:,1]
 
     elif fam=='gaussian':
+        # Handle case where param might be a list
+        if isinstance(param, list):
+            rho = float(param[0]) if param else 0.0
+        else:
         rho = float(param) if param is not None else 0.0
         if not math.isfinite(rho):
             rho = 0.0

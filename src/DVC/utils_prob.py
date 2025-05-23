@@ -6,6 +6,8 @@ import torch
 import math
 import numpy as np
 from torch.distributions import Normal
+from scipy import stats
+from scipy.stats import norm
 from .utils_tensor import replace_nan_inf
 
 ################################################
@@ -51,6 +53,115 @@ def kernel_cdf(data: np.ndarray,
     cdf_query = np.interp(query_y, sorted_data, cdf_vals)
     cdf_query = np.clip(cdf_query, 1e-15, 1-1e-15)
     return cdf_query, sorted_data, cdf_vals
+
+
+def kernel_cdf_batch(data: torch.Tensor,
+                     query_y: torch.Tensor,
+                     ex: torch.Tensor,
+                     batch_size: int = 1000) -> torch.Tensor:
+    """
+    Batch version of kernel CDF estimation using PyTorch.
+    
+    Args:
+        data: Data points, shape [N, d]
+        query_y: Query points, shape [M, d]
+        ex: Grid extent
+        batch_size: Batch size for processing
+        
+    Returns:
+        CDF values at query points, shape [M, d]
+    """
+    device = data.device
+    N, d = data.shape
+    M = query_y.shape[0]
+    
+    cdf_result = torch.zeros_like(query_y)
+    
+    # Process each dimension
+    for dim in range(d):
+        data_dim = data[:, dim]
+        query_dim = query_y[:, dim]
+        
+        # Sort data for this dimension
+        sorted_data, _ = torch.sort(data_dim)
+        cdf_vals = torch.arange(1, N+1, dtype=data.dtype, device=device) / (N + 1)
+        
+        # Process queries in batches
+        for i in range(0, M, batch_size):
+            end_idx = min(i + batch_size, M)
+            batch_query = query_dim[i:end_idx]
+            
+            # Find insertion points
+            indices = torch.searchsorted(sorted_data, batch_query)
+            indices = torch.clamp(indices, 0, N-1)
+            
+            # Linear interpolation
+            idx_low = torch.clamp(indices - 1, 0, N-1)
+            idx_high = torch.clamp(indices, 0, N-1)
+            
+            # Get values at boundaries
+            low_vals = sorted_data[idx_low]
+            high_vals = sorted_data[idx_high]
+            cdf_low = cdf_vals[idx_low]
+            cdf_high = cdf_vals[idx_high]
+            
+            # Interpolate
+            weights = torch.where(
+                high_vals > low_vals,
+                (batch_query - low_vals) / (high_vals - low_vals + 1e-10),
+                torch.zeros_like(batch_query)
+            )
+            
+            cdf_interp = cdf_low + weights * (cdf_high - cdf_low)
+            cdf_result[i:end_idx, dim] = torch.clamp(cdf_interp, 1e-15, 1-1e-15)
+    
+    return cdf_result
+
+
+def kernel_pdf2(data: torch.Tensor,
+                query_points: torch.Tensor,
+                bandwidth: torch.Tensor,
+                kernel_type: str = 'gaussian') -> torch.Tensor:
+    """
+    2D kernel density estimation.
+    
+    Args:
+        data: Data points, shape [N, 2]
+        query_points: Query points, shape [M, 2]
+        bandwidth: Bandwidth for each dimension, shape [2]
+        kernel_type: Type of kernel ('gaussian', 'epanechnikov')
+        
+    Returns:
+        PDF values at query points, shape [M]
+    """
+    device = data.device
+    N = data.shape[0]
+    M = query_points.shape[0]
+    
+    # Expand dimensions for broadcasting
+    data_expanded = data.unsqueeze(0)  # [1, N, 2]
+    query_expanded = query_points.unsqueeze(1)  # [M, 1, 2]
+    
+    # Compute scaled distances
+    diff = (query_expanded - data_expanded) / bandwidth  # [M, N, 2]
+    
+    if kernel_type == 'gaussian':
+        # Gaussian kernel
+        kernel_vals = torch.exp(-0.5 * (diff ** 2))  # [M, N, 2]
+        kernel_prod = kernel_vals.prod(dim=2)  # [M, N]
+        normalizer = 1.0 / (2.0 * math.pi * bandwidth.prod())
+    elif kernel_type == 'epanechnikov':
+        # Epanechnikov kernel
+        u = torch.norm(diff, dim=2)  # [M, N]
+        kernel_prod = torch.where(u < 1, 0.75 * (1 - u**2), torch.zeros_like(u))
+        normalizer = 1.0 / bandwidth.prod()
+    else:
+        raise ValueError(f"Unknown kernel type: {kernel_type}")
+    
+    # Average over data points
+    pdf_values = normalizer * kernel_prod.mean(dim=1)
+    
+    return pdf_values
 
 
 def kernel_pdf1d(data: torch.Tensor, npts: int = 128):
@@ -150,7 +261,7 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
 
 def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
     """
-    Evaluate the CDF of a param copula. 
+    Evaluate the conditional CDF of a param copula: F(v|u).
     The logic is the same as param_copula's approach.
     """
     fam = getattr(cop_p, 'family', 'ind')
@@ -158,37 +269,44 @@ def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
     uv_clamped = torch.clamp(uv, 1e-9, 1 - 1e-9)
 
     if fam=='ind':
-        return uv_clamped[:,0]*uv_clamped[:,1]
+        # For independence copula, F(v|u) = v
+        return uv_clamped[:,1]
 
     elif fam=='gaussian':
-        import math
-        from scipy.stats import multivariate_normal
         rho = float(param)
-        # do bivariate normal cdf
-        out_list = []
-        for i in range(uv_clamped.shape[0]):
-            uval = uv_clamped[i,0].item()
-            vval = uv_clamped[i,1].item()
-            x = norm.ppf(uval)
-            y = norm.ppf(vval)
-            mean_ = [0.0,0.0]
-            cov_ = [[1.0, rho],[rho,1.0]]
-            cdf_val = multivariate_normal.cdf([x,y], mean=mean_, cov=cov_)
-            out_list.append(cdf_val)
-        return torch.tensor(out_list, dtype=uv.dtype, device=uv.device)
+        r = max(min(rho, 0.999999), -0.999999)
+        normal_dist = torch.distributions.Normal(0., 1.)
+        
+        # Transform to normal space
+        z1 = normal_dist.icdf(uv_clamped[:, 0])
+        z2 = normal_dist.icdf(uv_clamped[:, 1])
+        
+        # Conditional distribution: Z2|Z1 ~ N(rho*Z1, sqrt(1-rho^2))
+        mean_cond = r * z1
+        std_cond = math.sqrt(1 - r**2)
+        
+        # Standardize
+        z_std = (z2 - mean_cond) / std_cond
+        
+        # Return CDF
+        return normal_dist.cdf(z_std)
 
     elif fam=='student':
-        raise NotImplementedError("Student CDF not implemented in 'utils_prob'.")
+        raise NotImplementedError("Student conditional CDF not implemented in 'utils_prob'.")
 
     elif fam=='clayton':
         alpha = float(param)
-        u_ = uv_clamped[:,0]
-        v_ = uv_clamped[:,1]
-        sum_ = u_.pow(-alpha)+ v_.pow(-alpha)-1.0
-        sum_ = torch.clamp(sum_, min=0.0)
-        cdf_ = sum_.pow(-1.0/ alpha)
-        cdf_ = torch.clamp(cdf_, 0.0, 1.0)
-        return cdf_
+        u = uv_clamped[:, 0]
+        v = uv_clamped[:, 1]
+        
+        # h(v|u) = u^(-alpha-1) * (u^(-alpha) + v^(-alpha) - 1)^(-1/alpha - 1)
+        u_neg_alpha = torch.pow(u, -alpha)
+        v_neg_alpha = torch.pow(v, -alpha)
+        sum_term = u_neg_alpha + v_neg_alpha - 1.0
+        sum_term = torch.clamp(sum_term, min=1e-14)
+        
+        h_vu = torch.pow(u, -alpha - 1) * torch.pow(sum_term, -1.0/alpha - 1.0)
+        return torch.clamp(h_vu, 0.0, 1.0)
 
     elif fam=='claytonrot90':
         alpha = float(param)
@@ -200,24 +318,25 @@ def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         tmp = TempCop()
         tmp.family='clayton'
         tmp.theta=alpha
-        cdf_flip = copulaccdf(tmp, uv_flip)
-        return cdf_flip
+        h_flip = copulaccdf(tmp, uv_flip)
+        # For 90 degree rotation, we need to adjust
+        return 1.0 - h_flip
 
     else:
-        return torch.zeros(uv.shape[0], dtype=uv.dtype, device=uv.device)
+        return uv_clamped[:,1]
 
 
 def copulainvccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
     """
     Inverse conditional cdf for param copula => sample from copula.
-    For 2D: given U1=..., find U2 = F^-1( c2 | U1 ).
+    For 2D: given U1=u and W=w (uniform), find U2 such that F(U2|U1=u) = w.
     """
     fam = getattr(cop_p, 'family', 'ind')
     param = getattr(cop_p, 'theta', None)
     uv_clamped = torch.clamp(uv, 1e-9, 1-1e-9)
 
     if fam=='ind':
-        # trivially => second = uv[:,1]
+        # For independence, F^{-1}(w|u) = w
         return uv_clamped[:,1]
 
     elif fam=='gaussian':
@@ -232,19 +351,21 @@ def copulainvccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         return torch.clamp(v2, 0.0, 1.0)
 
     elif fam=='student':
-        raise NotImplementedError("Student inverse CCDF not implemented in 'utils_prob'.")
+        raise NotImplementedError("Student inverse conditional CDF not implemented in 'utils_prob'.")
 
     elif fam=='clayton':
         alpha = float(param)
         u1 = uv_clamped[:,0]
-        c2 = uv_clamped[:,1]
-        # formula => ( c2^( -alpha/(1+ alpha)) - u1^-alpha +1 )^(-1/ alpha)
-        u1_m_alpha = torch.pow(u1, -alpha)
-        c2_pow = torch.pow(c2, -alpha/(1.0+ alpha))
-        val = c2_pow - u1_m_alpha + 1.0
-        val = torch.clamp(val, min=1e-14)
-        u2 = torch.pow(val, -1.0/ alpha)
-        return torch.clamp(u2, 0.0, 1.0)
+        w = uv_clamped[:,1]
+        
+        # Inverse of h-function for Clayton copula
+        # v = [(1 - u^alpha + u^alpha * w^(-alpha/(alpha+1))]^(-1/alpha)
+        u_alpha = torch.pow(u1, alpha)
+        w_term = torch.pow(w, -alpha/(alpha + 1.0))
+        inner = 1.0 - u_alpha + u_alpha * w_term
+        inner = torch.clamp(inner, min=1e-14)
+        v = torch.pow(inner, -1.0/alpha)
+        return torch.clamp(v, 0.0, 1.0)
 
     elif fam=='claytonrot90':
         alpha = float(param)

@@ -87,6 +87,24 @@ def define_copulas(vine_type: str,
     return r_matrix, cop_vine, ind_vine, nodes, matrix_edges, margin_vine
 
 
+def prep_copula(x: np.ndarray, offset: float = 0.0) -> np.ndarray:
+    """
+    Simple preprocessing for copula data.
+    
+    Args:
+        x: Input data array
+        offset: Optional offset to add
+        
+    Returns:
+        Preprocessed data
+    """
+    # Ensure data is in valid range, add small offset if needed
+    x_out = x.copy()
+    if offset > 0:
+        x_out = x_out + offset * np.random.uniform(-1, 1, x.shape)
+    return x_out
+
+
 def prep_cop(x: np.ndarray,
              vine1,
              sort_n: str = 'sort'):

@@ -1,12 +1,9 @@
 ##################################################
-# DVC/grid_ops.py
+# src/DVC/grid_ops.py
 ##################################################
 import torch
 
 class grid_obj:
-    """
-    Simple object to hold a 2D grid ex of shape [K^2, 2].
-    """
     def __init__(self, ex: torch.Tensor):
         self.ex = ex
         self.ax1 = None
@@ -69,18 +66,11 @@ class grid_obj:
         return self.step
 
 def mk_grid(knots: int, dtype=torch.float32):
-    """
-    Create a 2D grid with shape [knots^2, 2], mimicking the TF logic.
-    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     normal_dist = torch.distributions.Normal(0., 1.)
-
-    # define range in normal scale
     start_val = normal_dist.cdf(torch.tensor(-3.2, dtype=dtype, device=device))
     end_val   = normal_dist.cdf(torch.tensor( 3.2, dtype=dtype, device=device))
-
     points = normal_dist.icdf(torch.linspace(start_val, end_val, knots, dtype=dtype, device=device))
     xx, yy = torch.meshgrid(points, points, indexing='ij')
-
     expanded = torch.cat([xx.reshape(-1,1), yy.reshape(-1,1)], dim=1)
     return expanded

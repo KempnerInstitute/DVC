@@ -1,18 +1,17 @@
 ##################################################
-# DVC/dataset_ops.py
+# src/DVC/dataset_ops.py
 ##################################################
 import torch
 import numpy as np
 
 try:
-    from sklearn.model_selection import KFold
-except Exception:
+    from sklearn.model_selection import KFold  # type: ignore
+except ImportError:
     class KFold:
         def __init__(self, n_splits=5, shuffle=True, random_state=None):
             self.n_splits = n_splits
             self.shuffle = shuffle
             self.random_state = random_state
-
         def split(self, X):
             n = len(X)
             indices = np.arange(n)
@@ -49,8 +48,7 @@ def create_bins(data: np.ndarray, n_bin: int):
     data_sorted = np.sort(data)
     length = len(data_sorted)
     step = length // n_bin
-    bins = []
-    bins.append(data_sorted[0] - 1e-15)
+    bins = [data_sorted[0] - 1e-15]
     for i in range(1, n_bin):
         bins.append(data_sorted[step * i])
     bins.append(data_sorted[-1] + 1e-15)
@@ -71,4 +69,4 @@ def check_bins(data: np.ndarray, bins: np.ndarray):
             end_idx = length
         these_inds = sorted_indices[start_idx:end_idx]
         val_to_bin2[these_inds] = bb
-    return val_to_bin2 
+    return val_to_bin2

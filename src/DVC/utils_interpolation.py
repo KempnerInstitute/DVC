@@ -64,6 +64,82 @@ def batch_interp1d_linear(x: torch.Tensor,
     return interp1d_linear_gpu(x, xp, fp)
 
 
+def interp_regular_nd_grid(x: torch.Tensor,
+                          x_grid_min: torch.Tensor,
+                          x_grid_max: torch.Tensor,
+                          y_ref: torch.Tensor,
+                          axis: int = -2) -> torch.Tensor:
+    """
+    Interpolate on a regular N-D grid (similar to TensorFlow's 
+    tfp.math.batch_interp_regular_nd_grid).
+    
+    Args:
+        x: Query points, shape [..., N, D]
+        x_grid_min: Minimum grid values for each dimension, shape [D]
+        x_grid_max: Maximum grid values for each dimension, shape [D]
+        y_ref: Values on the regular grid
+        axis: Axis for batch interpolation
+        
+    Returns:
+        Interpolated values at query points
+    """
+    device = x.device
+    dtype = x.dtype
+    
+    # Get dimensions
+    batch_shape = x.shape[:-1]
+    n_dims = x.shape[-1]
+    
+    # Normalize query points to [0, 1]
+    x_normalized = (x - x_grid_min) / (x_grid_max - x_grid_min + 1e-8)
+    x_normalized = torch.clamp(x_normalized, 0.0, 1.0)
+    
+    # For 2D case (most common in copulas)
+    if n_dims == 2 and y_ref.dim() == 2:
+        # Convert to grid_sample format
+        # grid_sample expects coordinates in [-1, 1]
+        x_grid_sample = 2.0 * x_normalized - 1.0
+        
+        # Reshape for grid_sample
+        # y_ref: [H, W] -> [1, 1, H, W]
+        y_ref_4d = y_ref.unsqueeze(0).unsqueeze(0)
+        
+        # x_grid_sample: [..., 2] -> [1, ..., 1, 2]
+        x_flat = x_grid_sample.reshape(-1, 2)
+        grid = x_flat.unsqueeze(0).unsqueeze(1)  # [1, 1, N, 2]
+        
+        # Interpolate
+        output = F.grid_sample(
+            y_ref_4d,
+            grid,
+            mode='bilinear',
+            align_corners=True,
+            padding_mode='border'
+        )
+        
+        # Reshape back
+        output = output.squeeze(0).squeeze(0).squeeze(0)
+        output = output.reshape(batch_shape)
+        
+        return output
+    else:
+        # For general N-D case, use a simpler nearest neighbor approach
+        # This is a placeholder - for production, implement proper N-D interpolation
+        x_indices = (x_normalized * (torch.tensor(y_ref.shape[:n_dims], device=device) - 1)).long()
+        x_indices = torch.clamp(x_indices, 0, torch.tensor(y_ref.shape[:n_dims], device=device) - 1)
+        
+        # Convert indices to flat index
+        flat_indices = x_indices[..., 0]
+        for d in range(1, n_dims):
+            flat_indices = flat_indices * y_ref.shape[d] + x_indices[..., d]
+        
+        # Gather values
+        y_flat = y_ref.flatten()
+        output = y_flat[flat_indices]
+        
+        return output
+
+
 def nearestInterp2d(sample_s: torch.Tensor,
                     pro_s1: torch.Tensor,
                     pro_s2: torch.Tensor,

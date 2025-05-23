@@ -127,19 +127,31 @@ def random_tree(vine_depth, ind_vine, tr):
     V.remove(start_)
 
     while V:
-        best_ = random.uniform(-1,1)
+        best_ = -2.0  # Start with very low value to ensure at least one edge is selected
         best_u, best_v = None, None
+        
+        # Ensure we select at least one edge
+        candidates = []
         for i in Q:
             for j in V:
-                w = random.uniform(-1,1)
-                if abs(w) > abs(best_):
-                    best_ = w
-                    best_u = i
-                    best_v = j
-        Q.add(best_v)
-        V.remove(best_v)
-        edges.append([best_u, best_v])
-        weights.append(best_)
+                w = random.uniform(-1, 1)
+                candidates.append((abs(w), w, i, j))
+        
+        # If we have candidates, pick the best one
+        if candidates:
+            candidates.sort(reverse=True)  # Sort by absolute weight
+            _, best_, best_u, best_v = candidates[0]
+        else:
+            # Fallback: just pick first available edge
+            best_u = next(iter(Q))
+            best_v = next(iter(V))
+            best_ = random.uniform(-1, 1)
+        
+        if best_v is not None:
+            Q.add(best_v)
+            V.remove(best_v)
+            edges.append([best_u, best_v])
+            weights.append(best_)
 
     return edges, weights
 

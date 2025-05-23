@@ -1,30 +1,17 @@
 ##################################################
-# DVC/config.py
+# src/DVC/config.py
 ##################################################
-
-"""Central place for default settings and YAML config loading.
-
-Usage
------
->>> from DVC.config import load_config, DEFAULT_CFG
->>> cfg = load_config("my_experiment.yaml")
-"""
-
 import copy
 from pathlib import Path
 from typing import Any, Dict, Union
 
 try:
-    import yaml
+    import yaml  # type: ignore
 except ImportError:
     yaml = None
 
-# ---------------------------------------------------------------------
-# Default configuration dictionary – mutating in-place is discouraged.
-# ---------------------------------------------------------------------
 DEFAULT_CFG: Dict[str, Any] = {
     "optimizer": {
-        # optimise all edges of a tree level in one batched pass
         "batch_edges": True,
         "batch_size": 5,
         "max_iter_phase1": 70,
@@ -51,32 +38,21 @@ DEFAULT_CFG: Dict[str, Any] = {
     },
 }
 
-# ---------------------------------------------------------------------
-# Helper functions
-# ---------------------------------------------------------------------
-
 def _recursive_update(base: Dict[str, Any], override: Dict[str, Any]):
-    """Recursively merge *override* into *base* (in-place)."""
     for k, v in override.items():
         if isinstance(v, dict) and k in base and isinstance(base[k], dict):
             _recursive_update(base[k], v)
         else:
             base[k] = v
 
-
 def load_config(path: Union[str, Path, None] = None) -> Dict[str, Any]:
-    """Load a YAML config file and merge with :pydata:`DEFAULT_CFG`.
-
-    If *path* is ``None`` or the file does not exist / cannot be parsed the
-    default configuration is returned.
-    """
     cfg = copy.deepcopy(DEFAULT_CFG)
     if path is None:
         return cfg
 
     path = Path(path)
     if not path.is_file():
-        print(f"[DVC] Config file '{path}' not found – falling back to defaults.")
+        print(f"[DVC] Config file '{path}' not found – using defaults.")
         return cfg
 
     if yaml is None:
@@ -91,4 +67,4 @@ def load_config(path: Union[str, Path, None] = None) -> Dict[str, Any]:
         _recursive_update(cfg, user_cfg)
     except Exception as exc:
         print(f"[DVC] Failed to parse config '{path}': {exc}. Using defaults.")
-    return cfg 
+    return cfg
