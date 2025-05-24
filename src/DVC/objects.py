@@ -54,7 +54,6 @@ class vine_obj_bin:
         self.n_bin = 1
         self.param = False
         self.fitted = False
-        self.sample = None
         self.d_vine_patched = False
         
         # Additional attributes from TF implementation

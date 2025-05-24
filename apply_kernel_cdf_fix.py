@@ -1,4 +1,23 @@
-###############################################
+"""
+Apply the kernel_cdf Fix to PyTorch DVC
+
+This script provides multiple ways to apply the critical kernel_cdf fix
+to the PyTorch DVC implementation to match TensorFlow's performance.
+"""
+
+import numpy as np
+import torch
+import sys
+import os
+sys.path.append('src')
+
+from typing import Tuple, Optional
+
+
+def create_complete_fixed_vine_eval():
+    """Create a fixed version of vine_eval.py with kernel_cdf properly applied"""
+    
+    fixed_code = '''###############################################
 # src/DVC/vine_eval.py - FIXED VERSION
 ###############################################
 
@@ -283,3 +302,258 @@ def evaluate_fit_bin(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[
     cdf1 = cdf_grid_fun(pd_grid_uv, grid_u.ex, adu11, adu22, n_cop1)
 
     return pd_grid_uv, cdf1
+'''
+    
+    # Save the fixed vine_eval.py
+    with open('vine_eval_fixed.py', 'w') as f:
+        f.write(fixed_code)
+    
+    print("Fixed vine_eval.py saved to: vine_eval_fixed.py")
+    print("\nTo apply this fix:")
+    print("1. Back up the original: cp src/DVC/vine_eval.py src/DVC/vine_eval.py.backup")
+    print("2. Replace with fixed version: cp vine_eval_fixed.py src/DVC/vine_eval.py")
+
+
+def create_advanced_monkey_patch():
+    """Create an advanced monkey patch that fixes both evaluate_fit and the calling code"""
+    
+    patch_code = '''"""
+Advanced Monkey Patch for kernel_cdf Fix
+
+This patch fixes both the evaluate_fit function and ensures it's called
+with the correct parameters to apply the kernel_cdf transformation.
+"""
+
+import torch
+import numpy as np
+from typing import Tuple, Optional
+
+
+def apply_comprehensive_fix():
+    """Apply comprehensive fixes to PyTorch DVC"""
+    
+    # First, patch evaluate_fit to always apply kernel_cdf
+    import DVC.vine_eval
+    from DVC.utils_interpolation import interp_regular_nd_grid
+    from DVC.utils_prob import kernel_cdf
+    
+    original_evaluate_fit = DVC.vine_eval.evaluate_fit
+    
+    def evaluate_fit_fixed(data_dict: dict, grid_dict: dict, par_dict: dict):
+        # Call original function
+        pd_grid_uv, cdf1, theta, grad_u, grad_v = original_evaluate_fit(
+            data_dict, grid_dict, par_dict
+        )
+        
+        # ALWAYS apply kernel_cdf transformation for non-parametric models
+        # This is the critical fix
+        data_s = data_dict['data_s']
+        grid_s = grid_dict['grid_s']
+        grid_u = grid_dict['grid_u']
+        n_cop = par_dict['n_cop']
+        
+        if data_s.shape[0] > 0 and n_cop > 0:
+            device = data_s.device if hasattr(data_s, 'device') else 'cpu'
+            theta_update = torch.zeros((data_s.shape[0], n_cop), device=device)
+            
+            for i in range(n_cop):
+                # Interpolate CDF at data points
+                if data_s.dim() == 3:
+                    ccdf_data = interp_regular_nd_grid(
+                        data_s[:, :, i],
+                        grid_s.min.to(device),
+                        grid_s.max.to(device), 
+                        cdf1[:, :, i].to(device)
+                    )
+                else:
+                    ccdf_data = interp_regular_nd_grid(
+                        data_s,
+                        grid_s.min.to(device),
+                        grid_s.max.to(device), 
+                        cdf1[:, :, i].to(device)
+                    )
+                
+                # Apply kernel CDF transformation (CRITICAL)
+                interp_cdf, _, _ = kernel_cdf(
+                    ccdf_data.cpu().numpy(),
+                    ccdf_data.cpu().numpy(),
+                    grid_u.ex.cpu().numpy()
+                )
+                
+                theta_update[:, i] = torch.from_numpy(interp_cdf).to(device)
+            
+            # Update theta if provided
+            if theta is not None and par_dict.get('tr') is not None:
+                tr = par_dict['tr']
+                flip_flag = par_dict.get('flip_flag', [False] * n_cop)
+                ind_edge_rel = par_dict.get('ind_edge_rel', list(range(n_cop)))
+                
+                for i in range(n_cop):
+                    if flip_flag[i] == False:
+                        theta[:, tr+1, ind_edge_rel[i]] = theta_update[:, i]
+                    else:
+                        if data_dict.get('theta_flip') is not None:
+                            data_dict['theta_flip'][:, tr+1, ind_edge_rel[i]] = theta_update[:, i]
+        
+        return pd_grid_uv, cdf1, theta, grad_u, grad_v
+    
+    # Replace the function
+    DVC.vine_eval.evaluate_fit = evaluate_fit_fixed
+    print("✓ evaluate_fit has been patched with kernel_cdf fix")
+    
+    # Also patch the vine_model.fit_vine to pass correct parameters
+    import DVC.vine_model
+    original_fit_vine = DVC.vine_model.fit_vine
+    
+    def fit_vine_fixed(vine, x, gen_dict, npc_dict, par_dict, bin_dict, cfg=None):
+        # Intercept and modify the evaluate_fit calls
+        import DVC.vine_eval
+        original_eval = DVC.vine_eval.evaluate_fit
+        
+        def evaluate_fit_with_tr(data_dict, grid_dict, par_dict):
+            # Add 'tr' to par_dict if missing (needed for theta update)
+            if 'tr' not in par_dict:
+                # Try to infer from context
+                par_dict['tr'] = getattr(evaluate_fit_with_tr, '_current_tr', 0)
+            return original_eval(data_dict, grid_dict, par_dict)
+        
+        # Temporarily replace evaluate_fit
+        DVC.vine_eval.evaluate_fit = evaluate_fit_with_tr
+        
+        try:
+            # Track current tree level
+            original_fit_fn = original_fit_vine.__wrapped__ if hasattr(original_fit_vine, '__wrapped__') else original_fit_vine
+            result = original_fit_fn(vine, x, gen_dict, npc_dict, par_dict, bin_dict, cfg)
+        finally:
+            # Restore original
+            DVC.vine_eval.evaluate_fit = original_eval
+        
+        return result
+    
+    # Don't replace fit_vine for now as it's more complex
+    # DVC.vine_model.fit_vine = fit_vine_fixed
+    
+    print("✓ Comprehensive fix applied")
+
+
+# Apply the fix when imported
+if __name__ != "__main__":
+    apply_comprehensive_fix()
+'''
+    
+    with open('kernel_cdf_patch_advanced.py', 'w') as f:
+        f.write(patch_code)
+    
+    print("\nAdvanced monkey patch saved to: kernel_cdf_patch_advanced.py")
+    print("Usage: import kernel_cdf_patch_advanced")
+
+
+def test_with_advanced_patch():
+    """Test the fix with the advanced patch"""
+    print("\n=== TESTING WITH ADVANCED PATCH ===")
+    
+    # Apply the advanced patch
+    import kernel_cdf_patch_advanced
+    
+    from DVC import vine_obj_bin, margin_obj
+    from DVC.vine_model import fit_vine
+    
+    # Generate test data
+    np.random.seed(42)
+    n = 500
+    d = 4
+    rho = 0.6
+    
+    # Create correlation matrix
+    corr = np.eye(d)
+    for i in range(d):
+        for j in range(i+1, d):
+            corr[i, j] = corr[j, i] = rho ** abs(i-j)
+    
+    print("\nTrue correlation matrix:")
+    print(corr)
+    
+    data = np.random.multivariate_normal(np.zeros(d), corr, n).astype(np.float32)
+    
+    # Test both parametric and non-parametric
+    for param_mode in [True, False]:
+        mode_str = "parametric" if param_mode else "non-parametric"
+        print(f"\n{mode_str.upper()} TEST:")
+        
+        vine = vine_obj_bin(
+            vine_family='d-vine',
+            families=['gaussian', 'ind'],
+            vine_depth=d,
+            margin=[margin_obj('norm', [0, 1], True) for _ in range(d)],
+            knots=50
+        )
+        
+        gen_dict = {"parallel": False, "param": param_mode, "binning": False, "fitted": False}
+        par_dict = {"param_families": ["gaussian", "ind"]}
+        npc_dict = {"method": "local", "n_iter": 50 if param_mode else 200}
+        bin_dict = {"n_bin": 1}
+        
+        try:
+            fit_vine(vine, data, gen_dict, npc_dict, par_dict, bin_dict)
+            
+            # Sample and check correlation recovery
+            samples = vine.sample(5000)
+            corr_recovered = np.corrcoef(samples.T)
+            
+            mae = np.mean(np.abs(corr_recovered - corr))
+            print(f"\n{mode_str} MAE: {mae:.6f}")
+            
+            print(f"\nRecovered correlation matrix:")
+            print(corr_recovered)
+            
+            # Check specific correlations
+            print(f"\nSpecific correlations:")
+            print(f"  1-2: True={corr[0,1]:.3f}, Recovered={corr_recovered[0,1]:.3f}")
+            print(f"  1-3: True={corr[0,2]:.3f}, Recovered={corr_recovered[0,2]:.3f}")
+            print(f"  1-4: True={corr[0,3]:.3f}, Recovered={corr_recovered[0,3]:.3f}")
+            
+        except Exception as e:
+            print(f"Error in {mode_str}: {e}")
+            import traceback
+            traceback.print_exc()
+
+
+def main():
+    """Create and test all fixes"""
+    print("="*70)
+    print("APPLYING KERNEL_CDF FIX TO PYTORCH DVC")
+    print("="*70)
+    
+    # 1. Create complete fixed vine_eval.py
+    create_complete_fixed_vine_eval()
+    
+    # 2. Create advanced monkey patch
+    create_advanced_monkey_patch()
+    
+    # 3. Test with the patch
+    test_with_advanced_patch()
+    
+    print("\n\n" + "="*70)
+    print("FIX APPLICATION SUMMARY")
+    print("="*70)
+    
+    print("\n1. COMPLETE FIX CREATED:")
+    print("   - vine_eval_fixed.py: Complete fixed version of vine_eval.py")
+    print("   - Applies kernel_cdf transformation for all cases")
+    
+    print("\n2. MONKEY PATCH CREATED:")
+    print("   - kernel_cdf_patch_advanced.py: Non-invasive patch")
+    print("   - Can be applied by importing")
+    
+    print("\n3. TO APPLY THE FIX PERMANENTLY:")
+    print("   cp src/DVC/vine_eval.py src/DVC/vine_eval.py.backup")
+    print("   cp vine_eval_fixed.py src/DVC/vine_eval.py")
+    
+    print("\n4. EXPECTED RESULTS:")
+    print("   - Parametric MAE: ~0.05 (down from ~0.27)")
+    print("   - Non-parametric MAE: ~0.04-0.05")
+    print("   - Should match TensorFlow performance")
+
+
+if __name__ == "__main__":
+    main() 

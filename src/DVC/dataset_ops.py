@@ -4,29 +4,8 @@
 import torch
 import numpy as np
 
-try:
-    from sklearn.model_selection import KFold  # type: ignore
-except ImportError:
-    class KFold:
-        def __init__(self, n_splits=5, shuffle=True, random_state=None):
-            self.n_splits = n_splits
-            self.shuffle = shuffle
-            self.random_state = random_state
-        def split(self, X):
-            n = len(X)
-            indices = np.arange(n)
-            if self.shuffle:
-                rng = np.random.RandomState(self.random_state)
-                rng.shuffle(indices)
-            fold_sizes = np.full(self.n_splits, n // self.n_splits, dtype=int)
-            fold_sizes[: n % self.n_splits] += 1
-            current = 0
-            for fold_size in fold_sizes:
-                start, stop = current, current + fold_size
-                test_index = indices[start:stop]
-                train_index = np.concatenate([indices[:start], indices[stop:]])
-                yield train_index, test_index
-                current = stop
+
+from sklearn.model_selection import KFold  # type: ignore
 
 def kfold(data: np.ndarray, n_splits: int):
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=1234)

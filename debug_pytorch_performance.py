@@ -2,7 +2,7 @@
 Debug PyTorch vs TensorFlow Performance Issues
 
 This script performs focused investigation to understand why PyTorch 
-vine copulas are performing worse than TensorFlow implementation.
+vine.copulass are performing worse than TensorFlow implementation.
 """
 
 import numpy as np
@@ -73,11 +73,11 @@ def debug_pytorch_fitting(data, vine_type='d-vine', approach='parametric'):
     for i in range(dim):
         margin = margin_obj('norm', [0, 1], True)
         vine.margin.append(margin)
-        print(f"   Margin {i}: {margin.family}")
+        print(f"   Margin {i}: {margin.dist}")
     
     # Configuration
     is_parametric = (approach == 'parametric')
-    gen_dict = {"parallel": False, "param": is_parametric, "binning": False}
+    gen_dict = {"parallel": False, "param": is_parametric, "binning": False, "fitted": False}
     par_dict = {"param_families": ["gaussian", "ind"]}
     npc_dict = {"method": "local", "n_iter": 50 if is_parametric else 100}
     bin_dict = {"n_bin": 1}
@@ -95,18 +95,25 @@ def debug_pytorch_fitting(data, vine_type='d-vine', approach='parametric'):
     try:
         fit_vine(vine, data, gen_dict, npc_dict, par_dict, bin_dict)
         fit_time = time.time() - start_time
-        print(f"   ✓ Fit successful in {fit_time:.3f}s")
+        print("   ✓ Fit successful in {:.3f}s".format(fit_time))
         
-        # Check vine structure
-        print("5. Checking fitted vine structure...")
+        # Debug: Print fitted parameters
+        print("7. Fitted copula parameters:")
+        for level_idx, level_copulas in enumerate(vine.copulas):
+            print(f"   Level {level_idx}:")
+            for edge_idx, cop in enumerate(level_copulas):
+                if hasattr(cop, 'family'):
+                    print(f"      Edge {edge_idx}: family={cop.family}, theta={cop.theta}")
+                    
+        print("8. Checking fitted vine structure...")
         print(f"   Vine family: {vine.vine_family}")
-        print(f"   Vine depth: {vine.vine_depth}")
+        print(f"   Vine depth: {vine.n_cop}")
         print(f"   Number of margins: {len(vine.margin)}")
         
         # Check copula parameters
-        if hasattr(vine, 'copula') and vine.copula:
-            print(f"   Number of copulas: {len(vine.copula)}")
-            for level, cop_level in enumerate(vine.copula):
+        if hasattr(vine, 'copula') and vine.copulas:
+            print(f"   Number of copulas: {len(vine.copulas)}")
+            for level, cop_level in enumerate(vine.copulas):
                 print(f"   Level {level}: {len(cop_level)} copulas")
                 for i, cop in enumerate(cop_level):
                     if hasattr(cop, 'theta') and cop.theta is not None:
@@ -161,7 +168,7 @@ def debug_tensorflow_fitting(data, vine_type='d-vine', approach='parametric'):
         margin = tf_margin_obj('norm', [0, 1], True)
         margin.ker = data[:, i]
         vine.margin.append(margin)
-        print(f"   Margin {i}: {margin.family}")
+        print(f"   Margin {i}: {margin.dist}")
     
     # Configuration
     is_parametric = (approach == 'parametric')
@@ -185,16 +192,23 @@ def debug_tensorflow_fitting(data, vine_type='d-vine', approach='parametric'):
         fit_time = time.time() - start_time
         print(f"   ✓ Fit successful in {fit_time:.3f}s")
         
-        # Check vine structure
-        print("5. Checking fitted vine structure...")
+        # Debug: Print fitted parameters
+        print("7. Fitted copula parameters:")
+        for level_idx, level_copulas in enumerate(vine.copulas):
+            print(f"   Level {level_idx}:")
+            for edge_idx, cop in enumerate(level_copulas):
+                if hasattr(cop, 'family'):
+                    print(f"      Edge {edge_idx}: family={cop.family}, theta={cop.theta}")
+        
+        print("8. Checking fitted vine structure...")
         print(f"   Vine family: {vine.vine_family}")
-        print(f"   Vine depth: {vine.vine_depth}")
+        print(f"   Vine depth: {vine.n_cop}")
         print(f"   Number of margins: {len(vine.margin)}")
         
         # Check copula parameters
-        if hasattr(vine, 'copula') and vine.copula:
-            print(f"   Number of copulas: {len(vine.copula)}")
-            for level, cop_level in enumerate(vine.copula):
+        if hasattr(vine, 'copula') and vine.copulas:
+            print(f"   Number of copulas: {len(vine.copulas)}")
+            for level, cop_level in enumerate(vine.copulas):
                 print(f"   Level {level}: {len(cop_level)} copulas")
                 for i, cop in enumerate(cop_level):
                     if hasattr(cop, 'theta') and cop.theta is not None:

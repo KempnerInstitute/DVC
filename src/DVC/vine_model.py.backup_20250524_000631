@@ -30,7 +30,7 @@ from .dataset_ops import create_bins, check_bins
 # -------------------------------------------------------------
 
 # Basic objects
-from .d_vine_fix import sample_d_vine, apply_d_vine_fix
+from .objects import vine_obj_bin, copula_obj, cop_par_obj
 from .utils_locallik import loclik_batch_eval
 from .param_copula import parametric_fit, copulapdf, copulainvccdf
 from .vine_tree import parent_var, flip_check_all
@@ -251,9 +251,6 @@ def fit_vine(vine: vine_obj_bin,
     vine.theta = torch.zeros((x.shape[0], d, d), dtype=torch.float32, device=device)
     vine.theta_flip = torch.zeros((x.shape[0], d, d), dtype=torch.float32, device=device)
     
-    # Initialize flip_flag for tracking conditional directions
-    vine.flip_flag = []
-    
     # Prepare margins
     for i in range(d):
         # Store ranks/CDFs in theta
@@ -423,7 +420,6 @@ def fit_vine(vine: vine_obj_bin,
         
         # Initialize list for this level's copulas
         copulas_level = []
-        flip_flags_level = []  # Track flip flags for this level
         
         # ------------- PARAMETRIC edges processed one-by-one -------------
         if vine.param:
@@ -680,7 +676,6 @@ def fit_vine(vine: vine_obj_bin,
         
         # Store this level's copulas
         vine.copulas.append(copulas_level)
-        vine.flip_flag.append(flip_flags_level)
         
         # ---- propagate theta / theta_flip for next level ----
         next_level = tr + 1
@@ -688,49 +683,27 @@ def fit_vine(vine: vine_obj_bin,
             for e_idx, edge in enumerate(edges_now):
                 i, j = edge  # left, right variables
                 cobj_now = copulas_level[e_idx]
-                
-                # Determine if we need to use flipped values
-                if tr == 0:
-                    u_i = vine.theta[:, tr, i]
-                    u_j = vine.theta[:, tr, j]
-                    flip_flags_level.append(False)
-                else:
-                    # Check parent variable
-                    parent, _, _ = parent_var(tr, vine.ind_vine, edge)
-                    
-                    # Check if we need flipped theta for i
-                    if i < len(vine.ind_vine[tr-1]):
-                        prev_edge = vine.ind_vine[tr-1][i]
-                        if prev_edge[0] != parent:
-                            u_i = vine.theta_flip[:, tr, i]
-                            flip_flags_level.append(True)
-                        else:
-                            u_i = vine.theta[:, tr, i]
-                            flip_flags_level.append(False)
-                    else:
-                        u_i = vine.theta[:, tr, i]
-                        flip_flags_level.append(False)
-                    
-                    u_j = vine.theta[:, tr, j]
+                u_i = vine.theta[:, tr, i]
+                u_j = vine.theta[:, tr, j]
                 
                 # Debug: Check for NaN values before h-function
                 if torch.isnan(u_i).any() or torch.isnan(u_j).any():
                     logger.warning(f"NaN values in theta before h-function at level {tr}, edge {e_idx}")
+                    logger.warning(f"u_i stats: min={u_i.min()}, max={u_i.max()}, nan_count={torch.isnan(u_i).sum()}")
+                    logger.warning(f"u_j stats: min={u_j.min()}, max={u_j.max()}, nan_count={torch.isnan(u_j).sum()}")
                 
-                # Apply h-function with proper error handling
-                try:
-                    # main direction - conditional CDF of u_j given u_i
-                    h_val = _h_function(u_i, u_j, cobj_now, vine.grid_u, side="left")
-                    vine.theta[:, next_level, j] = torch.clamp(h_val, 1e-9, 1-1e-9)
-                    
-                    # flipped direction - conditional CDF of u_i given u_j
-                    h_val_flip = _h_function(u_j, u_i, cobj_now, vine.grid_u, side="right")
-                    vine.theta_flip[:, next_level, i] = torch.clamp(h_val_flip, 1e-9, 1-1e-9)
-                except Exception as e:
-                    logger.error(f"Error in h-function at level {tr}, edge {e_idx}: {str(e)}")
-                    # Fallback to independence
-                    vine.theta[:, next_level, j] = u_j
-                    vine.theta_flip[:, next_level, i] = u_i
+                # main direction - conditional CDF of u_j given u_i
+                vine.theta[:, next_level, j] = _h_function(u_i, u_j, cobj_now, vine.grid_u, side="left")
+                # flipped direction - conditional CDF of u_i given u_j
+                # Note: we use side="right" here since we're computing the other conditional distribution
+                vine.theta_flip[:, next_level, i] = _h_function(u_j, u_i, cobj_now, vine.grid_u, side="right")
+                
+                # Debug: Check for NaN values after h-function
+                if torch.isnan(vine.theta[:, next_level, j]).any():
+                    logger.warning(f"NaN values in theta after h-function at level {tr}, edge {e_idx}")
+                    logger.warning(f"Copula family: {cobj_now.family if hasattr(cobj_now, 'family') else 'non-parametric'}")
+                    if hasattr(cobj_now, 'theta'):
+                        logger.warning(f"Copula parameter: {cobj_now.theta}")
         # ------------------------------------------------------
 
     vine.fitted = True
@@ -857,11 +830,6 @@ def _h_function(u_root: torch.Tensor,
     Returns:
         Conditional CDF values, shape [N]
     """
-    # Check for NaN inputs and handle gracefully
-    if torch.isnan(u_root).any() or torch.isnan(u_other).any():
-        logger.warning(f"NaN inputs to h_function detected")
-        u_root = torch.where(torch.isnan(u_root), torch.rand_like(u_root), u_root)
-        u_other = torch.where(torch.isnan(u_other), torch.rand_like(u_other), u_other)
     if u_root.dim() == 2:
         u_root = u_root.squeeze(1)
     if u_other.dim() == 2:
@@ -1036,10 +1004,6 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
     For D-vines, special handling is applied to better preserve correlations between
     non-adjacent variables.
     """
-    # Special handling for D-vines
-    if hasattr(vine, 'vine_family') and vine.vine_family == 'd-vine':
-        logger.info("Using specialized D-vine sampling")
-        return sample_d_vine(vine, nsamples)
     # Special case for D-vines to improve correlation preservation
     # For now, we'll use the regular sampling approach for all vine types
     # TODO: Implement improved D-vine sampling later
