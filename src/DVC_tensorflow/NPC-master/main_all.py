@@ -8,7 +8,7 @@ import tensorflow as tf
 
 ########### Packages from the vine library
 
-from pre_proc.define_copulas import define_copulas
+from .pre_proc.define_copulas import define_copulas
 from param.generate_rvine import generate_r_samples
 from pre_proc.preparation import prep_cop
 from sampling.vine_sample import vine_copula_sample

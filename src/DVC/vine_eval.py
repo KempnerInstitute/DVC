@@ -9,7 +9,7 @@ from typing import Tuple, Optional
 from scipy import interpolate
 
 from .utils_tensor import check_bound3
-from .cop_eval import eval_rs_cop, eval_rs_p, cdf_grid_fun
+from .cop_eval import eval_rs_cop, eval_rs_p, cdf_grid_fun, cdf_grid_fun_with_kernel_smoothing
 from .utils_interpolation import nearestInterp2d, interp_regular_nd_grid
 from .utils_locallik import loclik_batch_eval
 from .grid_ops import grid_obj
@@ -96,8 +96,13 @@ def evaluate_fit(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[torc
     pdf1 = eval_rs_cop(adu11, adu22, ker_grid_all, NORM, n_cop)
     pd_grid_uv = pdf1 / NORM
     
-    # Compute CDF
-    cdf1 = cdf_grid_fun(pd_grid_uv, grid_u.ex, adu11, adu22, n_cop)
+    # Compute CDF with kernel smoothing (CRITICAL FIX)
+    cdf1 = cdf_grid_fun_with_kernel_smoothing(
+        pd_grid_uv, grid_u.ex, adu11, adu22, n_cop,
+        data_s,  # Pass data for smoothing
+        grid_s.min,  # Grid bounds
+        grid_s.max
+    )
 
     # Compute gradients if requested
     grad_u = None
@@ -272,14 +277,19 @@ def evaluate_fit_bin(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[
     
     ker_grid_all = ker_grid_fin.reshape(adu11.shape[0], adu11.shape[0], n_cop1).permute(1, 0, 2)
     
-    # Add small value to avoid log(0)
-    ker_grid_all = ker_grid_all + 1e-10 * NORM
+    # Add small value to avoid log(0) - matching TensorFlow's 1e-15
+    ker_grid_all = ker_grid_all + 1e-15 * NORM
     
     # Evaluate copula PDF
     pdf1 = eval_rs_cop(adu11, adu22, ker_grid_all, NORM, n_cop1)
     pd_grid_uv = pdf1 / NORM
     
-    # Compute CDF
-    cdf1 = cdf_grid_fun(pd_grid_uv, grid_u.ex, adu11, adu22, n_cop1)
+    # Compute CDF with kernel smoothing (CRITICAL FIX)  
+    cdf1 = cdf_grid_fun_with_kernel_smoothing(
+        pd_grid_uv, grid_u.ex, adu11, adu22, n_cop1,
+        data_s,  # Pass data for smoothing
+        grid_s.min,  # Grid bounds 
+        grid_s.max
+    )
 
     return pd_grid_uv, cdf1

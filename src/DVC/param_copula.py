@@ -282,21 +282,29 @@ def parametric_fit(u: np.ndarray, families, n_cop: int):
                 n_samples = data_i.shape[0]
                 ll_ = 0.0  # Log-likelihood is indeed 0 for independence
                 k = 0  # No parameters
-                # AIC = 2k - 2*LL = 0 - 0 = 0
-                # But this makes independence always win!
                 # The issue is that we're comparing copula likelihoods
                 # For a fair comparison, we should penalize lack of fit
                 # One approach: use the empirical copula deviation
                 
-                # Compute empirical correlation as a measure of dependence
+                # Improved independence penalty to match TensorFlow behavior
                 u_vals = data_i.cpu().numpy()
                 emp_corr = np.corrcoef(u_vals[:, 0], u_vals[:, 1])[0, 1]
                 
-                # Penalize independence based on observed correlation
-                # If data has correlation, independence is a poor fit
-                penalty = n_samples * abs(emp_corr)**2
+                # More sophisticated penalty that matches TensorFlow's implicit behavior
+                # TensorFlow tends to select Gaussian over independence when correlation exists
+                correlation_strength = abs(emp_corr)
                 
-                # Adjusted AIC to penalize independence when data shows dependence
+                if correlation_strength > 0.1:
+                    # Strong penalty for independence when clear correlation exists
+                    penalty = n_samples * (correlation_strength ** 2) * 10.0
+                elif correlation_strength > 0.05:
+                    # Moderate penalty for weak correlation
+                    penalty = n_samples * (correlation_strength ** 2) * 5.0
+                else:
+                    # Minimal penalty for very weak correlation
+                    penalty = n_samples * (correlation_strength ** 2) * 1.0
+                
+                # AIC for independence with penalty
                 aic_ = 2*k + penalty
                 
                 param_ = None

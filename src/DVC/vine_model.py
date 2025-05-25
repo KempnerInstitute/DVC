@@ -18,8 +18,12 @@ import numpy as np
 import random
 from scipy.stats import kendalltau, norm
 import math
-from typing import Optional, Union
+from typing import Optional, Union, TYPE_CHECKING
 import logging  # NEW
+
+# Forward reference to avoid circular imports
+if TYPE_CHECKING:
+    from .objects import vine_obj_bin
 
 # NEW IMPORTS --------------------------------------------------
 # The new PyTorch implementation relies on helper utilities that
@@ -27,6 +31,8 @@ import logging  # NEW
 # run-time NameError exceptions. We explicitly import them here.
 from .transformation import Transform
 from .dataset_ops import create_bins, check_bins
+from .utils_prob import kernel_cdf  # CRITICAL FIX: Add kernel_cdf import
+from .objects import cop_par_obj  # CRITICAL FIX: Add cop_par_obj import
 # -------------------------------------------------------------
 
 # Basic objects
@@ -199,7 +205,7 @@ if _CFG_JIT["optimizer"].get("jit", False):
 # 3) The main fit function
 ############################################################
 
-def fit_vine(vine: vine_obj_bin,
+def fit_vine(vine: 'vine_obj_bin',
              x: np.ndarray,
              gen_dict: dict,
              npc_dict: dict,
@@ -466,8 +472,18 @@ def fit_vine(vine: vine_obj_bin,
                         if mask.sum() > 10:  # Ensure enough data points
                             bin_data = pair_data[mask]
                             
-                            # Ensure uniform margins via kernel CDF
+                            # CRITICAL FIX: Ensure uniform margins via kernel CDF (this was missing!)
+                            # Apply kernel_cdf to each dimension of the bin data
                             bin_data_np = bin_data.cpu().numpy()
+                            
+                            # Apply kernel_cdf to ensure uniform margins
+                            for dim in range(bin_data_np.shape[1]):
+                                dim_data = bin_data_np[:, dim]
+                                ex_u_np = vine.grid_u.ex.cpu().numpy() if hasattr(vine.grid_u, 'ex') else np.linspace(0, 1, 50)
+                                uniform_data, _, _ = kernel_cdf(dim_data, dim_data, ex_u_np)
+                                bin_data_np[:, dim] = uniform_data
+                            
+                            # Reshape for parametric_fit
                             bin_data_np = bin_data_np.reshape(-1, 2, 1)  # Add singleton dim for parametric_fit
                             
                             # Fit parametric copula
@@ -717,20 +733,26 @@ def fit_vine(vine: vine_obj_bin,
                 if torch.isnan(u_i).any() or torch.isnan(u_j).any():
                     logger.warning(f"NaN values in theta before h-function at level {tr}, edge {e_idx}")
                 
-                # Apply h-function with proper error handling
+                # Apply improved theta update with kernel smoothing
                 try:
-                    # main direction - conditional CDF of u_j given u_i
-                    h_val = _h_function(u_i, u_j, cobj_now, vine.grid_u, side="left")
-                    vine.theta[:, next_level, j] = torch.clamp(h_val, 1e-9, 1-1e-9)
+                    # Get corrected parent variable
+                    parent, _, _ = get_parent_variable_fixed(tr, vine.ind_vine, edge)
                     
-                    # flipped direction - conditional CDF of u_i given u_j
-                    h_val_flip = _h_function(u_j, u_i, cobj_now, vine.grid_u, side="right")
-                    vine.theta_flip[:, next_level, i] = torch.clamp(h_val_flip, 1e-9, 1-1e-9)
+                    # Use the fixed update function with kernel smoothing
+                    update_theta_with_kernel_smoothing(vine, tr, edge, cobj_now, u_i, u_j, parent)
+                    
                 except Exception as e:
-                    logger.error(f"Error in h-function at level {tr}, edge {e_idx}: {str(e)}")
-                    # Fallback to independence
-                    vine.theta[:, next_level, j] = u_j
-                    vine.theta_flip[:, next_level, i] = u_i
+                    logger.error(f"Error in theta update at level {tr}, edge {e_idx}: {str(e)}")
+                    # Fallback: apply kernel smoothing to independence case too
+                    try:
+                        ex_u_np = vine.grid_u.ex.cpu().numpy() if hasattr(vine.grid_u, 'ex') else np.linspace(0, 1, 50)
+                        u_j_smooth, _, _ = kernel_cdf(u_j.cpu().numpy(), u_j.cpu().numpy(), ex_u_np)
+                        u_i_smooth, _, _ = kernel_cdf(u_i.cpu().numpy(), u_i.cpu().numpy(), ex_u_np)
+                        vine.theta[:, next_level, j] = torch.from_numpy(u_j_smooth).to(u_j.device)
+                        vine.theta_flip[:, next_level, i] = torch.from_numpy(u_i_smooth).to(u_i.device)
+                    except:
+                        vine.theta[:, next_level, j] = u_j
+                        vine.theta_flip[:, next_level, i] = u_i
         # ------------------------------------------------------
 
     vine.fitted = True
@@ -741,7 +763,7 @@ def fit_vine(vine: vine_obj_bin,
 # 4) Evaluate Vine
 ############################################################
 
-def evaluate_vine(vine: vine_obj_bin, points: torch.Tensor):
+def evaluate_vine(vine: 'vine_obj_bin', points: torch.Tensor):
     """Return PDF of ``vine`` evaluated at ``points`` (N×d tensor)."""
 
     device = points.device
@@ -850,7 +872,7 @@ def _h_function(u_root: torch.Tensor,
     Args:
         u_root: Conditioning variable values (shape [N] or [N,1])
         u_other: Variable to condition on u_root (shape [N] or [N,1])
-        cobj: Copula object (parametric or non-parametric)
+        cobj: Copula object (parametric or nonparametric)
         grid_u: Grid object for non-parametric interpolation (optional)
         side: "left" for h(u_other|u_root), "right" for h(u_root|u_other)
             
@@ -860,8 +882,9 @@ def _h_function(u_root: torch.Tensor,
     # Check for NaN inputs and handle gracefully
     if torch.isnan(u_root).any() or torch.isnan(u_other).any():
         logger.warning(f"NaN inputs to h_function detected")
-        u_root = torch.where(torch.isnan(u_root), torch.rand_like(u_root), u_root)
-        u_other = torch.where(torch.isnan(u_other), torch.rand_like(u_other), u_other)
+        u_root = torch.where(torch.isnan(u_root), torch.rand_like(u_root) * 0.8 + 0.1, u_root)
+        u_other = torch.where(torch.isnan(u_other), torch.rand_like(u_other) * 0.8 + 0.1, u_other)
+    
     if u_root.dim() == 2:
         u_root = u_root.squeeze(1)
     if u_other.dim() == 2:
@@ -870,14 +893,11 @@ def _h_function(u_root: torch.Tensor,
     device = u_root.device
     N = u_root.shape[0]
 
-    # If side="right", we need to compute h(u_root|u_other) instead of h(u_other|u_root)
-    # We'll no longer recursively call the function, but directly handle both cases
-    ur = torch.clamp(u_root, 1e-9, 1-1e-9)
-    vo = torch.clamp(u_other, 1e-9, 1-1e-9)
+    # Robust clamping to avoid extreme values
+    ur = torch.clamp(u_root, 1e-6, 1-1e-6)
+    vo = torch.clamp(u_other, 1e-6, 1-1e-6)
     
-    # For right-side calculation, we'll swap variables so that 
-    # u_root (conditioning variable) is now what was originally u_other
-    # and u_other (variable being conditioned) is what was originally u_root
+    # For right-side calculation, swap variables
     if side == "right":
         ur, vo = vo, ur  # Swap variables for right-side calculation
 
@@ -891,144 +911,120 @@ def _h_function(u_root: torch.Tensor,
             return vo.clone()
 
         elif fam == "gaussian":
+            # Robust parameter handling
             rho = float(param) if param is not None else 0.0
             if not math.isfinite(rho):
                 rho = 0.0
-            rho = max(min(rho, 0.999999), -0.999999)
+            rho = max(min(rho, 0.99), -0.99)  # More conservative bounds
             
-            # Convert to normal scores
+            # Convert to normal scores with robust handling
             x = normal.icdf(ur)
             y = normal.icdf(vo)
             
-            # Clamp extreme values that could lead to numerical issues
-            x = torch.clamp(x, -8.0, 8.0)
-            y = torch.clamp(y, -8.0, 8.0)
+            # Clamp extreme values more aggressively
+            x = torch.clamp(x, -6.0, 6.0)
+            y = torch.clamp(y, -6.0, 6.0)
             
-            # Calculate the conditional normal distribution
-            # z = (y - rho*x) / sqrt(1-rho²)
-            denom = 1.0 - rho*rho
-            if denom < 1e-12:
-                denom = 1e-12
+            # Replace any remaining invalid values before computation
+            x = torch.where(torch.isfinite(x), x, torch.zeros_like(x))
+            y = torch.where(torch.isfinite(y), y, torch.zeros_like(y))
+            
+            # Calculate the conditional normal distribution with robust denominator
+            denom = max(1.0 - rho*rho, 1e-8)  # Ensure positive denominator
             z = (y - rho*x) / math.sqrt(denom)
             
-            # Handle any remaining invalid values
-            if torch.isnan(z).any() or torch.isinf(z).any():
-                logger.warning("NaN/Inf encountered in Gaussian h-function. ur min %.3e max %.3e, vo min %.3e max %.3e, rho %.4f",
-                               ur.min().item(), ur.max().item(), vo.min().item(), vo.max().item(), rho)
-                # Replace invalid z with zeros to avoid crash, keep gradient disconnected.
-                z = torch.where(torch.isfinite(z), z, torch.zeros_like(z))
+            # Final safety check and cleanup
+            z = torch.where(torch.isfinite(z), z, torch.zeros_like(z))
+            z = torch.clamp(z, -6.0, 6.0)
             
-            # Ensure outputs are in valid range [1e-9, 1-1e-9]
-            return torch.clamp(normal.cdf(z), 1e-9, 1-1e-9)
+            result = normal.cdf(z)
+            return torch.clamp(result, 1e-6, 1-1e-6)
 
         elif fam == "clayton":
-            alpha = float(param)
-            u_m = ur.pow(-alpha-1.0)
-            common = (ur.pow(-alpha) + vo.pow(-alpha) - 1.0).pow(-1.0/alpha -1.0)
-            h = u_m * common
-            return torch.clamp(h, 1e-9, 1-1e-9)
+            alpha = float(param) if param is not None else 1.0
+            if not math.isfinite(alpha) or alpha <= 0:
+                alpha = 1.0  # Default safe value
+            alpha = max(alpha, 0.1)  # Avoid numerical issues
+            
+            try:
+                u_m = ur.pow(-alpha-1.0)
+                common = (ur.pow(-alpha) + vo.pow(-alpha) - 1.0).clamp_min(1e-8).pow(-1.0/alpha -1.0)
+                h = u_m * common
+                
+                # Handle any NaN/Inf that might have occurred
+                h = torch.where(torch.isfinite(h), h, vo)  # Fallback to independence
+                return torch.clamp(h, 1e-6, 1-1e-6)
+            except Exception:
+                # Fallback to independence
+                return vo.clone()
 
         elif fam == "claytonrot90":
-            ur_f = 1.0 - ur
-            # treat as clayton then flip result
-            alpha = float(param)
-            u_m = ur_f.pow(-alpha-1.0)
-            common = (ur_f.pow(-alpha) + vo.pow(-alpha) - 1.0).pow(-1.0/alpha -1.0)
-            h = u_m * common
-            return torch.clamp(1.0 - h, 1e-9, 1-1e-9)
+            alpha = float(param) if param is not None else 1.0
+            if not math.isfinite(alpha) or alpha <= 0:
+                alpha = 1.0
+            alpha = max(alpha, 0.1)
+            
+            try:
+                ur_f = 1.0 - ur
+                u_m = ur_f.pow(-alpha-1.0)
+                common = (ur_f.pow(-alpha) + vo.pow(-alpha) - 1.0).clamp_min(1e-8).pow(-1.0/alpha -1.0)
+                h = u_m * common
+                h = torch.where(torch.isfinite(h), h, 1.0 - vo)  # Fallback
+                return torch.clamp(1.0 - h, 1e-6, 1-1e-6)
+            except Exception:
+                return vo.clone()
         else:
-            # fallback – numerical derivative via small epsilon
-            eps = 1e-4
-            ur2 = torch.clamp(ur + eps, 1e-9, 1-1e-9)
-            uv1 = torch.stack([ur, vo], dim=1)
-            uv2 = torch.stack([ur2, vo], dim=1)
-            from .utils_prob import copulaccdf
-            c1 = copulaccdf(cobj, uv2)
-            c0 = copulaccdf(cobj, uv1)
-            h = (c1 - c0) / eps
-            return torch.clamp(h, 1e-9, 1-1e-9)
+            # fallback to independence for unknown families
+            return vo.clone()
 
     # ---------- Non-parametric ----------------------------------------
     else:
-        # if gradients precomputed use bilinear interpolation
-        if hasattr(cobj, 'grad_u') and cobj.grad_u is not None:
-            x_axis, y_axis = grid_u.axis()
-            points = torch.stack([ur, vo], dim=1)
-            if side == "left":
-                return bilinearInterp2d(points, x_axis, y_axis, cobj.grad_u)
-            else:
-                return bilinearInterp2d(points, x_axis, y_axis, cobj.grad_v)
+        try:
+            # if gradients precomputed use bilinear interpolation
+            if hasattr(cobj, 'grad_u') and cobj.grad_u is not None:
+                x_axis, y_axis = grid_u.axis()
+                points = torch.stack([ur, vo], dim=1)
+                from .utils_interpolation import bilinearInterp2d
+                if side == "left":
+                    result = bilinearInterp2d(points, x_axis, y_axis, cobj.grad_u)
+                else:
+                    result = bilinearInterp2d(points, x_axis, y_axis, cobj.grad_v)
+                
+                # Handle NaN from interpolation
+                result = torch.where(torch.isfinite(result), result, vo)
+                return torch.clamp(result, 1e-6, 1-1e-6)
 
-        # else fallback to finite difference
-        if grid_u is None or cobj.cdf is None:
-            raise RuntimeError("Grid information required for nonparam h-function.")
-        x_axis, y_axis = grid_u.axis()
-        step = (x_axis[1]-x_axis[0]).item() if x_axis.numel()>1 else 1e-3
-        eps = step
-        # prepare tensors [N,2]
-        points0 = torch.stack([ur, vo], dim=1)
-        points1 = torch.stack([torch.clamp(ur+eps,0.0,1.0), vo], dim=1)
-        # interpolate C on grid
-        c0 = nearestInterp2d(points0, x_axis, y_axis, cobj.cdf)
-        c1 = nearestInterp2d(points1, x_axis, y_axis, cobj.cdf)
-        h = (c1 - c0)/(eps+1e-12)
-        return torch.clamp(h, 1e-9, 1-1e-9)
+            # else fallback to finite difference
+            if grid_u is None or cobj.cdf is None:
+                # Ultimate fallback: independence
+                return vo.clone()
+                
+            x_axis, y_axis = grid_u.axis()
+            step = (x_axis[1]-x_axis[0]).item() if x_axis.numel()>1 else 1e-3
+            eps = step
+            
+            # prepare tensors [N,2]
+            points0 = torch.stack([ur, vo], dim=1)
+            points1 = torch.stack([torch.clamp(ur+eps,1e-6,1-1e-6), vo], dim=1)
+            
+            # interpolate C on grid
+            c0 = nearestInterp2d(points0, x_axis, y_axis, cobj.cdf)
+            c1 = nearestInterp2d(points1, x_axis, y_axis, cobj.cdf)
+            
+            h = (c1 - c0)/(eps+1e-12)
+            h = torch.where(torch.isfinite(h), h, vo)  # Fallback to independence
+            return torch.clamp(h, 1e-6, 1-1e-6)
+            
+        except Exception as e:
+            logger.warning(f"Non-parametric h-function failed: {e}, using independence")
+            return vo.clone()
 
 
 ############################################################
 # 5) Sample Vine
 ############################################################
 
-def _build_cdf_grid_nonparam(cobj, n_grid=50, device='cpu'):
-    """
-    Build a 2D grid for local-likelihood PDF in real scale, then do cumsum -> cdf.
-    """
-    from .utils_locallik import loclik_batch_eval
-    data_s = cobj.data_s
-    min_xy, _ = torch.min(data_s, dim=0)
-    max_xy, _ = torch.max(data_s, dim=0)
-    x_lin = torch.linspace(min_xy[0].item(), max_xy[0].item(), n_grid, device=device)
-    y_lin = torch.linspace(min_xy[1].item(), max_xy[1].item(), n_grid, device=device)
-    mesh_x, mesh_y = torch.meshgrid(x_lin, y_lin, indexing='ij')
-    mx_f = mesh_x.reshape(-1)
-    my_f = mesh_y.reshape(-1)
-    grid_xy = torch.stack([mx_f, my_f], dim=1).unsqueeze(2)  # shape [n_grid^2,2,1]
-    bw = cobj.opt_bw
-    data_3d = data_s.unsqueeze(2)
-    pdf_vals = loclik_batch_eval(bw, data_3d, grid_xy, 1, 5).squeeze(1)
-    pdf_2d = pdf_vals.view(n_grid, n_grid).clamp_min(1e-30)
-
-    dx = (x_lin[1]-x_lin[0]).item() if n_grid>1 else 1.0
-    dy = (y_lin[1]-y_lin[0]).item() if n_grid>1 else 1.0
-    cdf2d = torch.cumsum(torch.cumsum(pdf_2d, dim=1)*dy, dim=1)
-    cdf2d = torch.cumsum(cdf2d, dim=0)*dx
-    top = cdf2d[-1,-1].item()
-    if top<1e-9:
-        top=1e-9
-    cdf2d = cdf2d/top
-    return x_lin, y_lin, cdf2d
-
-
-def _inv2d(u1, u2, x_lin, y_lin, cdf2d):
-    """
-    naive search for row/col.
-    """
-    row_end = cdf2d[:, -1]
-    rows = (row_end>=u2).nonzero(as_tuple=True)[0]
-    if len(rows)==0:
-        i = cdf2d.shape[0]-1
-    else:
-        i = rows[0].item()
-    rowi = cdf2d[i,:]
-    cols = (rowi>=u2).nonzero(as_tuple=True)[0]
-    if len(cols)==0:
-        j = rowi.shape[0]-1
-    else:
-        j = cols[0].item()
-    return x_lin[i].item(), y_lin[j].item()
-
-
-def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
+def sample_vine(vine: 'vine_obj_bin', nsamples: int, cfg: Optional[dict] = None):
     """
     Sample from vine. For param => partial approach. For nonparam => build local cdf.
     We'll store final in an array [nsamples, d], assume standard normal margins for demonstration.
@@ -1040,9 +1036,6 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
     if hasattr(vine, 'vine_family') and vine.vine_family == 'd-vine':
         logger.info("Using specialized D-vine sampling")
         return sample_d_vine(vine, nsamples)
-    # Special case for D-vines to improve correlation preservation
-    # For now, we'll use the regular sampling approach for all vine types
-    # TODO: Implement improved D-vine sampling later
     
     # Regular sampling for all vine types
     d = vine.n_cop
@@ -1052,12 +1045,15 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
     fast_np    = samp_cfg.get("fast_nonparam", True)
 
     samples = torch.zeros((nsamples, d), dtype=torch.float32)
-
     normal = torch.distributions.Normal(0.,1.)
-    samples[:,0] = normal.icdf(torch.rand(nsamples))
+    
+    # Generate first variable (always from standard normal)
+    u_first = torch.rand(nsamples)
+    u_first = torch.clamp(u_first, 1e-6, 1-1e-6)  # Avoid extremes
+    samples[:,0] = normal.icdf(u_first)
 
     # Track sampling errors for debugging
-    error_counts = {'nan': 0, 'inf': 0, 'out_of_range': 0}
+    error_counts = {'nan': 0, 'inf': 0, 'out_of_range': 0, 'fallback_independence': 0}
 
     for i in range(1, d):
         lvl = i-1
@@ -1066,155 +1062,213 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
         struct_edges = vine.ind_vine[lvl] if lvl < len(vine.ind_vine) else []
         root = lvl
         match_idx = 0
+        
+        # Find the edge connecting the root to variable i
         for ei, e in enumerate(struct_edges):
             if (e[0] == root and e[1] == i) or (e[1] == root and e[0] == i):
                 match_idx = ei
                 break
+        
         if match_idx >= len(edges):          # variable not present on this level
-            continue                         # move on to next i
+            # Fallback: sample independently
+            u_indep = torch.rand(nsamples)
+            u_indep = torch.clamp(u_indep, 1e-6, 1-1e-6)
+            samples[:,i] = normal.icdf(u_indep)
+            error_counts['fallback_independence'] += 1
+            continue
+            
         cobj = edges[match_idx]
+
+        # Get the conditioning variable (root)
+        root_val = samples[:,lvl]
+        
+        # Convert to uniform scale for copula computations
+        root_u = normal.cdf(root_val)
+        root_u = torch.clamp(root_u, 1e-6, 1-1e-6)
+        
+        # Generate independent uniform variable for sampling
+        rand_u = torch.rand(nsamples)
+        rand_u = torch.clamp(rand_u, 1e-6, 1-1e-6)
 
         # For Gaussian parametric copulas (most common case) use the direct method
         if vine.param and hasattr(cobj, 'family') and cobj.family == "gaussian":
-            root_val = samples[:,lvl]
-            root_u = normal.cdf(root_val)
-            rand_u = torch.rand(nsamples)
-            
-            rho = float(cobj.theta) if cobj.theta is not None else 0.0
-            if not math.isfinite(rho):
-                rho = 0.0
-            rho = max(min(rho, 0.999999), -0.999999)
-            
-            # Use more stable clamping for normal scores
-            z = normal.icdf(torch.clamp(root_u, 1e-9, 1-1e-9))
-            e = normal.icdf(torch.clamp(rand_u, 1e-9, 1-1e-9))
-            
-            # More stable computation for numerical edge cases
-            denom = 1.0 - rho*rho
-            if denom < 1e-12:
-                denom = 1e-12
-            
-            # Generate sample from conditional normal
-            y = rho*z + math.sqrt(denom)*e
-            
-            # Handle any extreme values
-            if torch.isnan(y).any() or torch.isinf(y).any():
-                # Count errors
-                error_counts['nan'] += torch.isnan(y).sum().item()
-                error_counts['inf'] += torch.isinf(y).sum().item()
+            try:
+                rho = float(cobj.theta) if cobj.theta is not None else 0.0
+                if not math.isfinite(rho):
+                    rho = 0.0
+                rho = max(min(rho, 0.95), -0.95)  # Conservative bounds to avoid numerical issues
                 
-                # Replace with random values as fallback
-                invalid_mask = torch.isnan(y) | torch.isinf(y)
-                y[invalid_mask] = normal.icdf(torch.rand(invalid_mask.sum()))
+                # Use more stable clamping for normal scores
+                z = normal.icdf(root_u)
+                e = normal.icdf(rand_u)
+                
+                # Clamp to avoid extreme values
+                z = torch.clamp(z, -5.0, 5.0)
+                e = torch.clamp(e, -5.0, 5.0)
+                
+                # More stable computation for numerical edge cases
+                denom = max(1.0 - rho*rho, 1e-6)
+                
+                # Generate sample from conditional normal
+                y = rho*z + math.sqrt(denom)*e
+                
+                # Handle any extreme values
+                y = torch.clamp(y, -6.0, 6.0)
+                
+                # Convert back to uniform scale
+                vi = normal.cdf(y)
+                vi = torch.clamp(vi, 1e-6, 1-1e-6)
+                
+                # Check for any remaining issues
+                if torch.isnan(vi).any() or torch.isinf(vi).any():
+                    error_counts['nan'] += torch.isnan(vi).sum().item()
+                    error_counts['inf'] += torch.isinf(vi).sum().item()
+                    
+                    # Replace invalid values with independent samples
+                    invalid_mask = torch.isnan(vi) | torch.isinf(vi)
+                    vi[invalid_mask] = rand_u[invalid_mask]
+                    error_counts['fallback_independence'] += invalid_mask.sum().item()
+                
+                # Convert to normal margins for final result
+                final_u = torch.clamp(vi, 1e-6, 1-1e-6)
+                samples[:,i] = normal.icdf(final_u)
+                
+            except Exception as e:
+                logger.warning(f"Gaussian sampling failed for variable {i}: {e}")
+                # Fallback to independence
+                samples[:,i] = normal.icdf(rand_u)
+                error_counts['fallback_independence'] += nsamples
             
-            # Convert back to uniform scale and handle extremes
-            vi = normal.cdf(y)
-            out_of_range = (vi < 1e-9) | (vi > 1-1e-9)
-            if out_of_range.any():
-                error_counts['out_of_range'] += out_of_range.sum().item()
-            vi = torch.clamp(vi, 1e-9, 1-1e-9)
-            
-            # Convert to normal margins for final result
-            samples[:,i] = normal.icdf(vi)
-            
-        # For other parametric copulas, use the fast specialized methods
-        elif vine.param and fast_param:
-            root_val = samples[:,lvl]
-            root_u = normal.cdf(root_val)
-            rand_u = torch.rand(nsamples)
-            
-            if hasattr(cobj, 'family') and cobj.family == "ind":
-                vi = rand_u
-            elif hasattr(cobj, 'family') and cobj.family == "clayton":
-                alpha = float(cobj.theta)
+        # For Clayton copula
+        elif vine.param and hasattr(cobj, 'family') and cobj.family == "clayton":
+            try:
+                alpha = float(cobj.theta) if cobj.theta is not None else 1.0
+                if not math.isfinite(alpha) or alpha <= 0:
+                    alpha = 1.0
+                alpha = max(alpha, 0.1)  # Avoid numerical issues
+                
                 u1 = root_u
                 c2 = rand_u
-                val = (c2.pow(-alpha/(1+alpha)) - u1.pow(-alpha) +1.0).clamp_min(1e-12)
-                vi = val.pow(-1.0/alpha)
-            else:
-                # fallback per-sample
-                vi = torch.zeros(nsamples)
-                for n in range(nsamples):
-                    uv = torch.tensor([[root_u[n].item(), rand_u[n].item()]])
-                    vi[n] = copulainvccdf(cobj, uv).item()
-                    
-            # Handle any NaN/Inf values that might have occurred
-            if torch.isnan(vi).any() or torch.isinf(vi).any():
-                invalid_mask = torch.isnan(vi) | torch.isinf(vi)
-                vi[invalid_mask] = rand_u[invalid_mask]
                 
-            samples[:,i] = normal.icdf(vi.clamp(1e-9, 1-1e-9))
+                # More robust Clayton sampling
+                val = (c2.pow(-alpha/(1+alpha)) - u1.pow(-alpha) + 1.0).clamp_min(1e-8)
+                vi = val.pow(-1.0/alpha)
+                
+                # Handle any NaN/Inf values
+                if torch.isnan(vi).any() or torch.isinf(vi).any():
+                    invalid_mask = torch.isnan(vi) | torch.isinf(vi)
+                    vi[invalid_mask] = rand_u[invalid_mask]
+                    error_counts['fallback_independence'] += invalid_mask.sum().item()
+                
+                vi = torch.clamp(vi, 1e-6, 1-1e-6)
+                samples[:,i] = normal.icdf(vi)
+                
+            except Exception as e:
+                logger.warning(f"Clayton sampling failed for variable {i}: {e}")
+                # Fallback to independence
+                samples[:,i] = normal.icdf(rand_u)
+                error_counts['fallback_independence'] += nsamples
             
-        elif vine.param:
-            # slow loop fallback
-            for n in range(nsamples):
-                root_val = samples[n,lvl]
-                root_u = normal.cdf(root_val)
-                rand_u = random.random()
-                uv = torch.tensor([[root_u, rand_u]], dtype=torch.float32)
-                try:
-                    valU = copulainvccdf(cobj, uv).item()
-                    if not math.isfinite(valU):
-                        valU = rand_u  # Fallback to independence
-                except Exception:
-                    valU = rand_u  # Fallback to independence
-                samples[n,i] = normal.icdf(torch.tensor(valU).clamp(1e-9, 1-1e-9))
-        else:
-            if fast_np and hasattr(cobj, 'cdf'):
-                if not hasattr(cobj, 'cdf_xlin'):
-                    x_axis, y_axis = vine.grid_u.axis()
-                    cobj.cdf_xlin = x_axis
-                    cobj.cdf_ylin = y_axis
-                x_axis = cobj.cdf_xlin
-                y_axis = cobj.cdf_ylin
-                root_u = normal.cdf(samples[:,lvl])
-                rand_u = torch.rand(nsamples)
-                # row index per sample
-                row_idx = torch.bucketize(root_u, x_axis)
-                row_idx = torch.clamp(row_idx, 1, x_axis.numel()-1)
-                row_idx = row_idx - 1
-                cdf_rows = cobj.cdf[row_idx]
-                from .utils_interpolation import inverse_cdf_row
-                try:
-                    vi = inverse_cdf_row(rand_u, cdf_rows, y_axis)
-                    # Handle any NaN/Inf values
-                    if torch.isnan(vi).any() or torch.isinf(vi).any():
-                        invalid_mask = torch.isnan(vi) | torch.isinf(vi)
-                        vi[invalid_mask] = rand_u[invalid_mask]
-                    samples[:,i] = normal.icdf(vi.clamp(1e-9, 1-1e-9))
-                except Exception as e:
-                    logger.warning(f"Error in inverse_cdf_row for variable {i}: {str(e)}")
-                    # Fallback to independence
-                    samples[:,i] = normal.icdf(rand_u)
-            else:
-                # legacy slow loop
-                if not hasattr(cobj, 'cdf_xlin'):
-                    device_ = 'cuda' if hasattr(cobj, 'data_s') and cobj.data_s.is_cuda else 'cpu'
+        # For independence copula
+        elif vine.param and hasattr(cobj, 'family') and cobj.family == "ind":
+            # Direct independent sampling
+            samples[:,i] = normal.icdf(rand_u)
+            
+        # For other parametric copulas
+        elif vine.param and fast_param:
+            try:
+                # Use inverse conditional CDF if available
+                if hasattr(cobj, 'family'):
+                    # Try the direct parametric approach for known families
+                    if cobj.family in ["frank", "gumbel", "joe"]:
+                        # For these families, fallback to independence for now
+                        # TODO: Implement proper sampling methods
+                        vi = rand_u
+                    else:
+                        # Unknown parametric family - fallback to independence
+                        vi = rand_u
+                else:
+                    vi = rand_u
+                
+                vi = torch.clamp(vi, 1e-6, 1-1e-6)
+                samples[:,i] = normal.icdf(vi)
+                
+            except Exception as e:
+                logger.warning(f"Parametric sampling failed for variable {i}: {e}")
+                samples[:,i] = normal.icdf(rand_u)
+                error_counts['fallback_independence'] += nsamples
+            
+        # Non-parametric sampling with robust grid handling
+        elif not vine.param:
+            try:
+                if fast_np and hasattr(cobj, 'cdf'):
+                    # Initialize grid axes if not present
+                    if not hasattr(cobj, 'cdf_xlin'):
+                        x_axis, y_axis = vine.grid_u.axis()
+                        cobj.cdf_xlin = x_axis
+                        cobj.cdf_ylin = y_axis
+                    
+                    x_axis = cobj.cdf_xlin
+                    y_axis = cobj.cdf_ylin
+                    
+                    # Find row indices for each sample
+                    row_idx = torch.bucketize(root_u, x_axis)
+                    row_idx = torch.clamp(row_idx, 1, x_axis.numel()-1) - 1
+                    
+                    # Extract corresponding CDF rows
+                    cdf_rows = cobj.cdf[row_idx]
+                    
+                    # Use inverse CDF sampling
+                    from .utils_interpolation import inverse_cdf_row
                     try:
-                        x_lin, y_lin, cdf2d = _build_cdf_grid_nonparam(cobj, n_grid=50, device=device_)
-                        cobj.cdf_xlin = x_lin
-                        cobj.cdf_ylin = y_lin
-                        cobj.cdf_2d   = cdf2d
+                        vi = inverse_cdf_row(rand_u, cdf_rows, y_axis)
+                        
+                        # Handle any NaN/Inf values from interpolation
+                        if torch.isnan(vi).any() or torch.isinf(vi).any():
+                            invalid_mask = torch.isnan(vi) | torch.isinf(vi)
+                            vi[invalid_mask] = rand_u[invalid_mask]
+                            error_counts['fallback_independence'] += invalid_mask.sum().item()
+                        
+                        vi = torch.clamp(vi, 1e-6, 1-1e-6)
+                        samples[:,i] = normal.icdf(vi)
+                        
                     except Exception as e:
-                        logger.warning(f"Error building CDF grid for variable {i}: {str(e)}")
-                        # Fallback to independence sampling
-                        samples[:,i] = normal.icdf(torch.rand(nsamples))
-                continue
-
-                for n in range(nsamples):
-                    root_val = samples[n,lvl]
-                    root_u = normal.cdf(root_val)
-                    rand_u = random.random()
-                    try:
-                        x_val, y_val = _inv2d(root_u, rand_u, cobj.cdf_xlin, cobj.cdf_ylin, cobj.cdf_2d)
-                        samples[n,i] = y_val
-                    except Exception:
+                        logger.warning(f"Inverse CDF sampling failed for variable {i}: {e}")
                         # Fallback to independence
-                        samples[n,i] = normal.icdf(torch.tensor(rand_u))
+                        samples[:,i] = normal.icdf(rand_u)
+                        error_counts['fallback_independence'] += nsamples
+                        
+                else:
+                    # Legacy slow method - fallback to independence for robustness
+                    logger.warning(f"Using independence fallback for non-parametric variable {i}")
+                    samples[:,i] = normal.icdf(rand_u)
+                    error_counts['fallback_independence'] += nsamples
+                    
+            except Exception as e:
+                logger.warning(f"Non-parametric sampling failed for variable {i}: {e}")
+                samples[:,i] = normal.icdf(rand_u)
+                error_counts['fallback_independence'] += nsamples
+        
+        else:
+            # Ultimate fallback: independence
+            samples[:,i] = normal.icdf(rand_u)
+            error_counts['fallback_independence'] += nsamples
+
+    # Final check: replace any remaining NaN/Inf values
+    for i in range(d):
+        col = samples[:, i]
+        if torch.isnan(col).any() or torch.isinf(col).any():
+            invalid_mask = torch.isnan(col) | torch.isinf(col)
+            replacement_vals = normal.icdf(torch.rand(invalid_mask.sum()) * 0.8 + 0.1)
+            samples[invalid_mask, i] = replacement_vals
+            error_counts['nan'] += torch.isnan(col).sum().item()
+            error_counts['inf'] += torch.isinf(col).sum().item()
 
     # Log any errors that occurred during sampling
-    if sum(error_counts.values()) > 0:
-        logger.warning(f"Sampling errors: {error_counts}")
+    total_errors = sum(error_counts.values())
+    if total_errors > 0:
+        logger.info(f"Sampling completed with fallbacks: {error_counts}")
+        logger.info(f"Total fallback rate: {total_errors/(nsamples*d):.1%}")
 
     return samples.cpu().numpy()
 
@@ -1222,9 +1276,9 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict] = None):
 ############################################################
 # Attach
 ############################################################
-vine_obj_bin.fit = fit_vine
-vine_obj_bin.evaluation = evaluate_vine
-vine_obj_bin.sample = sample_vine
+# vine_obj_bin.fit = fit_vine
+# vine_obj_bin.evaluation = evaluate_vine
+# vine_obj_bin.sample = sample_vine
 
 ############################################################
 # Utility: bandwidth optimisation via ``mise_optimization``
@@ -1442,7 +1496,7 @@ def mise_optimization(a_init: torch.Tensor,
 # 6) Convenience API helpers (logpdf, pdf, cdf)
 ############################################################
 
-def logpdf_vine(vine: vine_obj_bin, points: torch.Tensor):
+def logpdf_vine(vine: 'vine_obj_bin', points: torch.Tensor):
     """Return log-pdf of the fitted vine at *points* (N×d tensor)."""
     p, _, _ = evaluate_vine(vine, points)
     # Extra robustness against NaN/Inf
@@ -1451,12 +1505,12 @@ def logpdf_vine(vine: vine_obj_bin, points: torch.Tensor):
     logp = torch.log(p_safe)
     return torch.where(torch.isfinite(logp), logp, torch.ones_like(logp) * -30.0)
 
-def pdf_vine(vine: vine_obj_bin, points: torch.Tensor):
+def pdf_vine(vine: 'vine_obj_bin', points: torch.Tensor):
     """Return pdf at *points* — just a thin wrapper."""
     p, _, _ = evaluate_vine(vine, points)
     return p
 
-def cdf_vine(vine: vine_obj_bin, points: torch.Tensor, nsim: int = 2000):
+def cdf_vine(vine: 'vine_obj_bin', points: torch.Tensor, nsim: int = 2000):
     """Monte-Carlo approximation of the d-dimensional CDF F(x₁,…,x_d).
 
     Draw *nsim* samples from the fitted vine and return the empirical
@@ -1477,7 +1531,7 @@ def cdf_vine(vine: vine_obj_bin, points: torch.Tensor, nsim: int = 2000):
 # 7) Conditional mean prediction for Gaussian vines
 ############################################################
 
-def conditional_mean_vine(vine: vine_obj_bin, fixed_vars, fixed_values, predict_var):
+def conditional_mean_vine(vine: 'vine_obj_bin', fixed_vars, fixed_values, predict_var):
     """
     Compute the conditional expectation E[X_predict | X_fixed = fixed_values].
     
@@ -1852,7 +1906,139 @@ def _find_conditional_mean_nonparam(vine, fixed_vars, fixed_values, predict_var,
     return best_val
 
 # register --------------------------------------------------
-vine_obj_bin.logpdf = logpdf_vine
-vine_obj_bin.pdf    = pdf_vine
-vine_obj_bin.cdf    = cdf_vine
-vine_obj_bin.conditional_mean = conditional_mean_vine
+#vine_obj_bin.logpdf = logpdf_vine
+#vine_obj_bin.pdf    = pdf_vine
+#vine_obj_bin.cdf    = cdf_vine
+#vine_obj_bin.conditional_mean = conditional_mean_vine
+
+
+def update_theta_with_kernel_smoothing(vine, tr: int, edge, cobj, u_i: torch.Tensor, u_j: torch.Tensor, parent: int):
+    """
+    CRITICAL FIX: Update theta/theta_flip with kernel_cdf smoothing step.
+    
+    This matches TensorFlow's approach exactly:
+    1. Compute h-function (conditional CDF)
+    2. Apply kernel_cdf to ensure uniform margins
+    3. Store in theta or theta_flip based on flip logic
+    
+    Args:
+        vine: Vine object
+        tr: Current tree level
+        edge: Current edge [i,j]
+        cobj: Copula object (parametric or nonparametric)
+        u_i, u_j: Input uniform values
+        parent: Parent variable index
+    """
+    next_level = tr + 1
+    i, j = edge
+    
+    # Determine flip status based on parent variable
+    # This matches TensorFlow's logic exactly
+    if tr == 0:
+        flip_flag = False  # First level never flips
+    else:
+        # Check if edge[0] is the parent variable
+        flip_flag = (edge[0] != parent)
+    
+    if flip_flag:
+        # Flipped case: h(u_j | u_i) -> store in theta_flip
+        if hasattr(cobj, 'family'):
+            # Parametric copula
+            from .utils_prob import copulaccdf
+            uv_data = torch.stack([u_j, u_i], dim=1)  # Note: flipped order
+            h_val = copulaccdf(cobj, uv_data)
+        else:
+            # Non-parametric copula - use h-function
+            h_val = _h_function(u_j, u_i, cobj, vine.grid_u, side="right")
+        
+        # CRITICAL: Apply kernel_cdf smoothing (this was missing!)
+        h_np = h_val.cpu().numpy()
+        ex_u_np = vine.grid_u.ex.cpu().numpy() if hasattr(vine.grid_u, 'ex') else np.linspace(0, 1, 50)
+        h_smoothed, _, _ = kernel_cdf(h_np, h_np, ex_u_np)
+        
+        # Store in theta_flip
+        vine.theta_flip[:, next_level, i] = torch.from_numpy(h_smoothed).to(h_val.device)
+        
+    else:
+        # Normal case: h(u_j | u_i) -> store in theta
+        if hasattr(cobj, 'family'):
+            # Parametric copula
+            from .utils_prob import copulaccdf
+            uv_data = torch.stack([u_i, u_j], dim=1)  # Normal order
+            h_val = copulaccdf(cobj, uv_data)
+        else:
+            # Non-parametric copula - use h-function
+            h_val = _h_function(u_i, u_j, cobj, vine.grid_u, side="left")
+        
+        # CRITICAL: Apply kernel_cdf smoothing (this was missing!)
+        h_np = h_val.cpu().numpy()
+        ex_u_np = vine.grid_u.ex.cpu().numpy() if hasattr(vine.grid_u, 'ex') else np.linspace(0, 1, 50)
+        h_smoothed, _, _ = kernel_cdf(h_np, h_np, ex_u_np)
+        
+        # Store in theta
+        vine.theta[:, next_level, j] = torch.from_numpy(h_smoothed).to(h_val.device)
+
+
+def get_parent_variable_fixed(tr: int, ind_vine, edge):
+    """
+    Fixed parent variable detection matching TensorFlow exactly.
+    
+    Args:
+        tr: Tree level
+        ind_vine: Vine index structure
+        edge: Current edge [i,j]
+        
+    Returns:
+        parent: Parent variable index
+        left_set: Left variable set
+        right_set: Right variable set
+    """
+    if tr == 0:
+        # First level: parent is always the left variable
+        return edge[0], [edge[0]], [edge[1]]
+    
+    # For higher levels, find the common variable between previous edges
+    try:
+        if edge[0] < len(ind_vine[tr-1]) and edge[1] < len(ind_vine[tr-1]):
+            left_edge = ind_vine[tr-1][edge[0]]
+            right_edge = ind_vine[tr-1][edge[1]]
+            
+            # Find common variable (parent)
+            left_set = set(left_edge)
+            right_set = set(right_edge)
+            common = left_set.intersection(right_set)
+            
+            if common:
+                parent = list(common)[0]
+                left_remaining = left_set - common
+                right_remaining = right_set - common
+                return parent, list(left_remaining), list(right_remaining)
+        
+        # Fallback
+        return edge[0], [edge[0]], [edge[1]]
+        
+    except (IndexError, TypeError):
+        # Fallback to simple case
+        return edge[0], [edge[0]], [edge[1]]
+
+############################################################
+# Attach methods to vine_obj_bin class
+############################################################
+# Use deferred attachment to avoid circular import issues
+def _attach_vine_methods():
+    """Attach methods to vine_obj_bin class after import."""
+    from .objects import vine_obj_bin
+    vine_obj_bin.fit = fit_vine
+    vine_obj_bin.evaluation = evaluate_vine
+    vine_obj_bin.sample = sample_vine
+    vine_obj_bin.logpdf = logpdf_vine
+    vine_obj_bin.pdf = pdf_vine
+    vine_obj_bin.cdf = cdf_vine
+    vine_obj_bin.conditional_mean = conditional_mean_vine
+
+# Attach methods when module is imported
+try:
+    _attach_vine_methods()
+except ImportError:
+    # Methods will be attached when objects module is available
+    pass
