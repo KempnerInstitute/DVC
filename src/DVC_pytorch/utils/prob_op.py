@@ -104,11 +104,21 @@ def kernel_pdf2(x):
             # Uniform distribution for pow1
             max_pow1 = torch.max(pow1)
             min_pow1 = torch.min(pow1)
-            p_uni = 1 / (max_pow1 - min_pow1)
+            
+            # Handle case where all values in pow1 are identical
+            if torch.abs(max_pow1 - min_pow1) < 1e-16:
+                # Use a small range around the value
+                center = (max_pow1 + min_pow1) / 2
+                R = 1e-6
+                min_pow1 = center - R/2
+                max_pow1 = center + R/2
+            else:
+                R = max_pow1 - min_pow1
+            
+            p_uni = 1 / R
             den2 = torch.full((128,), p_uni, dtype=pow1.dtype, device=pow1.device)
             
-            R = max_pow1 + 2e-16 - min_pow1
-            mden2 = torch.linspace(0, R, 128, dtype=pow1.dtype, device=pow1.device) + min_pow1
+            mden2 = torch.linspace(min_pow1, max_pow1, 128, dtype=pow1.dtype, device=pow1.device)
             
             # KDE for pow2
             den3, mden3 = kde(pow2, 128, torch.min(pow2), torch.max(pow2) + 2e-16)
@@ -117,13 +127,15 @@ def kernel_pdf2(x):
             m_diff = mden2[1:] - mden2[:-1]
             m_diff = torch.cat([m_diff, m_diff[-1:]])
             norm = torch.sum(den2 * m_diff)
-            den2 = den2 / norm
+            if norm > 0:
+                den2 = den2 / norm
             
             # Normalize den3
             m_diff = mden3[1:] - mden3[:-1]
             m_diff = torch.cat([m_diff, m_diff[-1:]])
             norm = torch.sum(den3 * m_diff)
-            den3 = den3 / norm
+            if norm > 0:
+                den3 = den3 / norm
             
             # Combine distributions
             SM = torch.linspace(torch.max(mden2) + 1e-6, torch.min(mden3) - 1e-6, 100,
@@ -138,13 +150,15 @@ def kernel_pdf2(x):
             m_diff = mesh[1:] - mesh[:-1]
             m_diff = torch.cat([m_diff, m_diff[-1:]])
             area = torch.sum(density * m_diff)
-            density = density / area
+            if area > 0:
+                density = density / area
     else:
         density, mesh = kde(x_ker, 128, torch.min(x_ker), torch.max(x_ker))
         m_diff = mesh[1:] - mesh[:-1]
         m_diff = torch.cat([m_diff, m_diff[-1:]])
         area = torch.sum(density * m_diff)
-        density = density / area
+        if area > 0:
+            density = density / area
     
     return density, mesh
 
@@ -200,54 +214,54 @@ def fixed_point(xx, N, I, a2):
     return out
 
 def dct1d(data):
-    """Discrete cosine transform using PyTorch"""
-    # PyTorch doesn't have a built-in DCT, so we'll use the FFT-based implementation
-    N = data.shape[0]
+    """Discrete cosine transform using FFT - matching TensorFlow implementation"""
+    n = data.shape[0]
     device = data.device
     dtype = data.dtype
     
-    # Prepare data for FFT-based DCT
-    y = torch.zeros(2*N, dtype=dtype, device=device)
-    y[:N] = data
-    y[N:] = torch.flip(data, dims=[0])
+    if n == 1:
+        return data
     
-    # Compute FFT
-    Y = torch.fft.fft(y.to(torch.complex64))
+    # Extend the data by mirroring (matching TensorFlow's approach)
+    # TensorFlow does: [data, reverse(data[1:n-1])]
+    extended = torch.cat([data, torch.flip(data[1:n-1], dims=[0])], dim=0)
     
-    # Extract DCT coefficients
-    dct_result = torch.real(Y[:N]) / 2
-    dct_result[0] /= torch.sqrt(torch.tensor(2.0, dtype=dtype, device=device))
+    # Perform FFT
+    if dtype == torch.float64:
+        complex_dtype = torch.complex128
+    else:
+        complex_dtype = torch.complex64
     
-    # Apply normalization
-    dct_result *= torch.sqrt(torch.tensor(2.0/N, dtype=dtype, device=device))
+    result = torch.fft.fft(extended.to(complex_dtype))
+    result = torch.real(result)
     
-    return dct_result.to(dtype)
+    # Return first n elements
+    return result[:n]
 
 def idct1d(data):
-    """Inverse discrete cosine transform using PyTorch"""
-    N = data.shape[0]
+    """Inverse discrete cosine transform using FFT - matching TensorFlow implementation"""
+    n = data.shape[0]
     device = data.device
     dtype = data.dtype
     
-    # Denormalize
-    data_copy = data.clone()
-    data_copy *= torch.sqrt(torch.tensor(N/2.0, dtype=dtype, device=device))
-    data_copy[0] *= torch.sqrt(torch.tensor(2.0, dtype=dtype, device=device))
+    if n == 1:
+        return data
     
-    # Prepare for IFFT
-    Y = torch.zeros(2*N, dtype=torch.complex64, device=device)
-    Y[:N] = data_copy.to(torch.complex64)
-    # For the second half, we need N-1 elements (excluding the first one)
-    if N > 1:
-        Y[N:2*N-1] = torch.flip(data_copy[1:], dims=[0]).to(torch.complex64)
+    # Extend the data by mirroring (matching TensorFlow's approach)
+    # TensorFlow does: [data, reverse(data[1:])]
+    extended = torch.cat([data, torch.flip(data[1:], dims=[0])], dim=0)
     
-    # Compute IFFT
-    y = torch.fft.ifft(Y)
+    # Perform inverse FFT
+    if dtype == torch.float64:
+        complex_dtype = torch.complex128
+    else:
+        complex_dtype = torch.complex64
     
-    # Extract result
-    result = torch.real(y[:N]) * 2
+    result = torch.fft.ifft(extended.to(complex_dtype))
+    result = torch.real(result)
     
-    return result.to(dtype)
+    # Return first n elements
+    return result[:n]
 
 def histc(X, bins):
     """Histogram counts using numpy (for compatibility)"""
@@ -267,87 +281,205 @@ def histc1(X, bins):
     counts = torch.histc(X, bins=len(bins)-1, min=bins[0], max=bins[-1])
     return counts
 
-def kde(data, N, MIN, MAX):
-    """Kernel density estimation"""
+def kde(data, n=128, use_fft=False, bounded=False, bounds=None):
+    """
+    Compute kernel density estimate.
+    
+    Args:
+        data: Input data tensor
+        n: Number of points in output
+        use_fft: Whether to use FFT-based method (faster)
+        bounded: Whether to enforce zero probability outside data range
+        bounds: Explicit bounds (min, max). If None and bounded=True, uses data range
+    
+    Returns:
+        density: Probability density values
+        mesh: Evaluation points
+    """
+    if use_fft:
+        from .kde_simple import kde_gaussian
+        return kde_gaussian(data, n=n, method='fft')
+    
+    if bounded:
+        from .kde_bounded import bounded_kde_gaussian
+        return bounded_kde_gaussian(data, n=n, bounds=bounds, boundary_correction='renormalize')
+    
+    # Original implementation continues below...
+    
     device = data.device
     dtype = data.dtype
     
+    # Set up range
+    if bounds is None:
+        min_val, max_val = torch.min(data), torch.max(data)
+        Range = max_val - min_val
+        bounds = (min_val - Range / 2, max_val + Range / 2)
+    
+    bounds = (bounds[0].to(dtype), bounds[1].to(dtype))
+    
+    # Set up the grid over which the density estimate is computed
+    R = bounds[1] - bounds[0]
+    dx = R / (n - 1)
+    xmesh = bounds[0] + dx * torch.arange(n, dtype=dtype, device=device)
+    
+    # Get actual sample size instead of number of unique values
+    N = data.shape[0]
+    
+    # Bin the data uniformly using the defined grid
+    initial_data = torch.histc(data, bins=n, min=bounds[0].item(), max=bounds[1].item())
+    initial_data = initial_data / torch.sum(initial_data)  # Normalize by total count
+    initial_data = initial_data.to(dtype)
+    
+    # Discrete cosine transform of initial data
+    a = dct1d(initial_data)
+    
+    # Optimal bandwidth selection
+    I = torch.arange(1, n, dtype=dtype, device=device) ** 2
+    a2 = (a[1:] / 2) ** 2
+    
+    # Define the fixed-point equation
+    def fixed_point_kde(t, N, I, a2):
+        l = 7
+        t = t.to(dtype) if torch.is_tensor(t) else torch.tensor(t, dtype=dtype, device=device)
+        N = torch.tensor(N, dtype=dtype, device=device) if not torch.is_tensor(N) else N.to(dtype)
+        
+        pi = torch.tensor(math.pi, dtype=dtype, device=device)
+        
+        # Initial f calculation
+        f = 2 * torch.pow(pi, 2*l) * torch.sum(torch.pow(I, l) * a2 * torch.exp(-I * pi**2 * t))
+        
+        for s in range(l-1, 1, -1):
+            s_tensor = torch.tensor(s, dtype=dtype, device=device)
+            
+            # Use lgamma for numerical stability
+            K0 = torch.exp(torch.lgamma(s_tensor + 1) - torch.lgamma(s_tensor/2 + 1) - 0.5 * torch.log(2 * pi))
+            
+            const = (1 + torch.pow(torch.tensor(0.5, dtype=dtype, device=device), s_tensor + 0.5)) / 3
+            time = torch.pow(2 * const * K0 / N / f, 2 / (3 + 2*s_tensor))
+            f = 2 * torch.pow(pi, 2*s_tensor) * torch.sum(torch.pow(I, s_tensor) * a2 * torch.exp(-I * pi**2 * time))
+        
+        out = t - torch.pow(2 * N * torch.sqrt(pi) * f, -2/5)
+        return out
+    
+    # Find the root of the fixed-point equation using a simple bisection method
+    t_star = find_root_bisection(lambda t: fixed_point_kde(t, N, I, a2), 
+                                 low=0.0, high=1.0, device=device, dtype=dtype)
+    
+    # Smooth the DCT of initial data using t_star
     pi = torch.tensor(math.pi, dtype=dtype, device=device)
-    R = MAX - MIN
+    a_t = a * torch.exp(-torch.arange(n, dtype=dtype, device=device)**2 * pi**2 * t_star / 2)
     
-    nbins = N
-    xmesh = torch.linspace(0, R, 128, dtype=dtype, device=device) + MIN
-    
-    # Get unique values
-    data_unique, _ = torch.unique(data, sorted=True, return_inverse=True)
-    N_samples = torch.ceil(torch.tensor((data.shape[0] - 1) / 2, dtype=dtype, device=device)) * 2
-    N_samples = N_samples.to(torch.int32)
-    
-    # Compute histogram
-    counts = torch.histc(data, bins=128, min=MIN, max=MAX)
-    init_data = counts / N_samples.float()
-    init_data = init_data / torch.sum(init_data)
-    
-    # Apply DCT
-    a = dct1d(init_data)
-    I = torch.square(torch.arange(1, 128, 1, dtype=dtype, device=device))
-    a2 = torch.square(a[1:] / 2)
-    N_float = N_samples.float()
-    
-    # Find optimal bandwidth using fixed point iteration
-    tol = 1e-12 + 0.01 * (N_float - 50) / 1000
-    
-    # Simple secant method implementation for finding root
-    t_star = find_root_secant(lambda t: fixed_point(t, N_float, I, a2), tol, device=device, dtype=dtype)
-    
-    # Apply bandwidth
-    a_1 = torch.exp(-(torch.arange(0, nbins, dtype=dtype, device=device)**2 * (pi**2) * t_star) / 2)
-    a_t = a * a_1
-    
-    # Apply inverse DCT
+    # Apply the inverse DCT
     density = idct1d(a_t) / R
     
     # Ensure non-negative
-    if torch.any(density < 0):
-        eps = torch.finfo(dtype).eps
-        density = replace_negative(density, eps)
+    density = torch.clamp(density, min=0)
+    
+    # Normalize to ensure integral = 1
+    # When called with small n (like 128), downsample first then normalize
+    if n > 128:
+        # Downsample to 128 points
+        indices = torch.linspace(0, len(xmesh)-1, 128, dtype=torch.long, device=device)
+        xmesh = xmesh[indices]
+        density = density[indices]
+    
+    # Calculate dx for the final grid
+    dx_final = (xmesh[-1] - xmesh[0]) / (len(xmesh) - 1)
+    integral = torch.sum(density) * dx_final
+    if integral > 0:
+        density = density / integral
     
     return density, xmesh
 
-def find_root_secant(func, x0, device='cpu', dtype=torch.float32, tol=1e-8, max_iter=50):
-    """Simple secant method for root finding"""
-    x0 = torch.tensor(0.01, dtype=dtype, device=device)  # Start with a reasonable initial value
-    x1 = x0 + torch.tensor(0.01, dtype=dtype, device=device)
+def find_root_bisection(func, low=0.0, high=1.0, device='cpu', dtype=torch.float32, tol=1e-8, max_iter=50):
+    """Improved bisection method for root finding with better numerical stability"""
+    low = torch.tensor(low, dtype=dtype, device=device)
+    high = torch.tensor(high, dtype=dtype, device=device)
     
+    # First check if we can evaluate the function at the bounds
+    try:
+        f_low = func(low)
+        f_high = func(high)
+    except:
+        # If function evaluation fails at bounds, try slightly interior points
+        low = low + 1e-10
+        high = high - 1e-10
+        f_low = func(low)
+        f_high = func(high)
+    
+    # Check if root is at the bounds
+    if torch.abs(f_low) < tol:
+        return low
+    if torch.abs(f_high) < tol:
+        return high
+    
+    # If signs are the same, try to find a better interval
+    if torch.sign(f_low) == torch.sign(f_high):
+        # Try multiple starting points
+        test_points = torch.linspace(low, high, 20, dtype=dtype, device=device)
+        f_values = []
+        valid_points = []
+        
+        for t in test_points:
+            try:
+                f_val = func(t)
+                if torch.isfinite(f_val):
+                    f_values.append(f_val)
+                    valid_points.append(t)
+            except:
+                continue
+        
+        if len(f_values) > 0:
+            f_values = torch.stack(f_values)
+            valid_points = torch.stack(valid_points)
+            
+            # Find where sign changes
+            for i in range(len(f_values) - 1):
+                if torch.sign(f_values[i]) != torch.sign(f_values[i+1]):
+                    low = valid_points[i]
+                    high = valid_points[i+1]
+                    f_low = f_values[i]
+                    f_high = f_values[i+1]
+                    break
+            else:
+                # No sign change found, return point with minimum absolute value
+                min_idx = torch.argmin(torch.abs(f_values))
+                return valid_points[min_idx]
+    
+    # Standard bisection
     for i in range(max_iter):
-        f0 = func(x0)
-        f1 = func(x1)
+        mid = (low + high) / 2
+        try:
+            f_mid = func(mid)
+        except:
+            # If evaluation fails, try a different point
+            mid = (low + high) / 2 + (high - low) * 0.1 * (torch.rand(1, device=device) - 0.5)
+            f_mid = func(mid)
         
-        # Check for convergence
-        if torch.abs(f1) < tol:
-            return x1
-        
-        # Check if denominator is too small
-        if torch.abs(f1 - f0) < 1e-10:
-            # Try a different step
-            x1 = x1 + torch.tensor(0.01, dtype=dtype, device=device)
+        if not torch.isfinite(f_mid):
+            # If we get inf or nan, adjust the interval
+            if not torch.isfinite(f_low):
+                low = mid
+                f_low = f_mid
+            else:
+                high = mid
+                f_high = f_mid
             continue
             
-        # Secant update
-        x_new = x1 - f1 * (x1 - x0) / (f1 - f0)
-        
-        # Ensure x_new is positive and reasonable
-        x_new = torch.clamp(x_new, min=1e-6, max=1.0)
-        
-        # Check convergence
-        if torch.abs(x_new - x1) < tol:
-            return x_new
+        if torch.abs(f_mid) < tol:
+            return mid
             
-        x0 = x1
-        x1 = x_new
+        if torch.sign(f_mid) == torch.sign(f_low):
+            low = mid
+            f_low = f_mid
+        else:
+            high = mid
+            f_high = f_mid
+            
+        if torch.abs(high - low) < tol:
+            return mid
     
-    # If no convergence, return last value
-    return x1
+    return (low + high) / 2
 
 # Additional utility functions for copula operations
 def kendalltau(x, y):
@@ -357,4 +489,32 @@ def kendalltau(x, y):
     y_np = y.cpu().numpy() if torch.is_tensor(y) else y
     
     tau, p_value = stats.kendalltau(x_np, y_np)
-    return tau, p_value 
+    return tau, p_value
+
+def kde_wrapper(data, n=128, method='fft', bounded=False, bounds=None):
+    """
+    Wrapper function for different KDE methods.
+    
+    Args:
+        data: Input data
+        n: Number of evaluation points
+        method: KDE method ('original', 'fft', 'cdist', 'fft_bounded', etc.)
+        bounded: Whether to enforce bounds
+        bounds: Explicit bounds
+    
+    Returns:
+        density: Probability density
+        mesh: Evaluation points
+    """
+    if bounded or '_bounded' in method:
+        from .kde_bounded import bounded_kde_wrapper
+        return bounded_kde_wrapper(data, n=n, method=method, 
+                                 enforce_bounds=True, bounds=bounds)
+    
+    if method == 'original':
+        return kde(data, n=n, use_fft=False)
+    elif method == 'kernel_pdf2':
+        return kernel_pdf2(data)
+    else:
+        from .kde_simple import kde_gaussian
+        return kde_gaussian(data, n=n, method=method) 

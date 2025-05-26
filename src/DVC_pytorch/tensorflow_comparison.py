@@ -1,3 +1,4 @@
+"""
 Comparison between PyTorch and TensorFlow DVC implementations
 """
 
@@ -162,7 +163,10 @@ def test_tensorflow_implementation(data_uniform):
         )
         
         # Create grids
-        vine.grid_u, vine.grid_s, vine.grid_x = tf_grid.create_grids(vine.knots)
+        from grid.grid_class import grid_obj
+        vine.grid_u = tf_grid.mk_grid(vine.knots, tf.float32)
+        vine.grid_s = tf_grid.mk_grid(vine.knots, tf.float32)
+        vine.grid_x = tf_grid.mk_grid(vine.knots, tf.float32)
         
         # Set parameters
         gen_dict = {
@@ -272,5 +276,3 @@ def main():
 
 if __name__ == "__main__":
     main() 
-"""
- 

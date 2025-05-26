@@ -40,7 +40,10 @@ def eval_rs_p(adu11, adu22, ker_fit, NORM1, n_cop):
     t1 = ker_fit * torch.reciprocal(NORM1)
     
     # Check if any copula has very small values
-    if torch.any(torch.max(t1.reshape(t1.shape[0], t1.shape[1], -1), dim=(0, 1))[0] < 1e-6):
+    t1_reshaped = t1.reshape(t1.shape[0], t1.shape[1], -1)
+    # Compute max along first two dimensions sequentially
+    max_vals = torch.max(torch.max(t1_reshaped, dim=0)[0], dim=0)[0]
+    if torch.any(max_vals < 1e-6):
         t2_list = []
         for i in range(t1.shape[2]):
             if torch.max(t1[:, :, i]) < 1e-6:
@@ -82,7 +85,10 @@ def eval_rs_cop(adu11, adu22, ker_fit, NORM1, n_cop):
     t1 = ker_fit * torch.reciprocal(NORM1)
     
     # Check if any copula has very small values
-    if torch.any(torch.max(t1.reshape(t1.shape[0], t1.shape[1], -1), dim=(0, 1))[0] < 1e-6):
+    t1_reshaped = t1.reshape(t1.shape[0], t1.shape[1], -1)
+    # Compute max along first two dimensions sequentially
+    max_vals = torch.max(torch.max(t1_reshaped, dim=0)[0], dim=0)[0]
+    if torch.any(max_vals < 1e-6):
         t2_list = []
         for i in range(t1.shape[2]):
             if torch.max(t1[:, :, i]) < 1e-6:
