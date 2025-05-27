@@ -7,8 +7,8 @@ import os
 # Add DVC to path
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
-from DVC.vine_model import _h_function
-from DVC.objects import cop_par_obj
+from DVC_pyolder.vine_model import _h_function
+from DVC_pyolder.objects import cop_par_obj
 
 def test_h_function_uniform_property():
     """

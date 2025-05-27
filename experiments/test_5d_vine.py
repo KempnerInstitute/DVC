@@ -6,7 +6,7 @@ import numpy as np
 import sys
 sys.path.append('src')
 
-from DVC import vine_obj_bin, margin_obj, fit_vine
+from DVC_pyolder import vine_obj_bin, margin_obj, fit_vine
 
 # Set random seed
 np.random.seed(42)
@@ -62,7 +62,7 @@ for level_idx, level_copulas in enumerate(vine.copulas):
 print("\nDebugging D-vine sampling step by step...")
 
 import torch
-from DVC.vine_model import _hfunc_param
+from DVC_pyolder.vine_model import _hfunc_param
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 nsamples = 5

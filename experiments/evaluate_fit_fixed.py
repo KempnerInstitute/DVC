@@ -32,12 +32,12 @@ def evaluate_fit_fixed(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tupl
     
     # Create bivariate normal reference
     x1_s, x2_s = grid_s.axis()
-    from DVC.utils_prob import biv_norm
+    from DVC_pyolder.utils_prob import biv_norm
     NORM = biv_norm(x1_s, x2_s)
     NORM = NORM.unsqueeze(-1).repeat(1, 1, n_cop).to(device)
     
     # Evaluate local likelihood
-    from DVC.utils_locallik import loclik_batch_eval
+    from DVC_pyolder.utils_locallik import loclik_batch_eval
     ker_grid_fin = loclik_batch_eval(bw, data_x, grid_x, n_cop, batch_size)
     
     # Reshape to grid format
@@ -48,19 +48,19 @@ def evaluate_fit_fixed(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tupl
     ker_grid_all = ker_grid_all + 1e-15 * NORM  # TensorFlow uses 1e-15
     
     # Normalize to get copula density
-    from DVC.cop_eval import eval_rs_cop
+    from DVC_pyolder.cop_eval import eval_rs_cop
     pd_grid = eval_rs_cop(adu11, adu22, ker_grid_all, NORM, n_cop)
     pd_grid_uv = pd_grid / NORM
     
     # Compute CDF
-    from DVC.vine_eval import cdf_grid_fun
+    from DVC_pyolder.vine_eval import cdf_grid_fun
     cdf_grid = cdf_grid_fun(pd_grid_uv, grid_u.ex, adu11, adu22, n_cop)
     
     # Initialize theta updates
     theta_update = torch.zeros((data_s.shape[0], n_cop), device=device, dtype=dtype)
     
     # Interpolate CDF at data points
-    from DVC.utils_interpolation import interp_regular_nd_grid
+    from DVC_pyolder.utils_interpolation import interp_regular_nd_grid
     
     for i in range(n_cop):
         ccdf_data = interp_regular_nd_grid(

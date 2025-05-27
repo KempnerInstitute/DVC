@@ -9,7 +9,7 @@ import torch
 import sys
 sys.path.append('src')
 
-from DVC import vine_obj_bin, margin_obj, fit_vine
+from DVC_pyolder import vine_obj_bin, margin_obj, fit_vine
 
 def test_parametric_fitting():
     """Test that parametric fitting now uses gradient-based optimization"""
@@ -57,9 +57,9 @@ def test_copula_normalization():
     """Test the improved copula normalization"""
     print("Testing Copula Normalization...")
     
-    from DVC.cop_eval import eval_rs_cop
-    from DVC.utils_prob import biv_norm
-    from DVC.grid_ops import grid_obj
+    from DVC_pyolder.cop_eval import eval_rs_cop
+    from DVC_pyolder.utils_prob import biv_norm
+    from DVC_pyolder.grid_ops import grid_obj
     
     # Create test grid
     knots = 30
@@ -95,8 +95,8 @@ def test_h_function_stability():
     """Test h-function numerical stability"""
     print("Testing H-function Stability...")
     
-    from DVC.vine_model import _h_function
-    from DVC.objects import cop_par_obj
+    from DVC_pyolder.vine_model import _h_function
+    from DVC_pyolder.objects import cop_par_obj
     
     # Test with extreme values
     u_root = torch.tensor([1e-9, 0.1, 0.5, 0.9, 1-1e-9])
@@ -124,7 +124,7 @@ def test_aic_comparison():
     """Test that AIC comparison now works correctly"""
     print("Testing AIC Comparison...")
     
-    from DVC.param_copula import parametric_fit
+    from DVC_pyolder.param_copula import parametric_fit
     
     # Generate independent data
     n = 200

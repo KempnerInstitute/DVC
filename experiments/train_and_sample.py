@@ -3,9 +3,9 @@
 ##################################################
 import numpy as np
 import torch
-from DVC.objects import vine_obj_bin, margin_obj
-from DVC.vine_model import fit_vine
-from DVC.d_vine_fix import apply_d_vine_fix
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import fit_vine
+from DVC_pyolder.d_vine_fix import apply_d_vine_fix
 
 def main():
     # Generate some sample data in 3D

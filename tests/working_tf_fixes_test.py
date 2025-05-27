@@ -17,7 +17,7 @@ def test_independence_penalty_comprehensive():
     print("=== Testing Independence Penalty (Comprehensive) ===")
     
     try:
-        from DVC.param_copula import parametric_fit
+        from DVC_pyolder.param_copula import parametric_fit
         
         # Test 1: High correlation data
         print("Test 1: High correlation data (ρ = 0.8)")

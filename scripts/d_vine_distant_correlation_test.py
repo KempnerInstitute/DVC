@@ -17,9 +17,9 @@ from scipy.stats import norm, pearsonr
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.join(project_root, 'src'))
 
-from DVC.objects import vine_obj_bin, margin_obj
-from DVC.vine_model import fit_vine, sample_vine
-from DVC.d_vine_fix import enhanced_d_vine_sample, validate_d_vine_correlations
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import fit_vine, sample_vine
+from DVC_pyolder.d_vine_fix import enhanced_d_vine_sample, validate_d_vine_correlations
 
 # This ensures different seeds produce different results
 import random

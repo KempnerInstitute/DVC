@@ -16,9 +16,9 @@ from scipy.stats import norm, kendalltau
 import matplotlib.pyplot as plt
 
 # PyTorch imports
-from DVC import vine_obj_bin, margin_obj
-from DVC.vine_model import fit_vine, _h_function
-from DVC.objects import cop_par_obj
+from DVC_pyolder import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import fit_vine, _h_function
+from DVC_pyolder.objects import cop_par_obj
 
 # TensorFlow imports  
 from DVC_tensorflow.classes.objects import vine_obj_bin as tf_vine_obj_bin
@@ -159,7 +159,7 @@ def analyze_conditional_distributions():
     print("\n2. Level 0 copulas (direct dependencies):")
     
     # Edge 1-2
-    from DVC.param_copula import fit_gaussian
+    from DVC_pyolder.param_copula import fit_gaussian
     u12 = torch.tensor(u_data[:, [0, 1]], dtype=torch.float32)
     rho12, _, _ = fit_gaussian(u12)
     print(f"   Edge 1-2: rho = {rho12:.6f} (expected ~0.7)")

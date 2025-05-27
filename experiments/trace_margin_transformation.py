@@ -15,8 +15,8 @@ sys.path.append('src/DVC_tensorflow')
 from scipy.stats import norm
 
 # PyTorch imports
-from DVC.vine_model import fit_vine
-from DVC import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import fit_vine
+from DVC_pyolder import vine_obj_bin, margin_obj
 
 # TensorFlow imports
 from DVC_tensorflow.utils.prob_op import kernel_cdf
@@ -235,7 +235,7 @@ def investigate_likelihood_calculation():
     
     # Check what PyTorch is computing
     print("\n3. PyTorch computation:")
-    from DVC.param_copula import fit_gaussian
+    from DVC_pyolder.param_copula import fit_gaussian
     u_torch = torch.tensor(u_data)
     rho_fit, ll_fit, aic_fit = fit_gaussian(u_torch)
     print(f"   Fitted rho: {rho_fit:.6f}")

@@ -7,7 +7,7 @@ import sys
 sys.path.append('src')
 sys.path.append('src/DVC_tensorflow')  # Add this line to fix TensorFlow imports
 
-from DVC import vine_obj_bin, margin_obj, fit_vine
+from DVC_pyolder import vine_obj_bin, margin_obj, fit_vine
 import tensorflow as tf
 from DVC_tensorflow.classes.objects import vine_obj_bin as tf_vine_obj_bin
 

@@ -51,7 +51,7 @@ def test_pairwise_copula_selection(data):
     """Test our improved independence penalty on all pairs."""
     print("\n=== PAIRWISE COPULA SELECTION TEST ===")
     
-    from DVC.param_copula import parametric_fit
+    from DVC_pyolder.param_copula import parametric_fit
     
     n_samples = data.shape[0]
     results = []
@@ -116,7 +116,7 @@ def test_pytorch_vine_fitting(data):
     print("\n=== PYTORCH VINE FITTING TEST ===")
     
     try:
-        from DVC.objects import vine_obj_bin, margin_obj
+        from DVC_pyolder.objects import vine_obj_bin, margin_obj
         
         # Create vine
         margins = [margin_obj("norm", (0.0, 1.0)) for _ in range(5)]

@@ -22,7 +22,7 @@ def test_independence_penalty_with_correlations():
     """Test that independence penalty correctly favors Gaussian for correlated data."""
     print("=== Testing Independence Penalty with Various Correlations ===")
     
-    from DVC.param_copula import parametric_fit
+    from DVC_pyolder.param_copula import parametric_fit
     
     correlation_levels = [0.1, 0.3, 0.5, 0.7, 0.9]
     results = []
@@ -102,7 +102,7 @@ def test_simple_vine_correlation_recovery():
     print("\n=== Testing Simple Vine Correlation Recovery ===")
     
     try:
-        from DVC.param_copula import parametric_fit
+        from DVC_pyolder.param_copula import parametric_fit
         
         # Generate simple 3D data with known correlations
         np.random.seed(42)

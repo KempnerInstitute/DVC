@@ -21,8 +21,8 @@ import time
 # Ensure the DVC package is in the path
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
-from DVC.objects import vine_obj_bin, margin_obj
-from DVC.vine_model import _h_function, sample_vine, fit_vine
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import _h_function, sample_vine, fit_vine
 
 def test_correlation_preservation(d=4, n_samples=5000, rho=0.6, seed=42):
     """

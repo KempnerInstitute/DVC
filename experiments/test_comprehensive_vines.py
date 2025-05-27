@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import multivariate_normal, norm
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
-from DVC import (
+from DVC_pyolder import (
     vine_obj_bin, margin_obj, fit_vine, 
     vine_entropy, mutual_information,
     predict_conditional, prepare_vine, random_r_matrix_gen

@@ -83,8 +83,8 @@ def test_pytorch_implementation(data, scenario_name):
     start_time = time.time()
     
     try:
-        from DVC.objects import vine_obj_bin, margin_obj
-        from DVC.param_copula import parametric_fit
+        from DVC_pyolder.objects import vine_obj_bin, margin_obj
+        from DVC_pyolder.param_copula import parametric_fit
         from scipy.stats import rankdata
         
         n_samples, d = data.shape

@@ -12,9 +12,9 @@ DVC_ROOT = "/n/holylabs/LABS/kempner_dev/Users/hsafaai/Code/DVC"
 sys.path.append(DVC_ROOT)
 
 # Import after adding path
-from src.DVC.objects import vine_obj_bin as PyTorchVine
+from src.DVC_pyolder.objects import vine_obj_bin as PyTorchVine
 from src.DVC_tensorflow.classes.objects import vine_obj_bin as TFVine
-from src.DVC.sampling import vine_copula_sample as pt_vine_sample
+from src.DVC_pyolder.sampling import vine_copula_sample as pt_vine_sample
 from src.DVC_tensorflow.sampling.vine_sample import vine_copula_sample as tf_vine_sample
 
 def generate_ground_truth_data(n_samples: int, correlation_matrix: np.ndarray) -> np.ndarray:

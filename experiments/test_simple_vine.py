@@ -6,7 +6,7 @@ import numpy as np
 import sys
 sys.path.append('src')
 
-from DVC import vine_obj_bin, margin_obj, fit_vine
+from DVC_pyolder import vine_obj_bin, margin_obj, fit_vine
 
 # Set random seed
 np.random.seed(42)
@@ -59,7 +59,7 @@ print("D-vine structure should sample U1, then U2|U1")
 
 # Try manual sampling
 import torch
-from DVC.vine_model import _hfunc_param
+from DVC_pyolder.vine_model import _hfunc_param
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 nsamples = 5

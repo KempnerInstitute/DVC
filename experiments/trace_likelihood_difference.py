@@ -15,7 +15,7 @@ sys.path.append('src/DVC_tensorflow')
 from scipy.stats import norm
 
 # Import the actual fitting functions
-from DVC.param_copula import fit_gaussian as pt_fit_gaussian
+from DVC_pyolder.param_copula import fit_gaussian as pt_fit_gaussian
 from DVC_tensorflow.param.copula_fit import fit_gaussian as tf_fit_gaussian_raw
 
 

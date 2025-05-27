@@ -7,10 +7,10 @@ import os
 import numpy as np
 import torch
 
-from DVC.objects import vine_obj_bin, margin_obj
-from DVC.preparation import prep_cop
-from DVC.vine_model import fit_vine, evaluate_vine, sample_vine
-from DVC.info_estimation import vine_entropy
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.preparation import prep_cop
+from DVC_pyolder.vine_model import fit_vine, evaluate_vine, sample_vine
+from DVC_pyolder.info_estimation import vine_entropy
 
 this_file_dir = os.path.dirname(os.path.abspath(__file__))        
 project_root = os.path.dirname(this_file_dir)                     

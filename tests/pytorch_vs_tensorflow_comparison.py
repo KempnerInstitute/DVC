@@ -51,7 +51,7 @@ def test_pytorch_implementation(data, use_gaussian_only=False):
     print(f"\n=== PYTORCH IMPLEMENTATION ({'Gaussian-only' if use_gaussian_only else 'Multi-family'}) ===")
     
     try:
-        from DVC.objects import vine_obj_bin, margin_obj
+        from DVC_pyolder.objects import vine_obj_bin, margin_obj
         
         start_time = time.time()
         

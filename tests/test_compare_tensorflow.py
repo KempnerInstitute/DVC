@@ -8,7 +8,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "src" / "DVC_tensorflow" / "src"))
 
-from src.DVC.objects import vine_obj_bin, margin_obj
+from src.DVC_pyolder.objects import vine_obj_bin, margin_obj
 from classes.objects import vine_obj_bin as tf_vine_obj
 
 

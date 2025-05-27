@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-from src.DVC.objects import vine_obj_bin, margin_obj
-from src.DVC.config import DEFAULT_CFG
+from src.DVC_pyolder.objects import vine_obj_bin, margin_obj
+from src.DVC_pyolder.config import DEFAULT_CFG
 
 
 def _build_gaussian_cov(d: int, rho: float):

@@ -6,8 +6,8 @@ from pathlib import Path
 import time
 import os
 
-from DVC.config import load_config
-from DVC.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.config import load_config
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
 
 # ------------------------------------------------------------
 # Helper functions

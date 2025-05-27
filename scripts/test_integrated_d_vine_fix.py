@@ -18,7 +18,7 @@ from scipy.stats import norm
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.join(project_root, 'src'))
 
-from DVC.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
 
 def direct_comparison_test(dim=6, n_samples=10000, rho=0.6):
     """

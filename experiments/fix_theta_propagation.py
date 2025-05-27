@@ -11,8 +11,8 @@ import torch
 import sys
 sys.path.append('src')
 
-from DVC import vine_obj_bin, margin_obj
-from DVC.vine_model import fit_vine
+from DVC_pyolder import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import fit_vine
 
 
 def demonstrate_the_problem():

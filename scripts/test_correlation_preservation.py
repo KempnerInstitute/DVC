@@ -5,8 +5,8 @@ from pathlib import Path
 import os
 import time
 
-from DVC.objects import vine_obj_bin, margin_obj
-from DVC.vine_model import sample_vine
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import sample_vine
 
 # Create a simplified version of the original D-vine sampling that doesn't handle higher-order dependencies
 def original_d_vine_sample(vine, nsamples):

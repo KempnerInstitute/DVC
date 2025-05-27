@@ -17,9 +17,9 @@ sys.path.append('src')
 sys.path.append('src/DVC_tensorflow')
 
 # PyTorch imports
-from DVC import vine_obj_bin, margin_obj
-from DVC.vine_model import fit_vine, evaluate_vine
-from DVC.sampling import vine_copula_sample
+from DVC_pyolder import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import fit_vine, evaluate_vine
+from DVC_pyolder.sampling import vine_copula_sample
 
 # TensorFlow imports
 from DVC_tensorflow.classes.objects import vine_obj_bin as tf_vine_obj_bin

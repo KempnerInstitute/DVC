@@ -469,8 +469,8 @@ def test_complete_fix():
     """Test the complete fix with a simple example"""
     print("\n\n=== TESTING COMPLETE FIX ===")
     
-    from DVC import vine_obj_bin, margin_obj
-    from DVC.vine_model import fit_vine
+    from DVC_pyolder import vine_obj_bin, margin_obj
+    from DVC_pyolder.vine_model import fit_vine
     
     # Generate test data
     np.random.seed(42)

@@ -18,9 +18,9 @@ def test_simple_correlation_recovery():
     print("Testing simple 2D correlation recovery...")
     
     try:
-        from DVC.vine_model import fit_vine
-        from DVC.objects import vine_obj_bin, margin_obj
-        from DVC.sampling import vine_copula_sample
+        from DVC_pyolder.vine_model import fit_vine
+        from DVC_pyolder.objects import vine_obj_bin, margin_obj
+        from DVC_pyolder.sampling import vine_copula_sample
         
         # Generate simple 2D correlated data
         np.random.seed(42)

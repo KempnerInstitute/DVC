@@ -5,7 +5,7 @@ from pathlib import Path
 import os
 import seaborn as sns
 
-from DVC.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
 
 def generate_gaussian_data(n_samples, dim, rho=0.6, seed=42):
     """Generate samples from a multivariate Gaussian with uniform correlation rho"""

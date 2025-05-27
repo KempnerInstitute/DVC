@@ -19,9 +19,9 @@ sys.path.append('src')
 sys.path.append('src/DVC_tensorflow')
 
 # PyTorch imports
-from DVC import vine_obj_bin, margin_obj
-from DVC.vine_model import fit_vine, evaluate_vine, pdf_vine, cdf_vine
-from DVC.vine_model import conditional_mean_vine
+from DVC_pyolder import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import fit_vine, evaluate_vine, pdf_vine, cdf_vine
+from DVC_pyolder.vine_model import conditional_mean_vine
 
 # TensorFlow imports
 from DVC_tensorflow.classes.objects import vine_obj_bin as tf_vine_obj_bin
@@ -482,7 +482,7 @@ def diagnose_remaining_differences():
     # Test h-function on same inputs
     u1, u2 = torch.tensor([0.3, 0.5, 0.7]), torch.tensor([0.4, 0.6, 0.8])
     if hasattr(vine_pt.copulas[0][0], 'theta'):
-        from DVC.vine_model import _h_function
+        from DVC_pyolder.vine_model import _h_function
         h_out = _h_function(u1, u2, vine_pt.copulas[0][0], vine_pt.grid_u, side="left")
         print(f"PyTorch h-function output: {h_out.numpy()}")
 

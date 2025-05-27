@@ -14,10 +14,10 @@ import os
 # Add src to path
 sys.path.insert(0, 'src')
 
-from DVC.vine_model import fit_vine
-from DVC.objects import vine_obj_bin, margin_obj
-from DVC.grid_ops import grid_obj
-from DVC.sampling import vine_copula_sample
+from DVC_pyolder.vine_model import fit_vine
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.grid_ops import grid_obj
+from DVC_pyolder.sampling import vine_copula_sample
 
 def test_correlation_recovery():
     """Test if the fixes properly recover correlations"""
@@ -115,7 +115,7 @@ def test_kernel_cdf_smoothing():
     print("\nTesting kernel_cdf smoothing...")
     
     try:
-        from DVC.utils_prob import kernel_cdf
+        from DVC_pyolder.utils_prob import kernel_cdf
         
         # Test data
         data = np.random.uniform(0, 1, 100)
@@ -149,7 +149,7 @@ def test_parametric_copulas():
     print("\nTesting parametric copulas...")
     
     try:
-        from DVC.param_copula import parametric_fit
+        from DVC_pyolder.param_copula import parametric_fit
         
         # Generate data with known correlation
         np.random.seed(42)

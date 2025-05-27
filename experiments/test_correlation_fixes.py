@@ -13,8 +13,8 @@ from scipy.stats import multivariate_normal
 
 # Import DVC modules
 try:
-    from DVC import fit_vine, vine_obj_bin, margin_obj
-    from DVC.vine_model import sample_vine
+    from DVC_pyolder import fit_vine, vine_obj_bin, margin_obj
+    from DVC_pyolder.vine_model import sample_vine
     print("✓ Successfully imported PyTorch DVC modules")
 except ImportError as e:
     print(f"✗ Failed to import DVC modules: {e}")

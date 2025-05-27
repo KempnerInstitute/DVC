@@ -6,7 +6,7 @@ import numpy as np
 import sys
 sys.path.append('src')
 
-from DVC import vine_obj_bin, margin_obj, fit_vine
+from DVC_pyolder import vine_obj_bin, margin_obj, fit_vine
 
 # Set random seed
 np.random.seed(42)

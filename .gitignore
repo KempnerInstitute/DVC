@@ -22,7 +22,9 @@ wheels/
 multidim_data/
 # Jupyter Notebook
 .ipynb_checkpoints
-
+src/DVC_pyolder/
+src/DVC_tensorflow/
+src/DVC_pytorch/_archive_tests_debug/
 # Environments
 .env
 .venv

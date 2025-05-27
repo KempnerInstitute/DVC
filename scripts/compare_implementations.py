@@ -9,7 +9,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "DVC_tensorflow"))
 
 # Import from our implementation
-from DVC.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
 
 # Try to import from the TensorFlow implementation
 try:

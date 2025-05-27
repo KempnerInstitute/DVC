@@ -497,7 +497,10 @@ def random_r_matrix_gen(dim):
             edges, weights = random_tree(dim, ind_vine, tr)
         ind_vine.append(edges)
     
-    rr, E, nodes = prepare_optimal(dim, ind_vine)
-    E, ind_vine, nodes, matrix_edges = prepare_regular(rr)
+    # Get r_matrix from prepare_optimal
+    r_matrix, E, nodes = prepare_optimal(dim, ind_vine)
+    # Update with prepare_regular to get final ind_vine
+    E, updated_ind_vine, nodes, matrix_edges = prepare_regular(r_matrix)
     
-    return rr, E, nodes, matrix_edges 
+    # Return in TensorFlow order: (r_matrix, ind_vine, nodes, E)
+    return r_matrix, updated_ind_vine, nodes, E 

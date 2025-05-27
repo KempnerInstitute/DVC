@@ -11,10 +11,10 @@ import sys
 sys.path.append('src')
 
 from scipy.stats import norm
-from DVC import vine_obj_bin, margin_obj
-from DVC.vine_model import fit_vine, _h_function
-from DVC.objects import cop_par_obj
-from DVC.param_copula import fit_gaussian
+from DVC_pyolder import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import fit_vine, _h_function
+from DVC_pyolder.objects import cop_par_obj
+from DVC_pyolder.param_copula import fit_gaussian
 
 
 def trace_theta_propagation_detailed():

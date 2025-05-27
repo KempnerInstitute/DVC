@@ -3,9 +3,9 @@ import torch
 import matplotlib.pyplot as plt
 import networkx as nx
 from pathlib import Path
-from DVC.config import load_config, DEFAULT_CFG
-from DVC.objects import vine_obj_bin, margin_obj
-from DVC.utils_prob import biv_norm
+from DVC_pyolder.config import load_config, DEFAULT_CFG
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.utils_prob import biv_norm
 from scipy.stats import multivariate_normal
 
 # ------------------------------------------------------------

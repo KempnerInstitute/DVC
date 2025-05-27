@@ -26,10 +26,10 @@ def kernel_cdf_pytorch(data: torch.Tensor) -> torch.Tensor:
 # Monkey patch the evaluate_fit function
 def patch_evaluate_fit():
     """Apply the kernel_cdf fix to evaluate_fit"""
-    import DVC.vine_eval
+    import DVC_pyolder.vine_eval
     
     # Store original function
-    original_evaluate_fit = DVC.vine_eval.evaluate_fit
+    original_evaluate_fit = DVC_pyolder.vine_eval.evaluate_fit
     
     def evaluate_fit_patched(data_dict: dict, grid_dict: dict, par_dict: dict):
         # Call original function
@@ -63,7 +63,7 @@ def patch_evaluate_fit():
         return pd_grid_uv, cdf_grid, theta_update, grad_u, grad_v
     
     # Replace the function
-    DVC.vine_eval.evaluate_fit = evaluate_fit_patched
+    DVC_pyolder.vine_eval.evaluate_fit = evaluate_fit_patched
     print("✓ evaluate_fit has been patched with kernel_cdf fix")
 
 

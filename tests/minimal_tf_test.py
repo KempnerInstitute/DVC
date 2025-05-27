@@ -17,7 +17,7 @@ def test_kernel_cdf():
     print("=== Testing Kernel CDF ===")
     
     try:
-        from DVC.utils_prob import kernel_cdf
+        from DVC_pyolder.utils_prob import kernel_cdf
         
         # Create test data
         np.random.seed(42)
@@ -48,7 +48,7 @@ def test_cdf_grid_functions():
     
     try:
         import torch
-        from DVC.cop_eval import cdf_grid_fun, cdf_grid_fun_with_kernel_smoothing
+        from DVC_pyolder.cop_eval import cdf_grid_fun, cdf_grid_fun_with_kernel_smoothing
         
         # Create test data
         n_grid = 10
@@ -96,7 +96,7 @@ def test_independence_penalty():
     print("\n=== Testing Independence Penalty ===")
     
     try:
-        from DVC.param_copula import parametric_fit
+        from DVC_pyolder.param_copula import parametric_fit
         
         # Create test data with high correlation
         n_samples = 50
@@ -144,7 +144,7 @@ def test_epsilon_constants():
     print("\n=== Testing Epsilon Constants ===")
     
     try:
-        import DVC.cop_eval as cop_eval
+        import DVC_pyolder.cop_eval as cop_eval
         
         # Check source code for correct epsilon values
         import inspect

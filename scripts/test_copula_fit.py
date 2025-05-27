@@ -3,8 +3,8 @@ import torch
 import matplotlib.pyplot as plt
 from scipy.stats import kendalltau
 
-from DVC.param_copula import fit_gaussian, copulapdf, copulainvccdf
-from DVC.objects import cop_par_obj
+from DVC_pyolder.param_copula import fit_gaussian, copulapdf, copulainvccdf
+from DVC_pyolder.objects import cop_par_obj
 
 # Generate bivariate Gaussian data with known correlation
 def generate_test_data(n_samples=5000, rho=0.6):

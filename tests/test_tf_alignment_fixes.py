@@ -20,11 +20,11 @@ import pytest
 from unittest.mock import MagicMock
 
 # Import the fixed modules
-from DVC.cop_eval import cdf_grid_fun, cdf_grid_fun_with_kernel_smoothing
-from DVC.vine_model import fit_vine, update_theta_with_kernel_smoothing, get_parent_variable_fixed
-from DVC.param_copula import parametric_fit
-from DVC.utils_prob import kernel_cdf
-from DVC.objects import vine_obj_bin
+from DVC_pyolder.cop_eval import cdf_grid_fun, cdf_grid_fun_with_kernel_smoothing
+from DVC_pyolder.vine_model import fit_vine, update_theta_with_kernel_smoothing, get_parent_variable_fixed
+from DVC_pyolder.param_copula import parametric_fit
+from DVC_pyolder.utils_prob import kernel_cdf
+from DVC_pyolder.objects import vine_obj_bin
 
 
 def test_cdf_grid_fun_with_kernel_smoothing():
@@ -207,8 +207,8 @@ def test_epsilon_constants():
     print("Testing epsilon constants...")
     
     # Read source files to check for proper epsilon values
-    import DVC.cop_eval as cop_eval
-    import DVC.vine_eval as vine_eval
+    import DVC_pyolder.cop_eval as cop_eval
+    import DVC_pyolder.vine_eval as vine_eval
     
     # Check that eval_rs_cop uses 1e-30
     source_code = ""

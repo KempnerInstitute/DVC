@@ -15,7 +15,7 @@ from scipy.stats import multivariate_normal
 import time
 
 # Import PyTorch implementation
-from DVC import vine_obj_bin, margin_obj, fit_vine
+from DVC_pyolder import vine_obj_bin, margin_obj, fit_vine
 
 # Import TensorFlow implementation
 import tensorflow as tf

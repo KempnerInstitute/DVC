@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 def patch_vine_model():
     """Apply patches to vine_model.py to fix correlation issues"""
     
-    import DVC.vine_model as vm
+    import DVC_pyolder.vine_model as vm
     
     # Store original functions
     original_fit_vine = vm.fit_vine
@@ -124,7 +124,7 @@ def patch_vine_model():
 def patch_theta_propagation():
     """Fix theta propagation to match TensorFlow exactly"""
     
-    import DVC.vine_model as vm
+    import DVC_pyolder.vine_model as vm
     
     # Store original fit_vine
     original_fit_vine = vm.fit_vine
@@ -208,8 +208,8 @@ def patch_theta_propagation():
 def patch_d_vine_sampling():
     """Add special D-vine sampling for better correlation preservation"""
     
-    import DVC.vine_model as vm
-    from DVC.d_vine_fix import sample_d_vine
+    import DVC_pyolder.vine_model as vm
+    from DVC_pyolder.d_vine_fix import sample_d_vine
     
     # Store original sample_vine
     original_sample_vine = vm.sample_vine
@@ -235,7 +235,7 @@ def verify_fixes():
     logger.info("\nVerifying fixes with a simple test...")
     
     try:
-        from DVC import fit_vine, vine_obj_bin
+        from DVC_pyolder import fit_vine, vine_obj_bin
         
         # Create test data with known correlation
         np.random.seed(42)

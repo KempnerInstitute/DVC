@@ -28,21 +28,21 @@ def test_basic_imports():
     print("\n=== Testing Basic Imports ===")
     
     try:
-        from DVC.utils_prob import kernel_cdf
+        from DVC_pyolder.utils_prob import kernel_cdf
         print("✓ kernel_cdf imported from utils_prob")
     except ImportError as e:
         print(f"✗ Failed to import kernel_cdf: {e}")
         return False
     
     try:
-        from DVC.cop_eval import cdf_grid_fun, cdf_grid_fun_with_kernel_smoothing
+        from DVC_pyolder.cop_eval import cdf_grid_fun, cdf_grid_fun_with_kernel_smoothing
         print("✓ CDF functions imported from cop_eval")
     except ImportError as e:
         print(f"✗ Failed to import CDF functions: {e}")
         return False
     
     try:
-        from DVC.vine_model import get_parent_variable_fixed, update_theta_with_kernel_smoothing
+        from DVC_pyolder.vine_model import get_parent_variable_fixed, update_theta_with_kernel_smoothing
         print("✓ Vine model functions imported")
     except ImportError as e:
         print(f"✗ Failed to import vine model functions: {e}")
@@ -55,7 +55,7 @@ def test_kernel_cdf_basic():
     print("\n=== Testing Kernel CDF ===")
     
     try:
-        from DVC.utils_prob import kernel_cdf
+        from DVC_pyolder.utils_prob import kernel_cdf
         
         # Create test data
         np.random.seed(42)
@@ -85,7 +85,7 @@ def test_cdf_grid_functions():
     print("\n=== Testing CDF Grid Functions ===")
     
     try:
-        from DVC.cop_eval import cdf_grid_fun, cdf_grid_fun_with_kernel_smoothing
+        from DVC_pyolder.cop_eval import cdf_grid_fun, cdf_grid_fun_with_kernel_smoothing
         
         # Create test data
         n_grid = 10
@@ -133,7 +133,7 @@ def test_parent_variable_detection():
     print("\n=== Testing Parent Variable Detection ===")
     
     try:
-        from DVC.vine_model import get_parent_variable_fixed
+        from DVC_pyolder.vine_model import get_parent_variable_fixed
         
         # Create a simple vine structure
         ind_vine = [
@@ -167,7 +167,7 @@ def test_epsilon_constants():
     print("\n=== Testing Epsilon Constants ===")
     
     try:
-        import DVC.cop_eval as cop_eval
+        import DVC_pyolder.cop_eval as cop_eval
         
         # Check source code for correct epsilon values
         import inspect
@@ -200,7 +200,7 @@ def test_independence_penalty_basic():
     print("\n=== Testing Independence Penalty (Basic) ===")
     
     try:
-        from DVC.param_copula import parametric_fit
+        from DVC_pyolder.param_copula import parametric_fit
         
         # Create test data with high correlation
         n_samples = 50

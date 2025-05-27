@@ -30,8 +30,8 @@ def corrcoef(samples: np.ndarray) -> np.ndarray:
 # (B) PyTorch code: import from your src/DVC/ codebase
 ###############################################################################
 try:
-    from DVC.objects import vine_obj_bin, margin_obj
-    from DVC.vine_model import fit_vine
+    from DVC_pyolder.objects import vine_obj_bin, margin_obj
+    from DVC_pyolder.vine_model import fit_vine
     pytorch_available = True
 except ImportError as e:
     print(f"Could not import PyTorch DVC code: {e}. Please adjust import paths.")

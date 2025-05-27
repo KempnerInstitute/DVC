@@ -1,5 +1,5 @@
 import numpy as np
-from src.DVC.objects import vine_obj_bin, margin_obj
+from src.DVC_pyolder.objects import vine_obj_bin, margin_obj
 
 
 _DEF_RHO = 0.6

@@ -106,9 +106,9 @@ def fit_pytorch_vine(data: np.ndarray, d: int) -> Dict:
         results: Dictionary with fitting results
     """
     try:
-        from DVC.vine_model import fit_vine
-        from DVC.objects import vine_obj_bin, margin_obj
-        from DVC.sampling import vine_copula_sample
+        from DVC_pyolder.vine_model import fit_vine
+        from DVC_pyolder.objects import vine_obj_bin, margin_obj
+        from DVC_pyolder.sampling import vine_copula_sample
         
         print(f"  Fitting {d}D PyTorch vine...")
         start_time = time.time()

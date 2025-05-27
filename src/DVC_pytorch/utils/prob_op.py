@@ -7,6 +7,7 @@ from scipy.interpolate import interp1d
 from scipy import stats
 from utils.tensor_op import *
 from utils.interpolation import interp1d_np
+from typing import Optional, Tuple, List
 
 def biv_norm(x1_s, x2_s):
     """Compute bivariate normal PDF"""
@@ -297,11 +298,11 @@ def kde(data, n=128, use_fft=False, bounded=False, bounds=None):
         mesh: Evaluation points
     """
     if use_fft:
-        from .kde_simple import kde_gaussian
+        from .kde import kde_gaussian
         return kde_gaussian(data, n=n, method='fft')
     
     if bounded:
-        from .kde_bounded import bounded_kde_gaussian
+        from .kde import bounded_kde_gaussian
         return bounded_kde_gaussian(data, n=n, bounds=bounds, boundary_correction='renormalize')
     
     # Original implementation continues below...
@@ -454,7 +455,7 @@ def find_root_bisection(func, low=0.0, high=1.0, device='cpu', dtype=torch.float
         except:
             # If evaluation fails, try a different point
             mid = (low + high) / 2 + (high - low) * 0.1 * (torch.rand(1, device=device) - 0.5)
-            f_mid = func(mid)
+        f_mid = func(mid)
         
         if not torch.isfinite(f_mid):
             # If we get inf or nan, adjust the interval
@@ -465,10 +466,10 @@ def find_root_bisection(func, low=0.0, high=1.0, device='cpu', dtype=torch.float
                 high = mid
                 f_high = f_mid
             continue
-            
+        
         if torch.abs(f_mid) < tol:
             return mid
-            
+        
         if torch.sign(f_mid) == torch.sign(f_low):
             low = mid
             f_low = f_mid
@@ -489,7 +490,7 @@ def kendalltau(x, y):
     y_np = y.cpu().numpy() if torch.is_tensor(y) else y
     
     tau, p_value = stats.kendalltau(x_np, y_np)
-    return tau, p_value
+    return tau, p_value 
 
 def kde_wrapper(data, n=128, method='fft', bounded=False, bounds=None):
     """
@@ -507,7 +508,7 @@ def kde_wrapper(data, n=128, method='fft', bounded=False, bounds=None):
         mesh: Evaluation points
     """
     if bounded or '_bounded' in method:
-        from .kde_bounded import bounded_kde_wrapper
+        from .kde import bounded_kde_wrapper
         return bounded_kde_wrapper(data, n=n, method=method, 
                                  enforce_bounds=True, bounds=bounds)
     
@@ -516,5 +517,70 @@ def kde_wrapper(data, n=128, method='fft', bounded=False, bounds=None):
     elif method == 'kernel_pdf2':
         return kernel_pdf2(data)
     else:
-        from .kde_simple import kde_gaussian
+        from .kde import kde_gaussian
         return kde_gaussian(data, n=n, method=method) 
+
+# Added missing function from TensorFlow implementation
+
+def kernel_cdf_torch(x: torch.Tensor, data: torch.Tensor, grid_ex: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    PyTorch implementation of kernel CDF following TensorFlow's kernel_cdf
+    
+    Args:
+        x: Points at which to evaluate CDF
+        data: Data points for kernel density estimation
+        grid_ex: Grid extremes for bounded support
+        
+    Returns:
+        interp_cdf: Interpolated CDF values at x
+        sorted_data: Sorted data values
+        ecdf_vals: Empirical CDF values
+    """
+    device = x.device
+    dtype = x.dtype
+    
+    # Sort data
+    sorted_data, _ = torch.sort(data)
+    n = len(sorted_data)
+    
+    # Compute empirical CDF
+    ecdf_vals = torch.arange(1, n + 1, device=device, dtype=dtype) / n
+    
+    # Add boundary points
+    eps = 1e-10
+    min_val = grid_ex[0] if len(grid_ex) > 0 else sorted_data[0] - eps
+    max_val = grid_ex[-1] if len(grid_ex) > 0 else sorted_data[-1] + eps
+    
+    # Extend sorted data and CDF values with boundaries
+    extended_data = torch.cat([
+        torch.tensor([min_val], device=device, dtype=dtype),
+        sorted_data,
+        torch.tensor([max_val], device=device, dtype=dtype)
+    ])
+    
+    extended_cdf = torch.cat([
+        torch.tensor([0.0], device=device, dtype=dtype),
+        ecdf_vals,
+        torch.tensor([1.0], device=device, dtype=dtype)
+    ])
+    
+    # Interpolate CDF at query points
+    # Using searchsorted for vectorized interpolation
+    indices = torch.searchsorted(extended_data[:-1], x)
+    indices = torch.clamp(indices, 1, len(extended_data) - 2)
+    
+    # Linear interpolation
+    x0 = extended_data[indices - 1]
+    x1 = extended_data[indices]
+    y0 = extended_cdf[indices - 1]
+    y1 = extended_cdf[indices]
+    
+    # Avoid division by zero
+    denom = x1 - x0
+    denom = torch.where(denom == 0, torch.ones_like(denom), denom)
+    alpha = (x - x0) / denom
+    
+    interp_cdf = y0 + alpha * (y1 - y0)
+    interp_cdf = torch.clamp(interp_cdf, 0.0, 1.0)
+    
+    return interp_cdf, sorted_data, ecdf_vals

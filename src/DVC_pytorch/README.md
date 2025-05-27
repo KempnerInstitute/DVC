@@ -1,158 +1,145 @@
-# Deep Vine Copula (DVC) - PyTorch Implementation
+# DVC PyTorch Implementation
 
-A GPU-accelerated PyTorch implementation of Deep Vine Copula for multivariate dependence modeling, converted from the original TensorFlow implementation.
+A pure PyTorch implementation of Deep Vine Copulas (DVC) for improved GPU optimization and scalability.
 
-## Features
+## Current Status
 
-- ✅ **GPU Acceleration**: Native PyTorch GPU support with automatic device management
-- ✅ **All Vine Structures**: C-vine, D-vine, and R-vine with optimal tree construction
-- ✅ **Parametric Copulas**: Gaussian, Student-t, Clayton, and rotated variants
-- ✅ **Non-parametric Copulas**: With bandwidth optimization
-- ✅ **Numerical Stability**: Enhanced stability fixes for log-likelihood calculations
-- ✅ **Performance**: 1.37x average speedup over TensorFlow implementation
+### ✅ Completed Components
 
-## Installation
+1. **Core Classes & Objects** (`classes/`)
+   - `vine_obj_bin`: Main vine copula object with fitting and structure
+   - `margin_obj`: Marginal distribution objects
+   - `grid_obj`: Grid objects for numerical integration
 
-```bash
-# Clone the repository
-git clone <repository-url>
-cd DVC/src/DVC_pytorch
+2. **Parametric Copulas** (`param/`)
+   - Gaussian, Student-t, Clayton, and rotated Clayton copulas
+   - Conditional CDF (h-functions) and inverse conditional CDF
+   - PyTorch-compatible versions: `copulaccdf_torch`, `copulainvccdf_torch`
 
-# Install dependencies
-pip install torch numpy scipy matplotlib
-```
+3. **Vine Tree Operations** (`vine_tree/`)
+   - C-vine and D-vine structure generation
+   - Parent-child relationships and edge definitions
+   - R-matrix generation for vine structure
 
-## Quick Start
+4. **Probability Operations** (`utils/prob_op.py`)
+   - `kernel_cdf_torch`: Empirical CDF computation
+   - `kernel_pdf2`: Kernel density estimation
+   - Numerical integration utilities
+
+5. **Preprocessing** (`pre_proc/`)
+   - Data transformation utilities
+   - Bijector operations for copula transformations
+
+6. **Fitting Procedures** (`optim/`)
+   - Maximum likelihood estimation for copula parameters
+   - Tree-by-tree fitting algorithm
+   - Marginal distribution fitting
+
+7. **Sampling** (`sampling/`)
+   - `VineSampler`: Main sampling class following TensorFlow logic
+   - Parametric vine sampling with proper h-function computation
+   - Marginal transformations for converting uniform to original scale
+
+### 🔧 Recent Fixes
+
+1. **Sampling Correlation Preservation**
+   - Fixed uniform sample generation to properly preserve correlations
+   - Corrected h-function computation in higher trees
+   - Proper extraction of samples using R-matrix ordering
+
+2. **Marginal Transformations**
+   - Fixed interpretation of `Mar_G` (grid values and CDF values)
+   - Proper inverse CDF interpolation for marginal distributions
+
+3. **Import Structure**
+   - Removed all dependencies on `DVC_pyolder`
+   - Clean module structure with proper `__init__.py` files
+
+### 📊 Test Results
+
+The implementation now successfully:
+- Fits vine copulas to correlated data
+- Preserves correlation structure in sampling (with small differences ~0.01-0.15)
+- Generates uniform samples with correct means (~0.5)
+- Handles 3D+ dimensional data
+
+### 🚧 Known Issues
+
+1. **Sampling Accuracy**: While correlations are preserved, there's still some discrepancy compared to original data
+2. **Non-parametric Copulas**: Implementation exists but needs more testing
+3. **GPU Optimization**: Currently uses CPU for compatibility; GPU support needs testing
+
+## Usage Example
 
 ```python
 import torch
+import numpy as np
 from classes.objects import vine_obj_bin, margin_obj
-from grid.grid_op import create_grids
+from sampling import VineSampler
 
-# Set device
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# Generate correlated data
+n_samples = 1000
+d = 3
+mean = np.zeros(d)
+cov = np.array([[1.0, 0.8, 0.6],
+                [0.8, 1.0, 0.7],
+                [0.6, 0.7, 1.0]])
+data = np.random.multivariate_normal(mean, cov, n_samples)
+data_torch = torch.tensor(data, dtype=torch.float32)
 
-# Generate or load data (should be in uniform [0,1] margins)
-data = torch.rand(1000, 5, device=device)
-
-# Create margins
-margins = [margin_obj('empirical', None, True) for _ in range(5)]
-
-# Create vine copula
+# Create and fit vine
+margins = [margin_obj('norm', [0, 1], True) for _ in range(d)]
 vine = vine_obj_bin(
-    vine_family='r-vine',    # Options: 'c-vine', 'd-vine', 'r-vine'
-    families=['gaussian'],    # Copula families to consider
-    vine_depth=4,            # Depth of vine (max: n_dims - 1)
+    vine_family='c-vine',
+    families=['gaussian'],
+    vine_depth=d-1,
     margin=margins,
-    knots=32,
-    method='optimal'         # For r-vine: 'optimal' or 'random'
+    knots=50,
+    method='matrix'
 )
 
-# Create grids
-vine.grid_u, vine.grid_s, vine.grid_x = create_grids(vine.knots, device=device)
+# Fitting options
+gen_dict = {"parallel": False, "param": True, "binning": False, "fitted": False, "vine_depth": d-1}
+par_dict = {"param_families": ["gaussian"]}
+npc_dict = {"opt_method": "LL1", "batch_paral": False}
+bin_dict = {"n_bin": 1}
 
-# Set parameters
-gen_dict = {
-    'binning': False,
-    'parallel': False,
-    'param': True,           # True for parametric, False for non-parametric
-    'vine_depth': 4
-}
+# Fit the vine
+vine.fit(data_torch, gen_dict, npc_dict, par_dict, bin_dict)
 
-par_dict = {
-    'param_families': ['gaussian', 'clayton', 'student', 'ind']
-}
-
-bin_dict = {'n_bin': 1}     # For binning support
-
-# Fit the vine copula
-vine.fit(data, gen_dict, {}, par_dict, bin_dict)
-
-# Evaluate on new data
-test_data = torch.rand(100, 5, device=device)
-p, p_cop, log_p = vine.evaluation(test_data)
-
-print(f"Mean log-likelihood: {log_p.mean().item():.3f}")
+# Sample from the fitted vine
+sampler = VineSampler(vine)
+samples, u_samples = sampler.sample(1000)
 ```
 
-## Performance Comparison
-
-| Test Case            | PyTorch (GPU) | TensorFlow (CPU) | Speedup |
-|---------------------|---------------|------------------|---------|
-| C-vine (3D Gaussian)| 13.1s         | 18.2s            | 1.39x   |
-| D-vine (4D Clayton) | 26.3s         | 35.6s            | 1.35x   |
-| R-vine (5D Mixed)   | 36.0s         | 48.8s            | 1.36x   |
-
-## Project Structure
+## Directory Structure
 
 ```
 DVC_pytorch/
-├── classes/          # Core vine copula classes
-│   └── objects.py    # Main vine_obj_bin class
-├── param/            # Parametric copula functions
-│   ├── margin_pdf.py # PDF functions
-│   ├── margin_cost.py # Cost functions
-│   ├── cond_copula.py # Conditional CDFs
-│   └── copula_fit.py  # Fitting routines
-├── utils/            # Utility functions
-│   ├── tensor_op.py   # Tensor operations
-│   ├── prob_op.py     # Probability operations
-│   ├── interpolation.py # Interpolation functions
-│   └── bijector.py    # Bijector transformations
-├── vine_tree/        # Vine tree operations
-│   └── tree_op.py     # Tree construction and manipulation
-├── grid/             # Grid operations
-│   ├── grid_op.py     # Grid creation
-│   └── grid_class.py  # Grid class definitions
-├── optim/            # Optimization routines
-│   ├── bandwidth.py   # Bandwidth selection
-│   ├── vine_fit.py    # Vine fitting optimization
-│   └── nadam.py       # Nadam optimizer
-├── evalu/            # Evaluation functions
-│   └── vine_eval.py   # Vine evaluation routines
-├── sampling/         # Sampling functions
-│   └── vine_sample.py # Vine sampling
-├── pred/             # Prediction functions
-│   └── prediction.py  # Conditional prediction
-├── info/             # Information measures
-│   └── info_estimation.py # Entropy estimation
-└── plot/             # Plotting functions
-    └── plot_vine.py   # Visualization tools
+├── classes/          # Core vine copula and margin objects
+├── param/           # Parametric copula families and fitting
+├── vine_tree/       # Vine structure and tree operations
+├── utils/           # Probability operations and utilities
+├── pre_proc/        # Data preprocessing and transformations
+├── optim/           # Optimization and fitting procedures
+├── sampling/        # Vine copula sampling
+├── evalu/           # Evaluation metrics (in progress)
+├── info/            # Information measures (in progress)
+├── plot/            # Plotting utilities (in progress)
+└── experiments/     # Experiment scripts (in progress)
 ```
 
-## Key Improvements Over TensorFlow
+## Requirements
 
-1. **GPU Acceleration**: Native CUDA support for all operations
-2. **Performance**: 1.37x average speedup 
-3. **Memory Efficiency**: Better memory management with PyTorch
-4. **Modern Ecosystem**: Integration with PyTorch ecosystem
-5. **Automatic Differentiation**: Native autograd support
+- PyTorch >= 1.9.0
+- NumPy >= 1.19.0
+- SciPy >= 1.5.0
+- Matplotlib >= 3.3.0
 
-## Known Limitations
+## Future Work
 
-1. **Marginal Density Estimation**: KDE implementation needs improvement
-2. **Entropy Calculation**: Some numerical stability issues remain
-3. **Bandwidth Selection**: Sometimes hits upper bounds in optimization
-
-## Citation
-
-If you use this implementation in your research, please cite:
-
-```bibtex
-@software{dvc_pytorch2024,
-  title = {Deep Vine Copula - PyTorch Implementation},
-  author = {[Your Name]},
-  year = {2024},
-  url = {[Repository URL]}
-}
-```
-
-## License
-
-This project is licensed under the same terms as the original TensorFlow implementation.
-
-## Acknowledgments
-
-- Original TensorFlow implementation authors
-- PyTorch community for excellent documentation
-- Contributors to scipy and numpy ecosystems 
+1. Complete GPU optimization for all operations
+2. Implement more copula families (Frank, Gumbel, etc.)
+3. Add vine structure selection algorithms
+4. Improve non-parametric copula implementation
+5. Add comprehensive unit tests 

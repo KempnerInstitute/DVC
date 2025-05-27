@@ -13,10 +13,10 @@ sys.path.append('src')
 sys.path.append('src/DVC_tensorflow')
 
 # PyTorch imports
-from DVC import vine_obj_bin, margin_obj, fit_vine
-from DVC.param_copula import fit_gaussian as pt_fit_gaussian
-from DVC.vine_model import _h_function as pt_h_function
-from DVC.objects import cop_par_obj
+from DVC_pyolder import vine_obj_bin, margin_obj, fit_vine
+from DVC_pyolder.param_copula import fit_gaussian as pt_fit_gaussian
+from DVC_pyolder.vine_model import _h_function as pt_h_function
+from DVC_pyolder.objects import cop_par_obj
 
 # TensorFlow imports
 from DVC_tensorflow.classes.objects import vine_obj_bin as tf_vine_obj_bin

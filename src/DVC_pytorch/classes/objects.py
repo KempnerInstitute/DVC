@@ -175,7 +175,7 @@ class vine_obj_bin(object):
         """
         # Initialization
         self.cdf_data = False
-        self.fitted = True
+        self.fitted = gen_dict['fitted']
         
         # Set device
         device = x.device if torch.is_tensor(x) else torch.device('cpu')
@@ -187,7 +187,10 @@ class vine_obj_bin(object):
         self.binning = gen_dict['binning']
         self.parallel = gen_dict['parallel']
         self.param = gen_dict['param']
-        self.vine_depth = gen_dict['vine_depth']
+        self.vine_depth = gen_dict['vine_depth'] - 1
+        
+        # Get data dimension
+        d = x.shape[1]
         
         if not self.param:
             self.opt_method = npc_dict['opt_method']
@@ -208,283 +211,388 @@ class vine_obj_bin(object):
         
         for i in range(x.shape[1]):
             if self.margin[i].is_cont:
-                interp_cdf, mar_s1, mar_p1 = kernel_cdf(q[:, i], q[:, i], self.grid_u.ex)
+                if hasattr(self.margin[i], 'ker') and self.margin[i].ker is not None:
+                    ccc = torch.tensor(self.margin[i].ker, device=device, dtype=dtype)
+                    interp_cdf, mar_s1, mar_p1 = kernel_cdf(ccc, ccc, self.grid_u.ex)
+                else:
+                    interp_cdf, mar_s1, mar_p1 = kernel_cdf(q[:, i], q[:, i], self.grid_u.ex)
                 self.Mar_G.append([mar_s1, mar_p1])
             else:
                 raise NotImplementedError("Discrete margins not yet implemented")
-        
-        # Transform data to uniform space
-        self.data_u = torch.zeros_like(x)
-        for i in range(x.shape[1]):
-            interp_cdf, mar_s1, mar_p1 = kernel_cdf(x[:, i], q[:, i], self.grid_u.ex)
-            self.data_u[:, i] = interp_cdf
-        
-        # Prepare data for copula fitting
-        d = x.shape[1]
-        self.x = x
-        self.n_cop = d
-        data_u_sort = prep_cop(self.data_u, self, sort_n='no_sort')
-        self.data_u = data_u_sort
-        
-        # Initialize vine structure
-        if self.vine_family == 'r-vine':
-            self.nodes = torch.arange(1, d + 1)
-            self.r_matrix = torch.zeros((d, d), dtype=torch.long)
-            self.ind_vine = []
-            
-            # Initialize structure
-            for i in range(d):
-                self.r_matrix[i, i] = i + 1
-                if i < d - 1:
-                    self.ind_vine.append([])
-            
-            # For optimal method, trees will be built during fitting
-        elif self.vine_family == 'c-vine':
-            self.r_matrix, self.ind_vine, self.nodes, _ = prepare_vine('c-vine', d)
-        elif self.vine_family == 'd-vine':
-            self.r_matrix, self.ind_vine, self.nodes, _ = prepare_vine('d-vine', d)
-        
-        # Initialize copula storage
-        self.copulas = []
-        self.correlations = []
-        self.correlations_bins = []
-        self.flip_flag = []
-        self.ind_edge_rel = []
         
         # Initialize theta arrays for conditional CDFs (h-functions)
         n_samples = x.shape[0]
         self.theta = torch.zeros((n_samples, d, d), dtype=dtype, device=device)
         self.theta_flip = torch.zeros((n_samples, d, d), dtype=dtype, device=device)
         
-        # Set first layer of theta to data_u
-        self.theta[:, 0, :] = self.data_u.squeeze() if self.data_u.dim() > 2 else self.data_u
+        # Transform data to uniform space and set first layer of theta
+        for i in range(d):
+            if hasattr(self.margin[i], 'ker') and self.margin[i].ker is not None:
+                ccc = torch.tensor(self.margin[i].ker, device=device, dtype=dtype)
+                interp_cdf, _, _ = kernel_cdf(ccc, ccc, self.grid_u.ex)
+                self.theta[:, 0, i] = interp_cdf
+            else:
+                interp_cdf, _, _ = kernel_cdf(x[:, i], q[:, i], self.grid_u.ex)
+                self.theta[:, 0, i] = interp_cdf
         
-        # Don't transform data here - wait until pairs are created
-        # Transform data for fitting
-        # trans = Transform(d - 1)
-        # # Ensure data has 3 dimensions for transform
-        # if self.data_u.dim() == 2:
-        #     # For initial data, create dummy copies for each copula
-        #     u_cop = self.data_u.unsqueeze(-1).repeat(1, 1, d-1)
-        # else:
-        #     u_cop = self.data_u
+        # Only proceed with fitting if not already fitted
+        if self.fitted == False:
+            # Prepare data for copula fitting
+            self.x = x
+            
+            # Update vine structure based on data dimension if necessary
+            if self.vine_family == 'r-vine':
+                if self.method == 'optimal':
+                    self.nodes = torch.arange(1, d + 1)
+                    self.r_matrix = torch.zeros((d, d), dtype=torch.long)
+                    self.ind_vine = []
+                    # Initialize structure
+                    for i in range(d):
+                        self.r_matrix[i, i] = i + 1
+                        if i < d - 1:
+                            self.ind_vine.append([])
+                elif self.method == 'matrix':
+                    # Use provided R-matrix
+                    pass
+                elif self.method == 'random':
+                    # Generate random R-matrix
+                    from vine_tree.tree_op import random_r_matrix_gen
+                    self.r_matrix, _, _, _ = random_r_matrix_gen(d)
+                    self.E, self.ind_vine, self.nodes, self.matrix_edges = prepare_regular(self.r_matrix)
+            elif self.vine_family == 'c-vine':
+                self.r_matrix, self.ind_vine, self.nodes, _ = prepare_vine('c-vine', d)
+            elif self.vine_family == 'd-vine':
+                self.r_matrix, self.ind_vine, self.nodes, _ = prepare_vine('d-vine', d)
+            
+            # Initialize copula storage
+            self.copulas = []
         
-        # data_s = trans.forward_u(u_cop)
-        # data_x = trans.forward_s(data_s)
-        # self.data_s = data_s
-        # self.data_x = data_x
+        # Always initialize these for correlation tracking
+        self.correlations = []
+        self.correlations_bins = []
+        self.flip_flag = []
+        self.ind_edge_rel = []
         
         # Fit copulas tree by tree
         for tr in range(min(d - 1, self.vine_depth + 1)):
             print(f'Fitting tree {tr}...')
             
-            # For optimal R-vine, build tree structure now
-            if self.vine_family == 'r-vine' and self.method == 'optimal':
-                if tr == 0:
-                    # First tree: optimal edges based on Kendall's tau
-                    edges, weights = optimal_tree(self.data_u, None, [], tr, rand=False)
-                else:
-                    # Higher trees: use h-functions from previous tree
-                    edges, weights = optimal_tree(self.theta[:, tr, :], 
-                                                  self.theta_flip[:, tr, :], 
-                                                  self.ind_vine, tr, rand=False)
-                self.ind_vine[tr] = edges
+            # Number of copulas in this tree level
+            n_cop = d - 1 - tr
             
-            if tr < len(self.ind_vine):
-                edges_now = self.ind_vine[tr]
-                n_cop = len(edges_now)
-                
-                # Determine flip flags and edge relationships
-                if self.vine_family == 'r-vine' and self.method == 'optimal':
-                    # For optimal R-vine, test both orientations
-                    flip_flag1 = []
-                    ind_edge_rel1 = []
-                    for j in range(n_cop):
-                        flip_flag1.extend([True, False])
-                        ind_edge_rel1.extend([j, j])
-                else:
-                    # For other cases, use standard flip checking
-                    from vine_tree.tree_op import flip_check_all
-                    flip_flag1, ind_edge_rel1, parent_all = flip_check_all(self.ind_vine, tr, 
-                                                                           self.binning, self.n_bin)
-                
-                self.flip_flag.append(flip_flag1)
-                self.ind_edge_rel.append(ind_edge_rel1)
-                
-                # Prepare data for this tree level
-                n_eval = len(ind_edge_rel1)
-                vv_u = torch.zeros((n_samples, 2, n_eval), dtype=dtype, device=device)
-                vv_s = torch.zeros((n_samples, 2, n_eval), dtype=dtype, device=device)
-                
-                for j in range(n_eval):
-                    edge = edges_now[ind_edge_rel1[j]]
-                    
+            # For fitted == True case, set vine family and method
+            if self.fitted == True:
+                self.vine_family = 'r-vine'
+                self.method = 'matrix'
+            
+            # Handle different vine structures
+            if self.vine_family == 'r-vine':
+                if self.method == 'matrix' or self.method == 'random':
+                    # For matrix method, ensure ind_vine is properly initialized
+                    if tr < len(self.ind_vine):
+                        edges_now = self.ind_vine[tr]
+                    else:
+                        edges_now = []
+                elif self.method == 'optimal':
+                    # Build tree structure dynamically
                     if tr == 0:
-                        # First tree: use original data
-                        vv_u[:, :, j] = torch.stack([self.theta[:, tr, edge[0]], 
-                                                     self.theta[:, tr, edge[1]]], dim=1)
+                        # First tree: optimal edges based on Kendall's tau
+                        from vine_tree.tree_op import optimal_tree
+                        edges, weights = optimal_tree(self.theta[:, tr, :], None, [], tr, rand=False)
+                        self.ind_vine[tr] = edges
+                        edges_now = edges
+                        
+                        # Update R-matrix
+                        n = len(self.r_matrix) - 1
+                        for j in range(len(edges)):
+                            edg = edges[len(edges)-1-j]
+                            self.r_matrix[n, j] = edg[0] + 1
+                            self.r_matrix[j, j] = edg[1] + 1
+                        
+                        # Update nodes
+                        self.nodes = torch.zeros(d, dtype=torch.long)
+                        V = set(range(1, d+1))
+                        for i in range(d):
+                            self.nodes[i] = self.r_matrix[i, i]
+                            u_nod = {int(self.nodes[i])}
+                            if u_nod.issubset(V):
+                                V.remove(int(self.nodes[i]))
+                        self.nodes = torch.flip(self.nodes, [0])
+                        
+                        for elem in V:
+                            ind = torch.where(self.nodes == 0)[0]
+                            if len(ind) > 0:
+                                self.nodes[ind[0]] = elem
+                                self.r_matrix[n-ind[0], n-ind[0]] = elem
                     else:
                         # Higher trees: use h-functions from previous tree
-                        from vine_tree.tree_op import parent_var
-                        parent, inx1, inx2 = parent_var(tr, self.ind_vine, edge)
-                        
-                        # Check if we need to use flipped h-functions
-                        if self.ind_vine[tr-1][edge[0]][0] != parent:
-                            vv_u[:, :, j] = torch.stack([self.theta_flip[:, tr, edge[0]], 
-                                                        self.theta[:, tr, edge[1]]], dim=1)
-                        else:
-                            vv_u[:, :, j] = torch.stack([self.theta[:, tr, edge[0]], 
-                                                        self.theta[:, tr, edge[1]]], dim=1)
-                    
-                    # Apply flipping if needed for non-parametric
-                    if not self.param and flip_flag1[j]:
-                        vv_u[:, :, j] = torch.flip(vv_u[:, :, j], dims=[1])
+                        from vine_tree.tree_op import optimal_tree
+                        edges, weights = optimal_tree(self.theta[:, tr, :], 
+                                                      self.theta_flip[:, tr, :], 
+                                                      self.ind_vine, tr, rand=False)
+                        self.ind_vine[tr] = edges
+                        edges_now = edges
+            else:
+                edges_now = self.ind_vine[tr] if tr < len(self.ind_vine) else []
+            
+            if len(edges_now) == 0:
+                continue
+            
+            # Prepare data for this tree level
+            self.data_u = torch.zeros((n_samples, 2, len(edges_now)), dtype=dtype, device=device)
+            
+            for j in range(len(edges_now)):
+                edge = edges_now[j]
                 
-                # Update data for this tree
-                self.data_u = vv_u[:, :, :n_cop]
-                
-                # Transform to s and x spaces
-                trans = Transform(n_cop)
-                self.data_s = trans.forward_u(self.data_u)
-                self.data_x = trans.forward_s(self.data_s)
-                grid_x = trans.forward_s(self.grid_s.ex)
-                
-                # Fit copulas for this tree
-                if self.param:
-                    # Parametric fitting
-                    par_copulas = []
-                    tau_values = []
-                    
-                    from optim.vine_fit import parametric_fit
-                    aic, theta_par, logp = parametric_fit(self.data_u, param_families, n_cop)
-                    
-                    for j in range(n_cop):
-                        # Compute Kendall's tau
-                        tau, p_value = kendalltau(self.data_u[:, 0, j], self.data_u[:, 1, j])
-                        tau_values.append(tau)
-                        
-                        # Select best family by AIC
-                        ind_fam = np.argmin(aic[j])
-                        family = param_families[ind_fam]
-                        theta_est = theta_par[j][ind_fam]
-                        
-                        cop_p = cop_par_obj(family, theta_est)
-                        par_copulas.append(cop_p)
-                    
-                    self.copulas.append(par_copulas)
-                    self.correlations.append(tau_values)
+                if tr == 0:
+                    # First tree: use original data
+                    self.data_u[:, :, j] = torch.stack([self.theta[:, tr, edge[0]], 
+                                                         self.theta[:, tr, edge[1]]], dim=1)
                 else:
-                    # Non-parametric fitting
-                    from optim.bandwidth import bandwidth_mul
-                    from optim.vine_fit import optimization
+                    # Higher trees: check if we need flipped values
+                    from vine_tree.tree_op import parent_var
+                    parent, inx1, inx2 = parent_var(tr, self.ind_vine, edge)
                     
-                    # Compute bandwidth
-                    bw = bandwidth_mul(self.data_x, 2, n_cop)
-                    
-                    # Optimize bandwidth multipliers
-                    batch_size = self.select_batch_size(self.data_s)
-                    
-                    grid_dict = {'grid_u': self.grid_u, 'grid_s': self.grid_s, 'grid_x': grid_x}
-                    data_dict = {'data_s': self.data_s, 'data_x': self.data_x}
-                    par_dict = {'n_cop': n_cop, 'batch': batch_size, 
-                               'max_iter': [70, 100], 'lr': [0.1, 0.03],
-                               'conv_tol': [1e-5, 5e-5], 'opt_method': self.opt_method}
-                    
-                    opt_bw = optimization(grid_dict, data_dict, par_dict)
-                    
-                    # Create copula object with optimized bandwidth
-                    bw_opt = opt_bw * bw
-                    copula = copula_obj(bw_opt.numpy())
-                    self.copulas.append(copula)
-                    
-                    # Compute correlations
-                    tau_values = []
-                    for j in range(n_cop):
-                        tau, p_value = kendalltau(self.data_u[:, 0, j], self.data_u[:, 1, j])
-                        tau_values.append(tau)
-                    self.correlations.append(tau_values)
+                    if self.ind_vine[tr-1][edge[0]][0] != parent:
+                        self.data_u[:, :, j] = torch.stack([self.theta_flip[:, tr, edge[0]], 
+                                                            self.theta[:, tr, edge[1]]], dim=1)
+                    else:
+                        self.data_u[:, :, j] = torch.stack([self.theta[:, tr, edge[0]], 
+                                                            self.theta[:, tr, edge[1]]], dim=1)
+            
+            # Transform data for this tree
+            trans = Transform(len(edges_now))
+            self.data_s = trans.forward_u(self.data_u)
+            self.data_x = trans.forward_s(self.data_s)
+            grid_x = trans.forward_s(self.grid_s.ex)
+            
+            # Only fit if not already fitted
+            if self.fitted == False:
                 
-                # Update theta values (h-functions) for next tree
-                if tr < d - 2:  # Don't need h-functions for last tree
-                    if tr > self.vine_depth:
-                        # Independence copulas
+                # Check if this tree is beyond vine_depth (use independence copulas)
+                if tr > self.vine_depth:
+                    # Independence copulas for trees beyond vine_depth
+                    if self.parallel:
+                        # Parallel parametric fitting for independence
+                        families = ["ind"]
+                        from optim.vine_fit import parametric_fit
+                        aic, theta_par, logp = parametric_fit(self.data_u, families, len(edges_now))
+                        
+                        par_copulas = []
+                        tau_values = []
+                        for i in range(len(edges_now)):
+                            tau, p_value = kendalltau(self.data_u[:, 0, i], self.data_u[:, 1, i])
+                            tau_values.append(tau)
+                            
+                            cop_p = cop_par_obj('ind', [])
+                            par_copulas.append(cop_p)
+                        
+                        self.copulas.append(par_copulas)
+                        self.correlations.append(tau_values)
+                    else:
+                        # Non-parallel independence copulas
+                        if self.binning:
+                            # Binning logic for independence copulas
+                            # TODO: Implement binning for independence copulas
+                            pass
+                        else:
+                            par_copulas = []
+                            tau_values = []
+                            for j in range(len(edges_now)):
+                                tau, p_value = kendalltau(self.data_u[:, 0, j], self.data_u[:, 1, j])
+                                tau_values.append(tau)
+                                cop_p = cop_par_obj('ind', [])
+                                par_copulas.append(cop_p)
+                            
+                            self.copulas.append(par_copulas)
+                            self.correlations.append(tau_values)
+                
+                else:  # tr <= self.vine_depth
+                    # Regular copula fitting
+                    if tr == 0 or self.binning == False:
+                        # No binning for first tree or when binning is disabled
+                        
+                        if self.parallel == False:
+                            if self.param == True:
+                                # Non-parallel parametric fitting
+                                par_copulas = []
+                                tau_values = []
+                                
+                                for j in range(len(edges_now)):
+                                    tau, p_value = kendalltau(self.data_u[:, 0, j], self.data_u[:, 1, j])
+                                    tau_values.append(tau)
+                                    
+                                    from optim.vine_fit import parametric_fit
+                                    aic, theta_par, logp = parametric_fit(
+                                        self.data_u[:, :, j].unsqueeze(-1), param_families, 1)
+                                    
+                                    ind_fam = np.argmin(aic)
+                                    family = param_families[ind_fam]
+                                    theta_est = theta_par[0][ind_fam]
+                                    
+                                    cop_p = cop_par_obj(family, theta_est)
+                                    par_copulas.append(cop_p)
+                                
+                                self.copulas.append(par_copulas)
+                                self.correlations.append(tau_values)
+                            else:
+                                # Non-parallel non-parametric fitting
+                                from optim.bandwidth import bandwidth_mul
+                                from optim.vine_fit import optimization
+                                
+                                # Compute bandwidth
+                                bw = bandwidth_mul(self.data_x, 2, len(edges_now))
+                                
+                                # Optimize bandwidth multipliers
+                                batch_size = self.select_batch_size(self.data_s)
+                                
+                                opt_bw_array = []
+                                tau_values = []
+                                
+                                for i in range(len(edges_now)):
+                                    tau, p_value = kendalltau(self.data_u[:, 0, i], self.data_u[:, 1, i])
+                                    tau_values.append(tau)
+                                    
+                                    grid_dict = {'grid_u': self.grid_u, 'grid_s': self.grid_s, 
+                                               'grid_x': grid_x[:, :, i]}
+                                    data_dict = {'data_s': self.data_s[:, :, i], 
+                                               'data_x': self.data_x[:, :, i]}
+                                    par_dict = {'n_cop': 1, 'batch': batch_size, 
+                                               'max_iter': [70, 100], 'lr': [0.1, 0.03],
+                                               'conv_tol': [1e-5, 5e-5], 'opt_method': self.opt_method}
+                                    
+                                    opt = optimization(grid_dict, data_dict, par_dict)
+                                    opt_bw_array.append(opt)
+                                
+                                opt_bw = torch.stack(opt_bw_array)
+                                bw_opt = opt_bw.squeeze() * bw
+                                
+                                # Check constraints on bandwidth
+                                bw_opt = torch.clamp(bw_opt, min=1e-2, max=2.0)
+                                
+                                copula = copula_obj(bw_opt.numpy())
+                                self.copulas.append(copula)
+                                self.correlations.append(tau_values)
+                        
+                        else:  # self.parallel == True
+                            if self.param == True:
+                                # Parallel parametric fitting
+                                from optim.vine_fit import parametric_fit
+                                aic, theta_par, logp = parametric_fit(self.data_u, param_families, len(edges_now))
+                                
+                                par_copulas = []
+                                tau_values = []
+                                
+                                for i in range(len(edges_now)):
+                                    tau, p_value = kendalltau(self.data_u[:, 0, i], self.data_u[:, 1, i])
+                                    tau_values.append(tau)
+                                    
+                                    ind_fam = np.argmin(aic[i])
+                                    family = param_families[ind_fam]
+                                    theta_est = theta_par[i][ind_fam]
+                                    
+                                    cop_p = cop_par_obj(family, theta_est)
+                                    par_copulas.append(cop_p)
+                                
+                                self.copulas.append(par_copulas)
+                                self.correlations.append(tau_values)
+                            else:
+                                # Parallel non-parametric fitting
+                                # TODO: Implement parallel non-parametric fitting
+                                pass
+                    
+                    else:  # self.binning == True and tr > 0
+                        # Binning logic for higher trees
+                        # TODO: Implement full binning logic
+                        pass
+            
+            # Determine flip flags and edge relationships
+            from vine_tree.tree_op import flip_check_all
+            flip_flag1, ind_edge_rel1, parent_all = flip_check_all(self.ind_vine, tr, 
+                                                                   self.binning, self.n_bin)
+            
+            self.flip_flag.append(flip_flag1)
+            self.ind_edge_rel.append(ind_edge_rel1)
+            
+            # Update theta values (h-functions) for next tree
+            if tr < d - 2 and len(edges_now) > 0:  # Don't need h-functions for last tree
+                
+                n_eval = len(ind_edge_rel1)
+                
+                if self.fitted == False and tr <= self.vine_depth:
+                    # Compute h-functions from fitted copulas
+                    if self.param:
+                        # Parametric h-functions
+                        from param.cond_copula import copulaccdf_torch
+                        
                         for j in range(n_eval):
                             ind_edge = ind_edge_rel1[j]
-                            edge = edges_now[ind_edge]
-                            cop_p = self.copulas[tr][ind_edge]
-                            
-                            if flip_flag1[j]:
-                                vv = vv_u[:, :, j]
-                                from param.cond_copula import copulaccdf
-                                self.theta_flip[:, tr + 1, ind_edge] = torch.squeeze(
-                                    torch.tensor(copulaccdf(cop_p, vv.cpu().numpy()), 
-                                               device=device, dtype=dtype))
-                                self.theta_flip[:, tr + 1, ind_edge] = torch.clamp(
-                                    self.theta_flip[:, tr + 1, ind_edge], 1e-7, 1 - 1e-7)
-                            else:
-                                vv = torch.flip(vv_u[:, :, j], dims=[1])
-                                from param.cond_copula import copulaccdf
-                                self.theta[:, tr + 1, ind_edge] = torch.squeeze(
-                                    torch.tensor(copulaccdf(cop_p, vv.cpu().numpy()), 
-                                               device=device, dtype=dtype))
-                                self.theta[:, tr + 1, ind_edge] = torch.clamp(
-                                    self.theta[:, tr + 1, ind_edge], 1e-7, 1 - 1e-7)
-                    else:
-                        # Fitted copulas
-                        if self.param:
-                            # Parametric: use analytical h-functions
-                            for j in range(n_eval):
-                                ind_edge = ind_edge_rel1[j]
+                            if ind_edge < len(self.copulas[tr]):
                                 cop_p = self.copulas[tr][ind_edge]
+                                edge = edges_now[ind_edge]
                                 
-                                if flip_flag1[j]:
-                                    vv = vv_u[:, :, j]
-                                    from param.cond_copula import copulaccdf
-                                    self.theta_flip[:, tr + 1, ind_edge] = torch.squeeze(
-                                        torch.tensor(copulaccdf(cop_p, vv.cpu().numpy()), 
-                                                   device=device, dtype=dtype))
-                                    self.theta_flip[:, tr + 1, ind_edge] = torch.clamp(
-                                        self.theta_flip[:, tr + 1, ind_edge], 1e-7, 1 - 1e-7)
+                                # Get the data for this edge
+                                if tr == 0:
+                                    vv = torch.stack([self.theta[:, tr, edge[0]], 
+                                                     self.theta[:, tr, edge[1]]], dim=1)
                                 else:
-                                    vv = torch.flip(vv_u[:, :, j], dims=[1])
-                                    from param.cond_copula import copulaccdf
-                                    self.theta[:, tr + 1, ind_edge] = torch.squeeze(
-                                        torch.tensor(copulaccdf(cop_p, vv.cpu().numpy()), 
-                                                   device=device, dtype=dtype))
-                                    self.theta[:, tr + 1, ind_edge] = torch.clamp(
-                                        self.theta[:, tr + 1, ind_edge], 1e-7, 1 - 1e-7)
+                                    parent, inx1, inx2 = parent_var(tr, self.ind_vine, edge)
+                                    if self.ind_vine[tr-1][edge[0]][0] != parent:
+                                        vv = torch.stack([self.theta_flip[:, tr, edge[0]], 
+                                                         self.theta[:, tr, edge[1]]], dim=1)
+                                    else:
+                                        vv = torch.stack([self.theta[:, tr, edge[0]], 
+                                                         self.theta[:, tr, edge[1]]], dim=1)
+                                
+                                # Apply flipping if needed
+                                if flip_flag1[j]:
+                                    vv = torch.flip(vv, dims=[1])
+                                    h_val = copulaccdf_torch(cop_p, vv)
+                                    self.theta_flip[:, tr + 1, ind_edge] = h_val.squeeze()
+                                else:
+                                    h_val = copulaccdf_torch(cop_p, vv)
+                                    self.theta[:, tr + 1, ind_edge] = h_val.squeeze()
+                    else:
+                        # Non-parametric h-functions
+                        # TODO: Implement non-parametric h-function computation
+                        pass
+                
+                elif tr > self.vine_depth:
+                    # Independence copulas - h-function is just the first component
+                    for j in range(len(edges_now)):
+                        edge = edges_now[j]
+                        if flip_flag1[j]:
+                            self.theta_flip[:, tr + 1, j] = self.data_u[:, 0, j]
                         else:
-                            # Non-parametric: use numerical integration
-                            from evalu.vine_eval import evaluate_fit
-                            
-                            batch_size_cdf = self.select_batch_size_cdf(self.data_s)
-                            
-                            grid_dict = {'grid_u': self.grid_u, 'grid_s': self.grid_s, 'grid_x': grid_x}
-                            data_dict = {'data_s': self.data_s, 'data_x': self.data_x, 
-                                       'theta': self.theta, 'theta_flip': self.theta_flip}
-                            par_dict = {'copulas': self.copulas[tr], 'n_eval': n_eval, 
-                                      'batch': batch_size, 'batch_cdf': batch_size_cdf, 'tr': tr,
-                                      'ind_edge_rel': ind_edge_rel1, 'flip_flag': flip_flag1}
-                            
-                            _, _, self.theta, self.theta_flip = evaluate_fit(data_dict, grid_dict, par_dict)
-        
-        # Set remaining trees to independence if vine_depth < d-1
-        for tr in range(self.vine_depth + 1, d - 1):
-            n_cop = len(self.ind_vine[tr]) if tr < len(self.ind_vine) else 0
-            if n_cop > 0:
-                par_copulas = []
-                for j in range(n_cop):
-                    cop_p = cop_par_obj('ind', [])
-                    par_copulas.append(cop_p)
-                self.copulas.append(par_copulas)
+                            self.theta[:, tr + 1, j] = self.data_u[:, 0, j]
         
         # Store final R-matrix for optimal R-vine
-        if self.vine_family == 'r-vine' and self.method == 'optimal':
+        if self.vine_family == 'r-vine' and self.method == 'optimal' and self.fitted == False:
             from vine_tree.tree_op import prepare_optimal
             self.r_matrix, self.E, self.nodes = prepare_optimal(d, self.ind_vine)
         
         print("Vine copula fitting completed!")
         return self
+    
+    def sample(self, n_samples: int) -> torch.Tensor:
+        """
+        Sample from fitted vine copula
+        
+        Args:
+            n_samples: Number of samples to generate
+            
+        Returns:
+            Samples in original data space
+        """
+        if not hasattr(self, 'copulas') or self.copulas is None:
+            raise ValueError("Vine must be fitted before sampling")
+            
+        # Import the corrected sampler with index remapping fix
+        from sampling.vine_sampler import VineSampler
+        sampler = VineSampler(self)
+        samples, _ = sampler.sample(n_samples)
+        
+        return samples
     
     def evaluation(self, points):
         """
@@ -498,7 +606,7 @@ class vine_obj_bin(object):
             p_copula: Copula probability density  
             plog: Log probability density
         """
-        if not self.fitted:
+        if not hasattr(self, 'copulas') or self.copulas is None or len(self.copulas) == 0:
             raise ValueError("Model must be fitted before evaluation")
         
         device = points.device if torch.is_tensor(points) else torch.device('cpu')
@@ -508,7 +616,7 @@ class vine_obj_bin(object):
             points = torch.tensor(points, dtype=dtype, device=device)
         
         n_points = points.shape[0]
-        d = self.n_cop
+        d = len(self.margin) if hasattr(self, 'margin') else self.n_cop
         
         # Initialize arrays for h-functions
         self.Fp = torch.zeros((n_points, d, d), dtype=dtype, device=device)
@@ -547,13 +655,16 @@ class vine_obj_bin(object):
             # Get edges for this tree
             if tr < len(self.ind_vine):
                 edges_now = self.ind_vine[tr]
-                n_eval = len(self.ind_edge_rel[tr])
+                n_eval = len(self.ind_edge_rel[tr]) if tr < len(self.ind_edge_rel) else len(edges_now)
                 
                 # Prepare data for this tree level
                 vv_u = torch.zeros((n_points, 2, n_eval), dtype=dtype, device=device)
                 
                 for j in range(n_eval):
-                    edge = edges_now[self.ind_edge_rel[tr][j]]
+                    if tr < len(self.ind_edge_rel) and j < len(self.ind_edge_rel[tr]):
+                        edge = edges_now[self.ind_edge_rel[tr][j]]
+                    else:
+                        edge = edges_now[j] if j < len(edges_now) else [0, 1]
                     
                     if tr == 0:
                         # First tree: use marginal CDFs
@@ -572,44 +683,48 @@ class vine_obj_bin(object):
                                                         self.Fp[:, tr, edge[1]]], dim=1)
                     
                     # Apply flipping if needed
-                    if not self.param and self.flip_flag[tr][j]:
+                    if not self.param and tr < len(self.flip_flag) and j < len(self.flip_flag[tr]) and self.flip_flag[tr][j]:
                         vv_u[:, :, j] = torch.flip(vv_u[:, :, j], dims=[1])
                 
                 # Evaluate copulas for this tree
                 for j in range(n_eval):
-                    ind_edge = self.ind_edge_rel[tr][j]
+                    if tr < len(self.ind_edge_rel) and j < len(self.ind_edge_rel[tr]):
+                        ind_edge = self.ind_edge_rel[tr][j]
+                    else:
+                        ind_edge = j
                     
                     if self.param:
                         # Parametric copula evaluation
-                        cop_p = self.copulas[tr][ind_edge]
-                        
-                        # Compute PDF
-                        from param.cond_copula import copulapdf
-                        vv = vv_u[:, :, j].unsqueeze(-1)
-                        pd_points = torch.squeeze(torch.tensor(
-                            copulapdf(cop_p, vv.cpu().numpy()), 
-                            device=device, dtype=dtype))
-                        
-                        # Update log density
-                        pd_points = torch.where(pd_points <= 0, torch.tensor(1e-10, dtype=pd_points.dtype, device=pd_points.device), pd_points)
-                        self.logf[:, ind_edge, tr + 1] = torch.log(pd_points)
-                        
-                        # Compute h-functions for next tree
-                        if tr < d - 2:
-                            from param.cond_copula import copulaccdf
-                            if self.flip_flag[tr][j]:
-                                h_val = torch.squeeze(torch.tensor(
-                                    copulaccdf(cop_p, vv_u[:, :, j].cpu().numpy()),
-                                    device=device, dtype=dtype))
-                                h_val = torch.clamp(h_val, 1e-7, 1 - 1e-7)
-                                self.Fp_flip[:, tr + 1, ind_edge] = h_val
-                            else:
-                                vv_flip = torch.flip(vv_u[:, :, j], dims=[1])
-                                h_val = torch.squeeze(torch.tensor(
-                                    copulaccdf(cop_p, vv_flip.cpu().numpy()),
-                                    device=device, dtype=dtype))
-                                h_val = torch.clamp(h_val, 1e-7, 1 - 1e-7)
-                                self.Fp[:, tr + 1, ind_edge] = h_val
+                        if tr < len(self.copulas) and ind_edge < len(self.copulas[tr]):
+                            cop_p = self.copulas[tr][ind_edge]
+                            
+                            # Compute PDF
+                            from param.cond_copula import copulapdf
+                            vv = vv_u[:, :, j].unsqueeze(-1)
+                            pd_points = torch.squeeze(torch.tensor(
+                                copulapdf(cop_p, vv.cpu().numpy()), 
+                                device=device, dtype=dtype))
+                            
+                            # Update log density
+                            pd_points = torch.where(pd_points <= 0, torch.tensor(1e-10, dtype=pd_points.dtype, device=pd_points.device), pd_points)
+                            self.logf[:, ind_edge, tr + 1] = torch.log(pd_points)
+                            
+                            # Compute h-functions for next tree
+                            if tr < d - 2:
+                                from param.cond_copula import copulaccdf
+                                if tr < len(self.flip_flag) and j < len(self.flip_flag[tr]) and self.flip_flag[tr][j]:
+                                    h_val = torch.squeeze(torch.tensor(
+                                        copulaccdf(cop_p, vv_u[:, :, j].cpu().numpy()),
+                                        device=device, dtype=dtype))
+                                    h_val = torch.clamp(h_val, 1e-7, 1 - 1e-7)
+                                    self.Fp_flip[:, tr + 1, ind_edge] = h_val
+                                else:
+                                    vv_flip = torch.flip(vv_u[:, :, j], dims=[1])
+                                    h_val = torch.squeeze(torch.tensor(
+                                        copulaccdf(cop_p, vv_flip.cpu().numpy()),
+                                        device=device, dtype=dtype))
+                                    h_val = torch.clamp(h_val, 1e-7, 1 - 1e-7)
+                                    self.Fp[:, tr + 1, ind_edge] = h_val
                     else:
                         # Non-parametric copula evaluation  
                         # Transform to s-space
@@ -637,7 +752,7 @@ class vine_obj_bin(object):
                         # For h-functions, would need CDF evaluation
                         # For now, use uniform
                         if tr < d - 2:
-                            if self.flip_flag[tr][j]:
+                            if tr < len(self.flip_flag) and j < len(self.flip_flag[tr]) and self.flip_flag[tr][j]:
                                 self.Fp_flip[:, tr + 1, ind_edge] = vv_u[:, 1, j]
                             else:
                                 self.Fp[:, tr + 1, ind_edge] = vv_u[:, 0, j]

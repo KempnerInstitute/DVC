@@ -14,11 +14,11 @@ def apply_comprehensive_fix():
     """Apply comprehensive fixes to PyTorch DVC"""
     
     # First, patch evaluate_fit to always apply kernel_cdf
-    import DVC.vine_eval
-    from DVC.utils_interpolation import interp_regular_nd_grid
-    from DVC.utils_prob import kernel_cdf
+    import DVC_pyolder.vine_eval
+    from DVC_pyolder.utils_interpolation import interp_regular_nd_grid
+    from DVC_pyolder.utils_prob import kernel_cdf
     
-    original_evaluate_fit = DVC.vine_eval.evaluate_fit
+    original_evaluate_fit = DVC_pyolder.vine_eval.evaluate_fit
     
     def evaluate_fit_fixed(data_dict: dict, grid_dict: dict, par_dict: dict):
         # Call original function
@@ -79,17 +79,17 @@ def apply_comprehensive_fix():
         return pd_grid_uv, cdf1, theta, grad_u, grad_v
     
     # Replace the function
-    DVC.vine_eval.evaluate_fit = evaluate_fit_fixed
+    DVC_pyolder.vine_eval.evaluate_fit = evaluate_fit_fixed
     print("✓ evaluate_fit has been patched with kernel_cdf fix")
     
     # Also patch the vine_model.fit_vine to pass correct parameters
-    import DVC.vine_model
-    original_fit_vine = DVC.vine_model.fit_vine
+    import DVC_pyolder.vine_model
+    original_fit_vine = DVC_pyolder.vine_model.fit_vine
     
     def fit_vine_fixed(vine, x, gen_dict, npc_dict, par_dict, bin_dict, cfg=None):
         # Intercept and modify the evaluate_fit calls
-        import DVC.vine_eval
-        original_eval = DVC.vine_eval.evaluate_fit
+        import DVC_pyolder.vine_eval
+        original_eval = DVC_pyolder.vine_eval.evaluate_fit
         
         def evaluate_fit_with_tr(data_dict, grid_dict, par_dict):
             # Add 'tr' to par_dict if missing (needed for theta update)
@@ -99,7 +99,7 @@ def apply_comprehensive_fix():
             return original_eval(data_dict, grid_dict, par_dict)
         
         # Temporarily replace evaluate_fit
-        DVC.vine_eval.evaluate_fit = evaluate_fit_with_tr
+        DVC_pyolder.vine_eval.evaluate_fit = evaluate_fit_with_tr
         
         try:
             # Track current tree level
@@ -107,7 +107,7 @@ def apply_comprehensive_fix():
             result = original_fit_fn(vine, x, gen_dict, npc_dict, par_dict, bin_dict, cfg)
         finally:
             # Restore original
-            DVC.vine_eval.evaluate_fit = original_eval
+            DVC_pyolder.vine_eval.evaluate_fit = original_eval
         
         return result
     

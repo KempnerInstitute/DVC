@@ -13,8 +13,8 @@ sys.path.append('src')
 sys.path.append('src/DVC_tensorflow')
 
 from scipy.stats import norm
-from DVC import vine_obj_bin, margin_obj
-from DVC.vine_model import fit_vine
+from DVC_pyolder import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import fit_vine
 
 
 def test_parametric_vine():

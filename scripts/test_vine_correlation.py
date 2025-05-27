@@ -8,8 +8,8 @@ from scipy import stats
 # Add DVC to path
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
-from DVC.vine_model import fit_vine, evaluate_vine, sample_vine
-from DVC.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import fit_vine, evaluate_vine, sample_vine
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
 
 # Global variable to store correlation matrix for test data generation
 correlation_matrix = None

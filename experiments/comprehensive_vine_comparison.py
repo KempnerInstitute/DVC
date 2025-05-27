@@ -25,7 +25,7 @@ from typing import Dict, List, Tuple
 import time
 
 # Import PyTorch implementation
-from DVC import vine_obj_bin, margin_obj, fit_vine, predict_conditional
+from DVC_pyolder import vine_obj_bin, margin_obj, fit_vine, predict_conditional
 
 # Import TensorFlow implementation
 import tensorflow as tf

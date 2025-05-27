@@ -12,8 +12,8 @@ sys.path.append('src')
 sys.path.append('src/DVC_tensorflow')
 
 # PyTorch imports
-from DVC import vine_obj_bin, margin_obj
-from DVC.vine_model import fit_vine
+from DVC_pyolder import vine_obj_bin, margin_obj
+from DVC_pyolder.vine_model import fit_vine
 
 # TensorFlow imports
 from DVC_tensorflow.classes.objects import vine_obj_bin as tf_vine_obj_bin
@@ -140,10 +140,10 @@ def test_theta_propagation():
     u2 = torch.tensor([0.4, 0.6, 0.8])
     
     # Test Gaussian copula with rho=0.5
-    from DVC.objects import cop_par_obj
+    from DVC_pyolder.objects import cop_par_obj
     cop = cop_par_obj('gaussian', 0.5)
     
-    from DVC.vine_model import _h_function
+    from DVC_pyolder.vine_model import _h_function
     h_left = _h_function(u1, u2, cop, vine_pt.grid_u, side="left")
     h_right = _h_function(u2, u1, cop, vine_pt.grid_u, side="right")
     

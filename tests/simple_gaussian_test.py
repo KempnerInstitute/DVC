@@ -15,7 +15,7 @@ true_corr = np.array([
 data = multivariate_normal.rvs(mean=np.zeros(5), cov=true_corr, size=600)
 
 print('=== GAUSSIAN-ONLY VINE TEST ===')
-from DVC.objects import vine_obj_bin, margin_obj
+from DVC_pyolder.objects import vine_obj_bin, margin_obj
 
 # Create vine with ONLY Gaussian copulas
 margins = [margin_obj('norm', (0.0, 1.0)) for _ in range(5)]

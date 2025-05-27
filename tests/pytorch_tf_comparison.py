@@ -24,7 +24,7 @@ print('=== PYTORCH vs TENSORFLOW COMPARISON ===')
 # PyTorch test
 print('\\n--- PYTORCH (with TensorFlow alignment fixes) ---')
 try:
-    from DVC.objects import vine_obj_bin, margin_obj
+    from DVC_pyolder.objects import vine_obj_bin, margin_obj
     
     start_time = time.time()
     pt_margins = [margin_obj('norm', (0.0, 1.0)) for _ in range(5)]

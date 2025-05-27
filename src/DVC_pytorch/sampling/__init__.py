@@ -1,6 +1,7 @@
-# Sampling module - to be implemented
-# This module will contain functions for sampling from vine copulas
+"""
+Vine sampling module for DVC PyTorch
+"""
 
-from .vine_sample import vine_copula_sample, vine_cop_par_sample
+from .vine_sampler import VineSampler
 
-__all__ = ['vine_copula_sample', 'vine_cop_par_sample']
+__all__ = ['VineSampler']

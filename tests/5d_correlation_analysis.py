@@ -98,8 +98,8 @@ def test_pytorch_implementation_5d(data):
     start_time = time.time()
     
     try:
-        from DVC.objects import vine_obj_bin, margin_obj
-        from DVC.param_copula import parametric_fit
+        from DVC_pyolder.objects import vine_obj_bin, margin_obj
+        from DVC_pyolder.param_copula import parametric_fit
         
         n_samples, d = data.shape
         print(f"Fitting {d}-dimensional vine to {n_samples} samples...")
@@ -204,7 +204,7 @@ def analyze_pairwise_selection(data, vine=None):
     print("Testing independence penalty and copula selection...")
     
     try:
-        from DVC.param_copula import parametric_fit
+        from DVC_pyolder.param_copula import parametric_fit
         
         n_samples, d = data.shape
         results = []

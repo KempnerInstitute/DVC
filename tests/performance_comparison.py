@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 def simulate_old_independence_penalty(u_data):
     """Simulate the old independence penalty that was too weak."""
-    from DVC.param_copula import parametric_fit
+    from DVC_pyolder.param_copula import parametric_fit
     
     # Call the actual parametric_fit but then simulate the old behavior
     families = ["ind", "gaussian"]
@@ -33,7 +33,7 @@ def test_performance_improvement():
     print("PERFORMANCE COMPARISON: BEFORE vs AFTER TF ALIGNMENT FIXES")
     print("=" * 70)
     
-    from DVC.param_copula import parametric_fit
+    from DVC_pyolder.param_copula import parametric_fit
     
     # Test different correlation levels
     correlation_levels = [0.2, 0.4, 0.6, 0.8]
@@ -130,7 +130,7 @@ def test_correlation_recovery_accuracy():
     print("CORRELATION RECOVERY ACCURACY TEST")
     print("=" * 70)
     
-    from DVC.param_copula import parametric_fit
+    from DVC_pyolder.param_copula import parametric_fit
     
     # Test scenarios with different correlation structures
     scenarios = [

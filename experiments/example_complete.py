@@ -8,7 +8,7 @@ import numpy as np
 import sys
 sys.path.append('src')
 
-from DVC import (
+from DVC_pyolder import (
     vine_obj_bin, margin_obj, prep_cop, 
     fit_vine, vine_entropy, mutual_information,
     predict_vine, predict_conditional
@@ -128,7 +128,7 @@ def main():
         print(f"     Predicted [2,3]: {predicted[i]}")
     
     # Also get quantiles
-    from DVC import predict_conditional_quantiles
+    from DVC_pyolder import predict_conditional_quantiles
     quantiles = predict_conditional_quantiles(vine, given_data[:1], [0, 1], [2, 3], 
                                             quantiles=[0.1, 0.5, 0.9], n_samples=2000)
     print(f"\n   Prediction quantiles for first observation:")

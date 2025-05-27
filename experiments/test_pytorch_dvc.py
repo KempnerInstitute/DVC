@@ -8,7 +8,7 @@ import torch
 import sys
 sys.path.append('src')
 
-from DVC import (
+from DVC_pyolder import (
     vine_obj_bin, margin_obj, prep_cop,
     vine_entropy, mutual_information
 )
