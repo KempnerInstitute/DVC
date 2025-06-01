@@ -2,6 +2,43 @@
 
 This directory contains example scripts demonstrating the usage of DVC-NF framework components.
 
+## 🌟 **Comprehensive Advanced Analysis**
+
+**[comprehensive_advanced_analysis.py](comprehensive_advanced_analysis.py)** - **⭐ THE ULTIMATE COMPREHENSIVE FRAMEWORK ⭐**
+
+This is the **most complete and advanced demonstration** of the DVC-NF framework, integrating all capabilities:
+
+```bash
+# Quick test (3D, 10 time steps, 50 samples)
+python comprehensive_advanced_analysis.py --config quick_test
+
+# Standard analysis (4D, 30 time steps, 100 samples)  
+python comprehensive_advanced_analysis.py --config standard_analysis
+
+# Large scale test (8D, 50 time steps, 200 samples)
+python comprehensive_advanced_analysis.py --config comprehensive_large
+
+# Scalability test (16D, 100 time steps, 500 samples)
+python comprehensive_advanced_analysis.py --config scalability_test
+```
+
+**🚀 Integrated Capabilities:**
+- **All Advanced Simulation Scenarios**: Ising-like model, Hidden Markov regime switching, Log-linear synergy, Spatiotemporal blocks, Block switching, Sinusoidal patterns
+- **Complete Visualization Suite**: R-vine structure graphs, 2D copula visualizations, Temporal interaction analysis, Executive dashboards
+- **Advanced Analysis Methods**: Time-dependent vine copula modeling with normalizing flows, Entropy-based R-vine optimization
+- **Performance Benchmarking**: Scalability analysis, Memory profiling, Computational complexity assessment
+- **Comprehensive Reporting**: JSON and text outputs, Performance dashboards, Publication-quality plots
+
+**📊 Configuration Options:**
+- **quick_test**: Fast testing (3D, reduced parameters)
+- **standard_analysis**: Regular comprehensive analysis (4D, full features)
+- **comprehensive_large**: Large-scale analysis (8D, publication-quality)
+- **scalability_test**: Computational limits testing (16D, performance focus)
+
+For detailed documentation, see **[README_COMPREHENSIVE_ANALYSIS.md](README_COMPREHENSIVE_ANALYSIS.md)**.
+
+---
+
 ## 🚀 Available Examples
 
 ### Quick Start
