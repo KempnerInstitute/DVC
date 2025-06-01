@@ -8,10 +8,7 @@ This script demonstrates the complete pipeline for time-dependent vine copula mo
 3. Compare with traditional static vine copulas
 4. Analyze bandwidth evolution and model performance
 
-Author: DVC Analysis Team
-Date: 2025
 """
-
 import os
 import sys
 import numpy as np
@@ -25,8 +22,19 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
 # Import our time-dependent modules
-from ..core.flows import TimeDependentVineCopula
-from ..data.generators import TimeDependentDataGenerator
+try:
+    # Try relative imports first (when used as package)
+    from ..core.flows import TimeDependentVineCopula
+    from ..data.generators import TimeDependentDataGenerator
+except ImportError:
+    # Fall back to absolute imports (when run directly)
+    import sys
+    import os
+    # Add the parent directory to the path
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, parent_dir)
+    from core.flows import TimeDependentVineCopula
+    from data.generators import TimeDependentDataGenerator
 
 # Suppress TensorFlow messages
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -64,7 +72,11 @@ class ComprehensiveTimeDependentAnalysis:
         self.models = {}
         
         # Results directory
-        self.results_dir = os.path.join(current_dir, '..', 'results', 'comprehensive_time_dependent')
+        # Find the DVC_NF root directory
+        current_file_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go up to dvc_nf, then up to DVC_NF root
+        dvc_nf_root = os.path.dirname(os.path.dirname(current_file_dir))
+        self.results_dir = os.path.join(dvc_nf_root, 'results', 'comprehensive_time_dependent')
         os.makedirs(self.results_dir, exist_ok=True)
         
         print(f"Initialized analysis framework for {dim}-dimensional data")
@@ -176,11 +188,43 @@ class ComprehensiveTimeDependentAnalysis:
                 n_regimes=3,
                 regime_persistence=0.9
             )
+        elif scenario == 'block_switching':
+            # New sophisticated block-structured switching scenario
+            data, times, metadata = self.data_generator.generate_block_switching_correlation_data(
+                n_time_steps, n_samples_per_time,
+                block_sizes=None,  # Auto-determine based on dimensionality
+                n_regimes=4,
+                switch_probability=0.08,  # Higher switching rate for testing
+                within_block_corr_range=(0.5, 0.8),
+                between_block_corr_range=(-0.6, -0.3)
+            )
+        elif scenario == 'beyond_pairwise':
+            # New beyond-pairwise interactions scenario
+            data, times, metadata = self.data_generator.generate_beyond_pairwise_interactions(
+                n_time_steps, n_samples_per_time,
+                switch_times=[0.3, 0.7],
+                corr_low=0.2,
+                corr_high=0.8,
+                beyond_pairwise_strength=0.3  # Strong triple interactions
+            )
         else:
             raise ValueError(f"Unknown scenario: {scenario}")
         
         print(f"  Generated data shape: {data.shape}")
         print(f"  Scenario type: {metadata['type']}")
+        
+        # Add entropy tracking for sophisticated analysis
+        if 'entropy_evolution' in metadata:
+            entropy_stats = {
+                'mean_entropy': np.nanmean(metadata['entropy_evolution']),
+                'entropy_std': np.nanstd(metadata['entropy_evolution']),
+                'entropy_range': (np.nanmin(metadata['entropy_evolution']), 
+                                np.nanmax(metadata['entropy_evolution']))
+            }
+            print(f"  Entropy statistics: mean={entropy_stats['mean_entropy']:.3f}, "
+                  f"std={entropy_stats['entropy_std']:.3f}, "
+                  f"range=[{entropy_stats['entropy_range'][0]:.3f}, {entropy_stats['entropy_range'][1]:.3f}]")
+            metadata['entropy_stats'] = entropy_stats
         
         return data, times, metadata
     
@@ -298,6 +342,120 @@ class ComprehensiveTimeDependentAnalysis:
         
         return results
     
+    def _fit_enhanced_baselines(self, data, scenario):
+        """
+        Enhanced baseline comparison methods inspired by the provided code
+        
+        Provides simpler, more interpretable baselines than complex static models
+        """
+        
+        # Method 1: Simple Static Baseline (flatten all time data)
+        static_baseline = self._fit_simple_static_baseline(data)
+        
+        # Method 2: Piecewise Baseline (if applicable)
+        piecewise_baseline = None
+        if scenario in ['piecewise', 'beyond_pairwise']:
+            piecewise_baseline = self._fit_piecewise_baseline(data, scenario)
+        
+        return {
+            'simple_static': static_baseline,
+            'piecewise': piecewise_baseline
+        }
+    
+    def _fit_simple_static_baseline(self, data):
+        """
+        Simple static baseline: flatten all time data and compute single correlation matrix
+        
+        This is much simpler and more interpretable than complex static vine fitting
+        """
+        
+        n_time, n_samples, dim = data.shape
+        
+        # Flatten all time data
+        flat_data = data.reshape((n_time * n_samples, dim))
+        
+        try:
+            # Compute correlation matrix
+            corr_matrix = np.corrcoef(flat_data.T)
+            
+            # Simple metric: mean absolute off-diagonal correlation
+            off_diagonal = corr_matrix[np.triu_indices(dim, k=1)]
+            correlation_metric = np.mean(np.abs(off_diagonal))
+            
+            return {
+                'type': 'simple_static',
+                'success': True,
+                'correlation_matrix': corr_matrix,
+                'correlation_metric': correlation_metric,
+                'description': 'Flattened time series, single correlation matrix'
+            }
+            
+        except Exception as e:
+            return {
+                'type': 'simple_static',
+                'success': False,
+                'error': str(e),
+                'correlation_metric': 0.0
+            }
+    
+    def _fit_piecewise_baseline(self, data, scenario):
+        """
+        Piecewise baseline: segment time domain, fit static correlation per segment
+        
+        This provides a simple middle-ground between static and fully time-dependent
+        """
+        
+        n_time, n_samples, dim = data.shape
+        
+        # Define switch times based on scenario
+        if scenario == 'piecewise':
+            switch_times = [int(0.3 * n_time), int(0.7 * n_time)]
+        elif scenario == 'beyond_pairwise':
+            switch_times = [int(0.3 * n_time), int(0.7 * n_time)]
+        else:
+            # Default segmentation
+            switch_times = [n_time // 3, 2 * n_time // 3]
+        
+        segments = [0] + switch_times + [n_time]
+        
+        try:
+            correlation_blocks = []
+            block_metrics = []
+            
+            for i in range(len(segments) - 1):
+                start_idx = segments[i]
+                end_idx = segments[i + 1]
+                
+                # Extract data for this segment
+                segment_data = data[start_idx:end_idx].reshape((-1, dim))
+                
+                # Compute correlation for this segment
+                segment_corr = np.corrcoef(segment_data.T)
+                correlation_blocks.append(segment_corr)
+                
+                # Compute metric for this segment
+                off_diagonal = segment_corr[np.triu_indices(dim, k=1)]
+                segment_metric = np.mean(np.abs(off_diagonal))
+                block_metrics.append(segment_metric)
+            
+            return {
+                'type': 'piecewise',
+                'success': True,
+                'switch_times': switch_times,
+                'correlation_blocks': correlation_blocks,
+                'block_metrics': block_metrics,
+                'overall_metric': np.mean(block_metrics),
+                'description': f'Piecewise correlation, {len(correlation_blocks)} segments'
+            }
+            
+        except Exception as e:
+            return {
+                'type': 'piecewise',
+                'success': False,
+                'error': str(e),
+                'overall_metric': 0.0
+            }
+    
     def _compare_models(self, time_dependent_results, static_results, data, times, scenario):
         """Compare time-dependent vs static models"""
         
@@ -315,7 +473,7 @@ class ComprehensiveTimeDependentAnalysis:
                 time_dependent_results['fit_time'] / static_results['fit_time']
             )
             
-            # Compare model complexity
+            # Enhanced performance metrics
             comparison['performance_metrics'] = {
                 'time_dependent_loss': time_dependent_results['train_loss'],
                 'static_log_likelihood': static_results['log_likelihood'],
@@ -324,11 +482,159 @@ class ComprehensiveTimeDependentAnalysis:
                 )
             }
             
+            # Add correlation structure analysis
+            correlation_analysis = self._analyze_correlation_structure_fit(data, scenario)
+            comparison['performance_metrics'].update(correlation_analysis)
+            
             print(f"  Fit time ratio (TD/Static): {comparison['fit_time_ratio']:.2f}")
             print(f"  Time-dependent loss: {time_dependent_results['train_loss']:.6f}")
             print(f"  Bandwidth variability: {comparison['performance_metrics']['bandwidth_variability']:.4f}")
+            
+            if 'correlation_mae' in comparison['performance_metrics']:
+                print(f"  Correlation estimation MAE: {comparison['performance_metrics']['correlation_mae']:.4f}")
+            
+            if 'entropy_prediction_accuracy' in comparison['performance_metrics']:
+                print(f"  Entropy prediction accuracy: {comparison['performance_metrics']['entropy_prediction_accuracy']:.4f}")
         
         return comparison
+    
+    def _analyze_correlation_structure_fit(self, data, scenario):
+        """
+        Analyze how well the model captures correlation structure
+        
+        Parameters:
+        -----------
+        data : np.ndarray
+            Time series data, shape (n_time_steps, n_samples, dim)
+        scenario : str
+            Scenario name
+            
+        Returns:
+        --------
+        analysis : dict
+            Correlation structure analysis metrics
+        """
+        
+        analysis = {}
+        
+        # Compute empirical correlation matrices at each time step
+        n_time_steps, n_samples, dim = data.shape
+        empirical_correlations = []
+        
+        for t in range(n_time_steps):
+            if n_samples > dim:  # Ensure we can compute correlation
+                corr_matrix = np.corrcoef(data[t].T)
+                empirical_correlations.append(corr_matrix)
+        
+        if len(empirical_correlations) > 0:
+            empirical_correlations = np.array(empirical_correlations)
+            
+            # Analyze correlation stability over time
+            correlation_variability = np.std(empirical_correlations, axis=0)
+            avg_correlation_variability = np.mean(correlation_variability[np.triu_indices(dim, k=1)])
+            
+            # Compute overall correlation estimation error
+            if scenario == 'block_switching':
+                # For block switching, analyze block vs non-block correlations separately
+                block_correlation_analysis = self._analyze_block_correlations(empirical_correlations)
+                analysis.update(block_correlation_analysis)
+            else:
+                # General correlation analysis
+                mean_empirical_corr = np.mean(empirical_correlations, axis=0)
+                off_diagonal_corrs = mean_empirical_corr[np.triu_indices(dim, k=1)]
+                correlation_mae = np.mean(np.abs(off_diagonal_corrs))
+                analysis['correlation_mae'] = correlation_mae
+            
+            analysis['correlation_variability'] = avg_correlation_variability
+            
+            # Estimate entropy evolution if possible
+            entropy_evolution = []
+            for corr_matrix in empirical_correlations:
+                try:
+                    det_corr = np.linalg.det(corr_matrix)
+                    if det_corr > 1e-10:
+                        entropy = 0.5 * (dim * np.log(2 * np.pi * np.e) + np.log(det_corr))
+                        entropy_evolution.append(entropy)
+                except:
+                    entropy_evolution.append(np.nan)
+            
+            if len(entropy_evolution) > 0 and not all(np.isnan(entropy_evolution)):
+                entropy_variability = np.nanstd(entropy_evolution)
+                analysis['empirical_entropy_variability'] = entropy_variability
+                analysis['mean_empirical_entropy'] = np.nanmean(entropy_evolution)
+        
+        return analysis
+    
+    def _analyze_block_correlations(self, empirical_correlations):
+        """
+        Analyze block correlation structures for block switching scenario
+        
+        Parameters:
+        -----------
+        empirical_correlations : np.ndarray
+            Time series of correlation matrices, shape (n_time_steps, dim, dim)
+            
+        Returns:
+        --------
+        analysis : dict
+            Block correlation analysis metrics
+        """
+        
+        analysis = {}
+        n_time_steps, dim, _ = empirical_correlations.shape
+        
+        # Assume simple block structure for analysis (this could be made more sophisticated)
+        if dim >= 4:
+            # Two blocks
+            block1 = list(range(dim // 2))
+            block2 = list(range(dim // 2, dim))
+            block_structure = [block1, block2]
+        else:
+            # Single block (all variables)
+            block_structure = [list(range(dim))]
+        
+        within_block_corrs = []
+        between_block_corrs = []
+        
+        for t in range(n_time_steps):
+            corr_matrix = empirical_correlations[t]
+            
+            # Calculate average within-block correlations
+            within_corrs = []
+            for block in block_structure:
+                if len(block) > 1:
+                    for i in block:
+                        for j in block:
+                            if i != j:
+                                within_corrs.append(corr_matrix[i, j])
+            
+            # Calculate average between-block correlations
+            between_corrs = []
+            if len(block_structure) > 1:
+                for i, block1 in enumerate(block_structure):
+                    for j, block2 in enumerate(block_structure):
+                        if i != j:
+                            for idx1 in block1:
+                                for idx2 in block2:
+                                    between_corrs.append(corr_matrix[idx1, idx2])
+            
+            within_block_corrs.append(np.mean(within_corrs) if within_corrs else 0)
+            between_block_corrs.append(np.mean(between_corrs) if between_corrs else 0)
+        
+        # Analyze block correlation patterns
+        analysis['within_block_correlation_mean'] = np.mean(within_block_corrs)
+        analysis['within_block_correlation_std'] = np.std(within_block_corrs)
+        analysis['between_block_correlation_mean'] = np.mean(between_block_corrs)
+        analysis['between_block_correlation_std'] = np.std(between_block_corrs)
+        
+        # Measure block structure preservation
+        if len(block_structure) > 1:
+            within_between_separation = (
+                analysis['within_block_correlation_mean'] - analysis['between_block_correlation_mean']
+            )
+            analysis['block_structure_separation'] = within_between_separation
+        
+        return analysis
     
     def _compute_bandwidth_variability(self, bandwidth_predictions):
         """Compute variability in bandwidth predictions"""
@@ -555,18 +861,24 @@ def main():
     print("Comprehensive Time-Dependent Vine Copula Analysis")
     print("=" * 60)
     
-    # Configuration
+    # Enhanced configuration for block structure testing
     config = {
-        'dim': 3,                    # Start with 3D for computational efficiency
-        'n_time_steps': 80,          # Moderate number of time steps
+        'dim': 4,                    # Increased to 4D to better test block structures
+        'n_time_steps': 100,         # Increased time steps for better switching dynamics
         'n_samples_per_time': 120,   # Sufficient samples per time
-        'test_scenarios': ['piecewise', 'sinusoidal', 'financial'],
+        'test_scenarios': ['piecewise', 'sinusoidal', 'financial', 'block_switching'],  # Added block switching
         'random_seed': 42
     }
     
     print("Configuration:")
     for key, value in config.items():
         print(f"  {key}: {value}")
+    
+    print(f"\nTesting sophisticated correlation structures:")
+    print(f"  - Piecewise: Structural breaks in correlation")  
+    print(f"  - Sinusoidal: Smooth periodic correlation changes")
+    print(f"  - Financial: Volatility clustering with correlation breaks")
+    print(f"  - Block Switching: Dynamic block-structured correlations with regime switching")
     
     # Initialize analysis framework
     analyzer = ComprehensiveTimeDependentAnalysis(

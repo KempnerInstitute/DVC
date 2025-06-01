@@ -1,2 +1,2 @@
-model_checkpoint_path: "tree_1_edge_0_0_1_best"
-all_model_checkpoint_paths: "tree_1_edge_0_0_1_best"
+model_checkpoint_path: "tree_2_edge_0_0_1_best"
+all_model_checkpoint_paths: "tree_2_edge_0_0_1_best"

@@ -12,8 +12,6 @@ Key Components:
 3. Integration with existing R-vine optimization
 4. Training procedures for flow parameters
 
-Author: DVC Analysis Team
-Date: 2025
 """
 
 import os
@@ -34,7 +32,9 @@ tf.get_logger().setLevel('ERROR')
 
 # Add DVC_tensorflow to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.join(current_dir, '..', '..')
+# Go up from dvc_nf/core to DVC_NF, then up to project root, then to src/DVC_tensorflow
+dvc_nf_root = os.path.dirname(os.path.dirname(current_dir))  # Go to DVC_NF directory
+project_root = os.path.dirname(dvc_nf_root)  # Go to the project root containing DVC_NF
 dvc_tensorflow_dir = os.path.join(project_root, 'src', 'DVC_tensorflow')
 sys.path.append(dvc_tensorflow_dir)
 
@@ -193,7 +193,11 @@ class TimeDependentVineCopula:
         }
         
         # Results storage
-        self.results_dir = os.path.join(current_dir, '..', 'results', 'time_dependent_vines')
+        # Find the DVC_NF root directory
+        current_file_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go up to dvc_nf, then up to DVC_NF root
+        dvc_nf_root = os.path.dirname(os.path.dirname(current_file_dir))
+        self.results_dir = os.path.join(dvc_nf_root, 'results', 'time_dependent_vines')
         os.makedirs(self.results_dir, exist_ok=True)
         
     def initialize_vine_structure(self, data=None):
