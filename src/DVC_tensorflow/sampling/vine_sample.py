@@ -465,8 +465,12 @@ def vine_copula_sample(vine,cases):
     sample1 = np.zeros([cases,d],w.dtype)
     #print(sample1.shape)
     #print(d)
-    sample_pdf = np.zeros([len(vine.Mar_G[i][0]),d],w.dtype)
-    sample_pds = np.zeros([len(vine.Mar_G[i][0]),d],w.dtype)
+    
+    # Find the maximum margin size to handle variable-sized margins
+    max_margin_size = max(len(vine.Mar_G[j][0]) for j in range(d))
+    sample_pdf = np.zeros([max_margin_size,d],w.dtype)
+    sample_pds = np.zeros([max_margin_size,d],w.dtype)
+    
     u = tf.cast(u,w.dtype)
     for i in tf.range(0,d,1,tf.int32):
         #print(sample_pdf.shape)
@@ -476,8 +480,11 @@ def vine_copula_sample(vine,cases):
         sample1_pro = tfp.math.interp_regular_1d_grid(u[:,i],x_ref_min=tf.math.reduce_min(mar_p1),x_ref_max=tf.math.reduce_max(mar_p1),y_ref=mar_s1)
         #print(tf.math.reduce_min(mar_s1),tf.math.reduce_max(mar_s1))     
         sample1[:,i] = prep_copula(sample1_pro,0).numpy()
-        sample_pdf[:,i]=mar_p1.numpy() 
-        sample_pds[:,i]=mar_s1.numpy() 
+        
+        # Handle variable-sized margins by only filling up to the actual size
+        margin_size = len(mar_p1.numpy())
+        sample_pdf[:margin_size,i] = mar_p1.numpy()
+        sample_pds[:margin_size,i] = mar_s1.numpy()
         
     
     #print(type(sample1))

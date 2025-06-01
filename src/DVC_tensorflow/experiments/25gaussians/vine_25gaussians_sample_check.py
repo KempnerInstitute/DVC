@@ -1,4 +1,15 @@
+import os
+import sys
+
+# Suppress TensorFlow informational messages and warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=info, 2=warnings, 3=errors only
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN custom operations message
+
 import tensorflow as tf
+
+# Additional TensorFlow logging suppression
+tf.get_logger().setLevel('ERROR')
+
 gpu_devices = tf.config.experimental.list_physical_devices('GPU')
 #device = gpu_devices[0]
 #tf.config.experimental.set_memory_growth(device, True)
@@ -8,9 +19,11 @@ tfb = tfp.bijectors
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.io as sio
-import sys
 
-sys.path.append("/Users/safaai/Library/CloudStorage/OneDrive-CompTech/Houman_Work/NPC")
+# Add the DVC_tensorflow directory to the path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+dvc_tensorflow_dir = os.path.join(current_dir, '..', '..')
+sys.path.append(dvc_tensorflow_dir)
 
 from classes.objects import *
 from vine_tree.tree_op import *

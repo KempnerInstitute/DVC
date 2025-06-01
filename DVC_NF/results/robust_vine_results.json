@@ -1,0 +1,49 @@
+{
+  "timestamp": "2025-05-31T14:36:47.712812",
+  "successful_configs": [
+    {
+      "dim": 3,
+      "n_samples": 600,
+      "vine_error": 0.08084992537853515,
+      "elapsed_time": 9.814898173014322e-07,
+      "memory_used": 10.9
+    },
+    {
+      "dim": 3,
+      "n_samples": 1000,
+      "vine_error": 0.07285924129844916,
+      "elapsed_time": 0.21297053496042886,
+      "memory_used": 10.9
+    },
+    {
+      "dim": 3,
+      "n_samples": 1200,
+      "vine_error": 0.06687724377827713,
+      "elapsed_time": 0.3965537190437317,
+      "memory_used": 10.9
+    },
+    {
+      "dim": 4,
+      "n_samples": 600,
+      "vine_error": 0.14453199026435268,
+      "elapsed_time": 0.6127511262893677,
+      "memory_used": 11.0
+    },
+    {
+      "dim": 4,
+      "n_samples": 1000,
+      "vine_error": 0.1598742744540772,
+      "elapsed_time": 0.9339475115140279,
+      "memory_used": 11.0
+    },
+    {
+      "dim": 4,
+      "n_samples": 1200,
+      "vine_error": 0.16231965243762927,
+      "elapsed_time": 1.2140401403109233,
+      "memory_used": 11.0
+    }
+  ],
+  "total_elapsed": 1.5661815961201986,
+  "analysis_type": "robust_vine_analysis"
+}

@@ -1,15 +1,25 @@
+import os
+import sys
 
+# Suppress TensorFlow informational messages and warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=info, 2=warnings, 3=errors only
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN custom operations message
 
 # ### Generate data AWGN channel
 
 import numpy as np
-%matplotlib inline
+# matplotlib inline equivalent for regular Python scripts
 import matplotlib as mpl
+mpl.use('Agg')  # Use non-interactive backend for scripts
 import matplotlib.pyplot as plt
 #import tensorflow.compat.v1 as tf
 #tf.disable_v2_behavior()
 
 import tensorflow as tf
+
+# Additional TensorFlow logging suppression
+tf.get_logger().setLevel('ERROR')
+
 from tensorflow import keras
 from tensorflow.keras import layers
 import pandas as pd
@@ -18,34 +28,31 @@ np.random.seed(42)
 #tf.set_random_seed(42)
 tf.random.set_seed(42)
 plt.style.use('ggplot')
-import sys
 
 #tf.compat.v1.disable_eager_execution()
 
-
 #print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 ### SETUP COPULA
-sys.path.append('/n/data2/hms/neurobio/harvey/Houman/NPC/NPC')
-#sys.path.append('/Users/safaai/Library/CloudStorage/OneDrive-CompTech/Houman_Work/NPC')
-#sys.path.append('C:/Users/alessandromv/Documents/GitHub')
+
+# Add the DVC_tensorflow directory to the path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+dvc_tensorflow_dir = os.path.join(current_dir, '..', '..')
+sys.path.append(dvc_tensorflow_dir)
+
 print(sys.path)
 
-import tensorflow as tf
 gpu_devices = tf.config.experimental.list_physical_devices('GPU')
 #device = gpu_devices[0]
 # tf.config.experimental.set_memory_growth(device, True)
 import tensorflow_probability as tfp
 tfd = tfp.distributions
 tfb = tfp.bijectors
-import numpy as np
-import matplotlib.pyplot as plt
 import scipy.io as sio
 
 from classes.objects import *
 from vine_tree.tree_op import *
 
 from scipy import stats
-import pickle
 
 ###########
 
@@ -459,7 +466,7 @@ def cond_vine_entropy(vine,vine_f2,info_dict):
             sample_f2 , u, p1, p2 = vine_copula_sample(vine_f2,cases)
 
             #sample_f2 = sample[:,0:d_f2]
-            --
+            
             p_f2, p_copula_f2, log_marg_f = vine_f2.evaluation(sample_f2)
 
             ## Compute cond entr.

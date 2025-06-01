@@ -1,0 +1,30 @@
+{
+  "timestamp": "2025-05-31T14:00:55.116637",
+  "data_shape": [
+    800,
+    4
+  ],
+  "analysis_type": "entropy_decomposition",
+  "results": {
+    "tau_optimization": {
+      "tree_entropies": [
+        5.909270286560059,
+        -0.11779054999351501,
+        0.12729807198047638,
+        0.07400351017713547
+      ],
+      "total_entropy": 5.992781162261963,
+      "method_name": "Kendall's Tau (Current)"
+    },
+    "random_baseline": {
+      "tree_entropies": [
+        NaN,
+        -0.03304141387343407,
+        -0.19536195695400238,
+        -0.04020372033119202
+      ],
+      "total_entropy": NaN,
+      "method_name": "Random Structure"
+    }
+  }
+}

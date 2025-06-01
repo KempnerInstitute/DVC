@@ -168,6 +168,9 @@ class vine_obj_bin(object):
         d = x.shape[1]
         self.n_cop = d
         
+        # Get optimization method from gen_dict if available
+        optimization_method = gen_dict.get('optimization_method', 'tau')
+        
         if self.param == False:
             self.opt_method = npc_dict['opt_method']
             batch_paral = npc_dict['batch_paral']
@@ -250,7 +253,7 @@ class vine_obj_bin(object):
                     if tr == 0:
                         self.r_matrix = np.zeros([self.n_cop,self.n_cop],np.int32)
                         n = len(self.r_matrix) - 1
-                        ind_ee, weights = optimal_tree(self.theta[:,tr,:],self.theta_flip[:,tr,:],self.ind_vine,tr,random)
+                        ind_ee, weights = optimal_tree(self.theta[:,tr,:],self.theta_flip[:,tr,:],self.ind_vine,tr,random,optimization_method)
                         edges_now = ind_ee
                         self.ind_vine[tr] = ind_ee
                 #        print('opt_tree',ind_ee)
@@ -280,7 +283,7 @@ class vine_obj_bin(object):
                         #print(self.r_matrix)
                     else:
 
-                        ind_ee, weights = optimal_tree(self.theta[:,tr,:],self.theta_flip[:,tr,:],self.ind_vine,tr,random)
+                        ind_ee, weights = optimal_tree(self.theta[:,tr,:],self.theta_flip[:,tr,:],self.ind_vine,tr,random,optimization_method)
               #          print('opt_tree',ind_ee)
                         edges_now = ind_ee
                         self.ind_vine[tr] = ind_ee
@@ -1853,14 +1856,39 @@ class vine_obj(object):
 #         self.iter_err = tf.Variable(1,dtype=tf.int32, trainable=False)
 #         self.a = tf.Variable(initial_value=tf.random.uniform(shape=[1], minval=2e-3, maxval=2, dtype=x.dtype), trainable=False)
         
-    def fit(self, x, parallel, opt_method):
+    def fit(self, x, gen_dict, npc_dict, par_dict, bin_dict): #*args
         
+        np_type = x.dtype
+        x = tf.convert_to_tensor(x)
+
         ## Initialization
+        self.binning = gen_dict['binning']
+        self.parallel = gen_dict['parallel']
+        self.param = gen_dict['param']
+        self.fitted = gen_dict['fitted']
+        
+        self.vine_depth = gen_dict['vine_depth'] -1
+
         d = x.shape[1]
         self.n_cop = d
         
+        # Get optimization method from gen_dict if available
+        optimization_method = gen_dict.get('optimization_method', 'tau')
+        
+        if self.param == False:
+            self.opt_method = npc_dict['opt_method']
+            batch_paral = npc_dict['batch_paral']
+        else:
+            param_families = par_dict['param_families']
+        if self.binning == True:
+            self.n_bin = bin_dict['n_bin']
+        
+        ## Select batch size for CDF
+        batch_size_cdf = self.select_batch_size_cdf(x)
+        
         ## Make grid
-        u_1, ex_u = mk_grid(self.knots,x.dtype)
+
+        u_1, ex_u = mk_grid(tf.convert_to_tensor(self.knots),np_type)
         trans = Transform(self.n_cop)
         
         ## Grid objects
@@ -1872,32 +1900,44 @@ class vine_obj(object):
         NORM = biv_norm(x1_s, x2_s)
         
         ## Create Mar_G, theta and Fp
-        Mar_G = []
-        theta = np.empty([x.shape[0],self.n_cop,self.n_cop],x.dtype)
+        self.Mar_G = []
+        self.theta_flip = np.zeros([tf.shape(x)[0],self.n_cop,self.n_cop],np_type)
+        self.theta = np.zeros([tf.shape(x)[0],self.n_cop,self.n_cop],np_type)
         for i in range(0,self.n_cop,1):
-            ccc = self.margin[i].ker
-            mar_p1, mar_s1 = kernel_cdf(ccc, ex_u)
-            Mar_G.append([mar_s1, mar_p1])
-            theta[:,0,i] = interp1d_np(ccc, mar_s1, mar_p1).numpy()
+            ccc = tf.convert_to_tensor(self.margin[i].ker)
+            interp_cdf, mar_s1, mar_p1 = kernel_cdf(ccc,ccc,ex_u)
+
+            self.Mar_G.append([mar_s1, mar_p1])
+            self.theta[:,0,i] = interp_cdf.numpy() #interp1d_np(ccc, mar_s1, mar_p1).numpy()
             del ccc, mar_p1, mar_s1
-            
-        self.Mar_G = Mar_G
-        self.theta = theta
         
-        ############### FITTING ####################
-        self.copulas = []
+        ######################################### FITTING #######################################################
+        
+        if self.fitted == False:
+            self.copulas = []
+        self.correlations = []
+        self.correlations_bins = []
+        self.flip_flag = []
+        self.ind_edge_rel = []
         
         for tr in tf.range(0,d-1,1,tf.int32): #d-1
-       #     print('Row theta:',tr.numpy())
+          #  print('-----------------------------------')
+          #  print('Row theta:',tr.numpy())
             
-      #      print('theta:',self.theta[:,tr,:])
+            if self.fitted == True:
+                self.vine_family = 'r-vine'
+                self.method = 'matrix'
+            
+           # print('theta:',self.theta[:,tr,:])
 
-            # TAKE CDF1-CDF2 AND CDF2-CDF3 ...
+            ## Number of copulas in the level
+            ## Create object for projections in the other spaces
+            
             n_cop = d-1-tr
             trans = Transform(n_cop)
      #       print('n_cop in the row:',n_cop.numpy())
             
-            data_u = np.empty([theta.shape[0],2,n_cop],x.dtype)  
+            data_u = np.empty([self.theta.shape[0],2,n_cop],x.dtype)  
             
             #### EDGES OF THE VINE
             if self.vine_family == 'r-vine':
@@ -1930,17 +1970,17 @@ class vine_obj(object):
             #self.copulas.append([])
             opt_bw = tf.TensorArray(x.dtype,size=n_cop)
             
-            if parallel == True:
+            if self.parallel == True:
                 n_cop1 = tf.constant(n_cop,tf.int32)
 
                 grid_dict = {'grid_u':self.grid_u, 'grid_s':self.grid_s, 'grid_x':self.grid_x.ex}
                 data_dict = {'data_s':self.data_s, 'data_x':self.data_x}
                 par_dict = {'n_cop':n_cop1, 'batch':tf.constant(2,tf.int32), 'max_iter': [70,100], 'lr':[0.1, 0.01], 
-                                'conv_tol': [0.000001,0.0000001], 'opt_method': opt_method}
+                                'conv_tol': [0.000001,0.0000001], 'opt_method': self.opt_method}
 
                 opt = optimization(grid_dict, data_dict, par_dict)
                 opt_bw = opt            
-            elif parallel == False:
+            elif self.parallel == False:
                 opt_bw = tf.TensorArray(x.dtype,size=n_cop)
             
                 for i in range(0,n_cop,1):
@@ -1951,7 +1991,7 @@ class vine_obj(object):
                     grid_dict = {'grid_u':self.grid_u, 'grid_s':self.grid_s, 'grid_x':self.grid_x.ex[:,:,i]}
                     data_dict = {'data_s':self.data_s[:,:,i], 'data_x':self.data_x[:,:,i]}
                     par_dict = {'n_cop':n_cop1, 'batch':tf.constant(2,tf.int32), 'max_iter': [70,100], 'lr':[0.1, 0.01], 
-                                'conv_tol': [0.000001,0.0000001], 'opt_method': opt_method}
+                                'conv_tol': [0.000001,0.0000001], 'opt_method': self.opt_method}
     
                     opt = optimization(grid_dict, data_dict, par_dict)
                     opt_bw = opt_bw.write(i,opt)

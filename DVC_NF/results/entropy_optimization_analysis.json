@@ -1,0 +1,108 @@
+{
+  "timestamp": "2025-05-31T14:03:45.642101",
+  "optimization_comparison": {
+    "entropy_based": {
+      "tree_results": {
+        "tree_1": {
+          "edges": [
+            [
+              0,
+              1
+            ],
+            [
+              0,
+              2
+            ],
+            [
+              0,
+              3
+            ],
+            [
+              1,
+              2
+            ],
+            [
+              1,
+              3
+            ],
+            [
+              2,
+              3
+            ]
+          ],
+          "entropy_contribution": 0.8869451417493776
+        },
+        "tree_2": {
+          "edges": [
+            [
+              0,
+              1
+            ],
+            [
+              0,
+              2
+            ]
+          ],
+          "entropy_contribution": 0.4517455036718735
+        },
+        "tree_3": {
+          "edges": [
+            [
+              0,
+              1
+            ]
+          ],
+          "entropy_contribution": 0.45172078153818535
+        }
+      },
+      "total_entropy_gain": 1.7904114269594364,
+      "method": "Entropy Maximization"
+    },
+    "tau_based": {
+      "tree_results": {
+        "tree_1": {
+          "edges": [
+            [
+              0,
+              1
+            ],
+            [
+              0,
+              2
+            ],
+            [
+              0,
+              3
+            ]
+          ],
+          "tau_sum": 0.9189989989989991
+        },
+        "tree_2": {
+          "edges": [
+            [
+              0,
+              1
+            ],
+            [
+              0,
+              2
+            ]
+          ],
+          "tau_sum": 0.5652132132132133
+        },
+        "tree_3": {
+          "edges": [
+            [
+              0,
+              1
+            ]
+          ],
+          "tau_sum": 0.5607367367367367
+        }
+      },
+      "total_tau_strength": 2.044948948948949,
+      "method": "Kendall's Tau Maximization"
+    }
+  },
+  "theoretical_framework": "entropy_based_rvine_optimization"
+}

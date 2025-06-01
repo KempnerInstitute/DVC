@@ -133,13 +133,27 @@ class VineSampler:
                     
                     # Apply inverse conditional CDF
                     if tr <= self.depth:
-                        if hasattr(self.vine.copulas[tr], 'cdf') and hasattr(self.vine.copulas[tr].cdf, '__getitem__'):
-                            # Non-parametric with CDF grid
-                            cdf_grid = self.vine.copulas[tr].cdf[:, :, col_remapped]
-                            v[:, k, i] = self._kerncopccdfinv(vv, cdf_grid)
+                        if tr < len(self.vine.copulas):
+                            copula_obj = self.vine.copulas[tr]
+                            # Check if it's parametric (list of copulas) or non-parametric (single copula)
+                            if isinstance(copula_obj, list):
+                                # Parametric: list of copula objects
+                                if col_remapped < len(copula_obj):
+                                    v[:, k, i] = copulainvccdf_torch(copula_obj[col_remapped], vv)
+                                else:
+                                    v[:, k, i] = vv[:, 0]  # Independence fallback
+                            else:
+                                # Non-parametric: single copula object with CDF grid
+                                if hasattr(copula_obj, 'cdf') and copula_obj.cdf is not None:
+                                    if copula_obj.cdf.shape[2] > col_remapped:
+                                        cdf_grid = copula_obj.cdf[:, :, col_remapped]
+                                        v[:, k, i] = self._kerncopccdfinv(vv, cdf_grid)
+                                    else:
+                                        v[:, k, i] = vv[:, 0]  # Independence fallback
+                                else:
+                                    v[:, k, i] = vv[:, 0]  # Independence fallback
                         else:
-                            # Parametric copula
-                            v[:, k, i] = copulainvccdf_torch(self.vine.copulas[tr][col_remapped], vv)
+                            v[:, k, i] = vv[:, 0]  # Independence fallback
                     else:
                         # Independence copula
                         v[:, k, i] = vv[:, 0]  # Just return first component for independence
@@ -166,11 +180,27 @@ class VineSampler:
                         v[:, k, i] = vv[:, 0]
                     else:
                         # Fitted copula
-                        if hasattr(self.vine.copulas[tr], 'cdf'):
-                            cdf_grid = self.vine.copulas[tr].cdf[:, :, col_remapped]
-                            v[:, k, i] = self._kerncopccdfinv(vv, cdf_grid)
+                        if tr < len(self.vine.copulas):
+                            copula_obj = self.vine.copulas[tr]
+                            # Check if it's parametric (list of copulas) or non-parametric (single copula)
+                            if isinstance(copula_obj, list):
+                                # Parametric: list of copula objects
+                                if col_remapped < len(copula_obj):
+                                    v[:, k, i] = copulainvccdf_torch(copula_obj[col_remapped], vv)
+                                else:
+                                    v[:, k, i] = vv[:, 0]  # Independence fallback
+                            else:
+                                # Non-parametric: single copula object with CDF grid
+                                if hasattr(copula_obj, 'cdf') and copula_obj.cdf is not None:
+                                    if copula_obj.cdf.shape[2] > col_remapped:
+                                        cdf_grid = copula_obj.cdf[:, :, col_remapped]
+                                        v[:, k, i] = self._kerncopccdfinv(vv, cdf_grid)
+                                    else:
+                                        v[:, k, i] = vv[:, 0]  # Independence fallback
+                                else:
+                                    v[:, k, i] = vv[:, 0]  # Independence fallback
                         else:
-                            v[:, k, i] = copulainvccdf_torch(self.vine.copulas[tr][col_remapped], vv)
+                            v[:, k, i] = vv[:, 0]  # Independence fallback
                 
                 c += 1
             
@@ -399,19 +429,43 @@ class VineSampler:
                     data_u = torch.cat([v2, v1], dim=1)
                 
                 # Compute h-function for non-parametric copula
-                if hasattr(self.vine.copulas[tr], 'cdf') and col_remapped < self.vine.copulas[tr].cdf.shape[2]:
-                    # Get CDF grid
-                    cdf_grid = self.vine.copulas[tr].cdf[:, :, col_remapped]
-                    
-                    # Apply numerical h-function computation
-                    # For now, use a simple interpolation approach
-                    # TODO: Implement full non-parametric h-function evaluation
-                    
-                    # Store result based on flip
-                    if flip_flag:
-                        v_flip[:, tr + 1, ii] = data_u[:, 0]  # Placeholder
+                if tr < len(self.vine.copulas):
+                    copula_obj = self.vine.copulas[tr]
+                    # Check if it's parametric (list of copulas) or non-parametric (single copula)
+                    if isinstance(copula_obj, list):
+                        # Parametric: shouldn't reach here in non-parametric function
+                        if flip_flag:
+                            v_flip[:, tr + 1, ii] = data_u[:, 0]  # Placeholder
+                        else:
+                            v[:, tr + 1, ii] = data_u[:, 0]  # Placeholder
                     else:
-                        v[:, tr + 1, ii] = data_u[:, 0]  # Placeholder
+                        # Non-parametric: single copula object with CDF grid
+                        if hasattr(copula_obj, 'cdf') and copula_obj.cdf is not None:
+                            if copula_obj.cdf.shape[2] > col_remapped:
+                                # Get CDF grid
+                                cdf_grid = copula_obj.cdf[:, :, col_remapped]
+                                
+                                # Apply numerical h-function computation
+                                # For now, use a simple interpolation approach
+                                # TODO: Implement full non-parametric h-function evaluation
+                                
+                                # Store result based on flip
+                                if flip_flag:
+                                    v_flip[:, tr + 1, ii] = data_u[:, 0]  # Placeholder
+                                else:
+                                    v[:, tr + 1, ii] = data_u[:, 0]  # Placeholder
+                            else:
+                                # Independence fallback
+                                if flip_flag:
+                                    v_flip[:, tr + 1, ii] = data_u[:, 0]
+                                else:
+                                    v[:, tr + 1, ii] = data_u[:, 0]
+                        else:
+                            # Independence fallback
+                            if flip_flag:
+                                v_flip[:, tr + 1, ii] = data_u[:, 0]
+                            else:
+                                v[:, tr + 1, ii] = data_u[:, 0]
                 
                 cc2 += 1
             cc1 += 1

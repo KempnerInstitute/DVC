@@ -1,60 +1,224 @@
 import math as m
 import numpy as np
 import random
-from scipy.stats import kendalltau
+from scipy.stats import kendalltau, gaussian_kde
+
+###################### ENTROPY ESTIMATION FUNCTIONS ##########################
+
+def empirical_cdf(data):
+    """Transform data to empirical CDF (copula scale)"""
+    ranks = np.argsort(np.argsort(data))
+    return (ranks + 0.5) / len(data)
+
+def estimate_copula_entropy_kde(u, v):
+    """Estimate copula entropy using KDE method"""
+    try:
+        # Transform to copula scale [0,1]
+        u_copula = empirical_cdf(u)
+        v_copula = empirical_cdf(v)
+        
+        # Stack for bivariate KDE
+        data = np.vstack([u_copula, v_copula])
+        
+        # Estimate copula density using KDE
+        kde = gaussian_kde(data)
+        
+        # Estimate entropy using sample-based approximation
+        # H ≈ -1/n Σ log c(ui, vi)
+        n_entropy_samples = min(500, len(u_copula))
+        indices = np.random.choice(len(u_copula), n_entropy_samples, replace=False)
+        
+        sample_points = data[:, indices]
+        log_densities = np.log(kde(sample_points) + 1e-10)  # Add small epsilon for stability
+        
+        entropy = -np.mean(log_densities)
+        return entropy
+        
+    except Exception as e:
+        # Fallback to tau-based proxy
+        return estimate_copula_entropy_fallback(u, v)
+
+def estimate_copula_entropy_histogram(u, v):
+    """Estimate copula entropy using histogram method"""
+    try:
+        # Transform to copula scale
+        u_copula = empirical_cdf(u)
+        v_copula = empirical_cdf(v)
+        
+        # Create 2D histogram
+        bins = min(20, int(np.sqrt(len(u_copula))))
+        hist, u_edges, v_edges = np.histogram2d(u_copula, v_copula, bins=bins)
+        
+        # Normalize to get density
+        bin_area = (u_edges[1] - u_edges[0]) * (v_edges[1] - v_edges[0])
+        density = hist / (np.sum(hist) * bin_area + 1e-10)
+        
+        # Calculate entropy
+        density_pos = density[density > 0]
+        entropy = -np.sum(density_pos * np.log(density_pos)) * bin_area
+        
+        return entropy
+        
+    except Exception as e:
+        # Fallback to tau-based proxy
+        return estimate_copula_entropy_fallback(u, v)
+
+def estimate_copula_entropy_fallback(u, v):
+    """Fallback entropy estimate using mutual information proxy"""
+    try:
+        # Use correlation as proxy for information content
+        tau, _ = kendalltau(u, v)
+        
+        # Convert to entropy-like measure
+        # Higher |tau| -> higher information -> higher entropy
+        entropy_proxy = -0.5 * np.log(1 - tau**2 + 1e-10)
+        
+        return entropy_proxy
+        
+    except Exception as e:
+        # Last resort fallback
+        return 0.0
+
+def estimate_copula_entropy(u, v, method='kde'):
+    """
+    Main entropy estimation function
+    
+    Parameters:
+    -----------
+    u, v : array-like
+        Data for entropy estimation
+    method : str
+        'kde', 'histogram', or 'fallback'
+        
+    Returns:
+    --------
+    entropy : float
+        Estimated entropy value
+    """
+    if method == 'kde':
+        return estimate_copula_entropy_kde(u, v)
+    elif method == 'histogram':
+        return estimate_copula_entropy_histogram(u, v)
+    elif method == 'fallback':
+        return estimate_copula_entropy_fallback(u, v)
+    else:
+        # Default to KDE
+        return estimate_copula_entropy_kde(u, v)
 
 ###################### CHECK OPTIMAL TREE ##########################
 
 ### Prim algorithm - Section 23 Minium Spanning Three - Algorithm book
 
-def optimal_tree(data, data_flip, ind_vine, tr, rand):
+def optimal_tree(data, data_flip, ind_vine, tr, rand=False, optimization_method='tau'):
+    """
+    Build optimal tree using different optimization criteria
+    
+    Parameters:
+    -----------
+    data : array
+        Data matrix for current tree level
+    data_flip : array
+        Flipped data for conditional dependencies
+    ind_vine : list
+        Current vine structure
+    tr : int
+        Tree level (0 = first tree)
+    rand : bool
+        Legacy parameter for random optimization (deprecated, use optimization_method='random')
+    optimization_method : str
+        Optimization criterion: 'tau', 'entropy', 'random'
+        
+    Returns:
+    --------
+    edges : list
+        Selected edges for this tree level
+    weights : list
+        Optimization criterion values for selected edges
+    """
+    
+    # Handle legacy rand parameter
+    if rand:
+        optimization_method = 'random'
+    
     random.seed(9001)
-    V = set(range(0,data.shape[1]-tr)) #{0,1,2,3,4,5}
-    Q = set()
-    edges = []
-    weights = []
-    u = random.randint(0,data.shape[1]-1-tr)
+    V = set(range(0, data.shape[1] - tr))  # Available variables
+    Q = set()  # Selected variables in spanning tree
+    edges = []  # Selected edges
+    weights = []  # Criterion values
+    
+    # Start with random variable
+    u = random.randint(0, data.shape[1] - 1 - tr)
     Q.add(u)
     V.remove(u)
+    
+    # Prim's algorithm with different optimization criteria
     while V:
         max_v = -m.inf
+        best_u = None
+        best_v = None
+        
         for i in Q:
             for j in V:
                 if tr == 0:
-                    if rand == False:
-                        tau, p_value = kendalltau(data[:,i], data[:,j])
+                    # First tree: direct variable relationships
+                    if optimization_method == 'tau':
+                        tau, p_value = kendalltau(data[:, i], data[:, j])
+                        criterion_value = abs(tau)
+                        
+                    elif optimization_method == 'entropy':
+                        entropy = estimate_copula_entropy(data[:, i], data[:, j], method='kde')
+                        criterion_value = entropy
+                        
+                    elif optimization_method == 'random':
+                        criterion_value = abs(np.random.uniform(-1., 1., 1)[0])
+                        
                     else:
-                        tau = np.random.uniform(-1.,1.,1)
-                    if abs(tau) > max_v:
-                        max_v = abs(tau)
-                        u = i
-                        v = j
-                else: 
-                    par, inx1, inx2 = parent_var(tr,ind_vine,[i,j])
-                    if par != None:
+                        raise ValueError(f"Unknown optimization method: {optimization_method}")
+                    
+                else:
+                    # Higher trees: conditional relationships
+                    par, inx1, inx2 = parent_var(tr, ind_vine, [i, j])
+                    
+                    if par is not None:
                         if par != ind_vine[tr-1][i][0]:
-                            if rand == False:
-                                tau, p_value = kendalltau(data_flip[:,i], data[:,j])
-                            else:
-                                tau = np.random.uniform(-1.,1.,1)
-                            if abs(tau) > max_v:
-                                max_v = abs(tau)
-                                u = i
-                                v = j
+                            # Use flipped data
+                            data_u = data_flip[:, i] if data_flip is not None else data[:, i]
+                            data_v = data[:, j]
                         else:
-                            if rand == False:
-                                tau, p_value = kendalltau(data[:,i], data[:,j])
-                            else:
-                                tau = np.random.uniform(-1.,1.,1)
-                            if abs(tau) > max_v:
-                                max_v = abs(tau)
-                                u = i
-                                v = j
-        Q.add(v)
-        V.remove(v)
-        edges.append([u,v])
-        weights.append(max_v)
-    return edges,weights
+                            data_u = data[:, i]
+                            data_v = data[:, j]
+                        
+                        if optimization_method == 'tau':
+                            tau, p_value = kendalltau(data_u, data_v)
+                            criterion_value = abs(tau)
+                            
+                        elif optimization_method == 'entropy':
+                            entropy = estimate_copula_entropy(data_u, data_v, method='kde')
+                            criterion_value = entropy
+                            
+                        elif optimization_method == 'random':
+                            criterion_value = abs(np.random.uniform(-1., 1., 1)[0])
+                            
+                        else:
+                            raise ValueError(f"Unknown optimization method: {optimization_method}")
+                    else:
+                        continue  # Skip invalid edges
+                
+                # Select edge with maximum criterion value
+                if criterion_value > max_v:
+                    max_v = criterion_value
+                    best_u = i
+                    best_v = j
+        
+        if best_v is not None:
+            Q.add(best_v)
+            V.remove(best_v)
+            edges.append([best_u, best_v])
+            weights.append(max_v)
+        else:
+            break  # No valid edges found
+    
+    return edges, weights
 
 ###################### BUILD LIST OF EDGES #########################
 

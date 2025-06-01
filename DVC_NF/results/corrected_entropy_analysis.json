@@ -1,0 +1,13 @@
+{
+  "timestamp": "2025-05-31T14:15:08.084555",
+  "analysis_type": "corrected_entropy_decomposition",
+  "entropy_type": "differential_entropy",
+  "tree_contributions": [
+    5.633492946624756,
+    -0.4468120038509369,
+    0.008156892843544483,
+    -0.01918315887451172
+  ],
+  "total_entropy": 5.175654411315918,
+  "note": "Negative values are valid for differential entropy"
+}
