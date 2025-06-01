@@ -1018,6 +1018,408 @@ class TimeDependentDataGenerator:
         time_indices = dataset['time_indices']
         metadata = dataset['metadata']
         
+        # Dispatch to specialized visualization based on data type
+        if metadata['type'] == 'ising_time_series':
+            self._visualize_ising_data(data, time_indices, metadata, save_plots)
+        elif metadata['type'] == 'hmm_regimes':
+            self._visualize_hmm_data(data, time_indices, metadata, save_plots)
+        elif metadata['type'] == 'loglinear_synergy':
+            self._visualize_loglinear_data(data, time_indices, metadata, save_plots)
+        elif metadata['type'] == 'spatiotemporal_image_blocks':
+            self._visualize_spatiotemporal_data(data, time_indices, metadata, save_plots)
+        elif metadata['type'] == 'block_switching_correlation':
+            # Use existing detailed visualization
+            self._create_block_correlation_detailed_plots(dataset_name, save_plots)
+        elif metadata['type'] == 'beyond_pairwise_interactions':
+            self._visualize_beyond_pairwise_data(data, time_indices, metadata, save_plots)
+        else:
+            # Use generic visualization for older scenarios
+            self._create_generic_visualization(data, time_indices, metadata, save_plots, dataset_name)
+    
+    def _visualize_ising_data(self, data, time_indices, metadata, save_plots):
+        """Create specialized visualization for Ising-like time series data"""
+        
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        fig.suptitle('Ising-like Time Series: Spin Dynamics & Coupling Evolution', fontsize=16)
+        
+        n_time_steps = len(time_indices)
+        
+        # 1. Spin configuration evolution (first sample)
+        axes[0, 0].imshow(data[:, 0, :].T, aspect='auto', cmap='RdBu_r', vmin=-1, vmax=1)
+        axes[0, 0].set_title('Spin Configuration Evolution\n(First Sample)')
+        axes[0, 0].set_xlabel('Time')
+        axes[0, 0].set_ylabel('Spin Variable')
+        
+        # 2. Average magnetization over time
+        avg_magnetization = np.mean(data, axis=(1, 2))  # Average over samples and spins
+        axes[0, 1].plot(time_indices, avg_magnetization, 'b-', linewidth=2)
+        axes[0, 1].set_title('Average Magnetization Over Time')
+        axes[0, 1].set_xlabel('Time')
+        axes[0, 1].set_ylabel('Magnetization')
+        axes[0, 1].grid(True, alpha=0.3)
+        
+        # 3. Coupling strength evolution
+        coupling_evolution = []
+        for J in metadata['J_2d_schedule']:
+            coupling_strength = np.mean(np.abs(J[np.triu_indices_from(J, k=1)]))
+            coupling_evolution.append(coupling_strength)
+        
+        axes[0, 2].plot(time_indices, coupling_evolution, 'r-', linewidth=2, label='Pairwise')
+        
+        if metadata['coupling_stats']['has_triple_couplings']:
+            triple_evolution = []
+            for K in metadata['K_3d_schedule']:
+                if K is not None:
+                    triple_strength = np.mean(np.abs(K[K != 0]))
+                    triple_evolution.append(triple_strength)
+                else:
+                    triple_evolution.append(0.0)
+            axes[0, 2].plot(time_indices, triple_evolution, 'g--', linewidth=2, label='Triple')
+        
+        axes[0, 2].set_title('Coupling Strength Evolution')
+        axes[0, 2].set_xlabel('Time')
+        axes[0, 2].set_ylabel('Coupling Strength')
+        axes[0, 2].legend()
+        axes[0, 2].grid(True, alpha=0.3)
+        
+        # 4. Spin correlation matrix at different times
+        example_times = [0, n_time_steps//2, n_time_steps-1]
+        example_labels = ['Early', 'Middle', 'Late']
+        
+        for i, (t, label) in enumerate(zip(example_times, example_labels)):
+            if i >= 3:
+                break
+            row, col = 1, i
+            ax = axes[row, col]
+            
+            # Compute empirical spin correlations
+            spin_corr = np.corrcoef(data[t].T)
+            im = ax.imshow(spin_corr, cmap='RdBu_r', vmin=-1, vmax=1)
+            ax.set_title(f'Spin Correlations: {label} (t={t})')
+            plt.colorbar(im, ax=ax)
+        
+        plt.tight_layout()
+        
+        if save_plots:
+            plot_path = os.path.join(self.results_dir, 'ising_time_series_visualization.png')
+            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+            print(f"Saved Ising visualization: {plot_path}")
+        
+        plt.show()
+    
+    def _visualize_hmm_data(self, data, time_indices, metadata, save_plots):
+        """Create specialized visualization for HMM regime switching data"""
+        
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        fig.suptitle('Hidden Markov Model: Regime Switching Dynamics', fontsize=16)
+        
+        n_time_steps = len(time_indices)
+        regime_sequence = metadata['regime_sequence']
+        
+        # 1. Regime sequence over time
+        axes[0, 0].plot(time_indices, regime_sequence, 'o-', linewidth=2, markersize=3)
+        axes[0, 0].set_title('Hidden Regime Sequence')
+        axes[0, 0].set_xlabel('Time')
+        axes[0, 0].set_ylabel('Regime ID')
+        axes[0, 0].grid(True, alpha=0.3)
+        
+        # Mark regime switches
+        switches = np.where(np.diff(regime_sequence) != 0)[0] + 1
+        for switch_time in switches:
+            axes[0, 0].axvline(x=switch_time, color='red', linestyle='--', alpha=0.5)
+        
+        # 2. Data evolution colored by regime
+        # Show first two dimensions
+        colors = plt.cm.tab10(regime_sequence / max(regime_sequence))
+        sample_means = np.mean(data, axis=1)  # Average over samples
+        
+        if data.shape[2] >= 2:
+            scatter = axes[0, 1].scatter(sample_means[:, 0], sample_means[:, 1], 
+                                       c=colors, alpha=0.7, s=30)
+            axes[0, 1].set_title('Data Evolution (Var 0 vs 1)\nColored by Regime')
+            axes[0, 1].set_xlabel('Variable 0')
+            axes[0, 1].set_ylabel('Variable 1')
+            axes[0, 1].grid(True, alpha=0.3)
+        
+        # 3. Transition matrix heatmap
+        transition_matrix = metadata['transition_matrix']
+        im = axes[0, 2].imshow(transition_matrix, cmap='Blues', vmin=0, vmax=1)
+        axes[0, 2].set_title('Regime Transition Matrix')
+        axes[0, 2].set_xlabel('To Regime')
+        axes[0, 2].set_ylabel('From Regime')
+        
+        # Add text annotations
+        for i in range(transition_matrix.shape[0]):
+            for j in range(transition_matrix.shape[1]):
+                text = axes[0, 2].text(j, i, f'{transition_matrix[i, j]:.2f}',
+                                     ha="center", va="center", color="white" if transition_matrix[i, j] > 0.5 else "black")
+        
+        plt.colorbar(im, ax=axes[0, 2])
+        
+        # 4. Regime-specific correlation matrices
+        regime_correlations = metadata['regime_correlations']
+        n_regimes = len(regime_correlations)
+        
+        for regime_id in range(min(3, n_regimes)):
+            row, col = 1, regime_id
+            ax = axes[row, col]
+            
+            corr_matrix = regime_correlations[regime_id]
+            im = ax.imshow(corr_matrix, cmap='RdBu_r', vmin=-1, vmax=1)
+            ax.set_title(f'Regime {regime_id} Correlation')
+            plt.colorbar(im, ax=ax)
+        
+        plt.tight_layout()
+        
+        if save_plots:
+            plot_path = os.path.join(self.results_dir, 'hmm_regimes_visualization.png')
+            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+            print(f"Saved HMM visualization: {plot_path}")
+        
+        plt.show()
+    
+    def _visualize_loglinear_data(self, data, time_indices, metadata, save_plots):
+        """Create specialized visualization for log-linear synergy data"""
+        
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        fig.suptitle('Log-Linear Synergy Model: Information Dynamics', fontsize=16)
+        
+        n_time_steps = len(time_indices)
+        synergy_evolution = metadata['synergy_evolution']
+        
+        # 1. Binary state configuration evolution (first sample)
+        axes[0, 0].imshow(data[:, 0, :].T, aspect='auto', cmap='RdBu_r', vmin=0, vmax=1)
+        axes[0, 0].set_title('Binary State Evolution\n(First Sample)')
+        axes[0, 0].set_xlabel('Time')
+        axes[0, 0].set_ylabel('Variable')
+        
+        # 2. Synergy strength evolution
+        pairwise_synergies = [s['pairwise'] for s in synergy_evolution]
+        triple_synergies = [s['triple'] for s in synergy_evolution]
+        
+        axes[0, 1].plot(time_indices, pairwise_synergies, 'b-', linewidth=2, label='Pairwise')
+        if metadata['triple_synergy']:
+            axes[0, 1].plot(time_indices, triple_synergies, 'r--', linewidth=2, label='Triple')
+        
+        axes[0, 1].set_title('Synergy Strength Evolution')
+        axes[0, 1].set_xlabel('Time')
+        axes[0, 1].set_ylabel('Synergy Strength')
+        axes[0, 1].legend()
+        axes[0, 1].grid(True, alpha=0.3)
+        
+        # 3. Average activity (proportion of 1s) over time
+        activity_evolution = np.mean(data, axis=(1, 2))  # Proportion of 1s
+        axes[0, 2].plot(time_indices, activity_evolution, 'g-', linewidth=2)
+        axes[0, 2].set_title('Population Activity\n(Proportion of 1s)')
+        axes[0, 2].set_xlabel('Time')
+        axes[0, 2].set_ylabel('Activity Level')
+        axes[0, 2].grid(True, alpha=0.3)
+        
+        # 4. Synergy matrices at different times
+        example_times = [0, n_time_steps//2, n_time_steps-1]
+        example_labels = ['Early', 'Middle', 'Late']
+        
+        for i, (t, label) in enumerate(zip(example_times, example_labels)):
+            if i >= 3:
+                break
+            row, col = 1, i
+            ax = axes[row, col]
+            
+            theta_t = metadata['theta_schedule'][t]
+            im = ax.imshow(theta_t, cmap='RdBu_r', vmin=-1, vmax=1)
+            ax.set_title(f'Pairwise Synergy: {label} (t={t})')
+            plt.colorbar(im, ax=ax)
+        
+        plt.tight_layout()
+        
+        if save_plots:
+            plot_path = os.path.join(self.results_dir, 'loglinear_synergy_visualization.png')
+            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+            print(f"Saved log-linear visualization: {plot_path}")
+        
+        plt.show()
+    
+    def _visualize_spatiotemporal_data(self, data, time_indices, metadata, save_plots):
+        """Create specialized visualization for spatiotemporal image blocks data"""
+        
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        fig.suptitle('Spatiotemporal Image Blocks: Spatial-Temporal Dynamics', fontsize=16)
+        
+        n_time_steps, n_frames_per_time, n_blocks = data.shape
+        
+        # 1. Block intensity evolution over time (averaged over frames)
+        block_means = np.mean(data, axis=1)  # Average over frames
+        
+        for block_id in range(min(5, n_blocks)):
+            axes[0, 0].plot(time_indices, block_means[:, block_id], 
+                           linewidth=2, label=f'Block {block_id}')
+        
+        axes[0, 0].set_title('Block Intensity Evolution')
+        axes[0, 0].set_xlabel('Time')
+        axes[0, 0].set_ylabel('Mean Intensity')
+        axes[0, 0].legend()
+        axes[0, 0].grid(True, alpha=0.3)
+        
+        # 2. Block correlation matrix (overall)
+        block_correlations = metadata['spatial_stats']['block_correlations']
+        im = axes[0, 1].imshow(block_correlations, cmap='RdBu_r', vmin=-1, vmax=1)
+        axes[0, 1].set_title('Block-Block Correlations\n(Overall)')
+        axes[0, 1].set_xlabel('Block ID')
+        axes[0, 1].set_ylabel('Block ID')
+        plt.colorbar(im, ax=axes[0, 1])
+        
+        # 3. Temporal variance by block
+        temporal_variance = metadata['spatial_stats']['temporal_variance']
+        axes[0, 2].bar(range(n_blocks), temporal_variance)
+        axes[0, 2].set_title('Temporal Variance by Block')
+        axes[0, 2].set_xlabel('Block ID')
+        axes[0, 2].set_ylabel('Variance')
+        axes[0, 2].grid(True, alpha=0.3)
+        
+        # 4. Sample spatial patterns at different times
+        pattern_evolution = metadata['pattern_evolution']
+        example_times = [0, len(pattern_evolution)//2, len(pattern_evolution)-1]
+        example_labels = ['Early', 'Middle', 'Late']
+        
+        for i, (t, label) in enumerate(zip(example_times, example_labels)):
+            if i >= 3:
+                break
+            row, col = 1, i
+            ax = axes[row, col]
+            
+            if t < len(pattern_evolution):
+                pattern = pattern_evolution[t]
+                im = ax.imshow(pattern, cmap='viridis', aspect='equal')
+                ax.set_title(f'Spatial Pattern: {label} (t={t})')
+                ax.set_xlabel('X coordinate')
+                ax.set_ylabel('Y coordinate')
+                plt.colorbar(im, ax=ax)
+        
+        plt.tight_layout()
+        
+        if save_plots:
+            plot_path = os.path.join(self.results_dir, 'spatiotemporal_blocks_visualization.png')
+            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+            print(f"Saved spatiotemporal visualization: {plot_path}")
+        
+        plt.show()
+    
+    def _visualize_beyond_pairwise_data(self, data, time_indices, metadata, save_plots):
+        """Create specialized visualization for beyond-pairwise interactions data"""
+        
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        fig.suptitle('Beyond-Pairwise Interactions: Higher-Order Dependencies', fontsize=16)
+        
+        n_time_steps = len(time_indices)
+        switch_indices = metadata['switch_indices']
+        
+        # 1. Regime sequence and triple interaction evolution
+        ax = axes[0, 0]
+        ax_triple = ax.twinx()
+        
+        ax.plot(time_indices, metadata['regime_sequence'], 'b-', linewidth=2, label='Regime')
+        ax_triple.plot(time_indices, metadata['triple_interaction_evolution'], 'g--', linewidth=2, label='Triple Effect')
+        
+        # Mark switch times
+        for switch_idx in switch_indices:
+            ax.axvline(x=switch_idx, color='red', linestyle='--', alpha=0.7, linewidth=2)
+        
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Regime ID', color='b')
+        ax_triple.set_ylabel('Triple Effect Magnitude', color='g')
+        ax.set_title('Regime Switches & Triple Interactions')
+        ax.grid(True, alpha=0.3)
+        
+        # 2. Pairwise correlations evolution
+        empirical_correlations = []
+        for t in range(n_time_steps):
+            corr_matrix = np.corrcoef(data[t].T)
+            empirical_correlations.append(corr_matrix)
+        
+        # Show evolution of key correlations
+        if data.shape[2] >= 2:
+            corr_01 = [corr[0, 1] for corr in empirical_correlations]
+            axes[0, 1].plot(time_indices, corr_01, 'blue', linewidth=2, label='Corr(0,1)')
+        
+        if data.shape[2] >= 3:
+            corr_12 = [corr[1, 2] for corr in empirical_correlations]
+            axes[0, 1].plot(time_indices, corr_12, 'orange', linewidth=2, label='Corr(1,2)')
+        
+        # Mark switch times
+        for switch_idx in switch_indices:
+            axes[0, 1].axvline(x=switch_idx, color='black', linestyle='--', alpha=0.5)
+        
+        axes[0, 1].set_xlabel('Time')
+        axes[0, 1].set_ylabel('Correlation')
+        axes[0, 1].set_title('Pairwise Correlations Over Time')
+        axes[0, 1].legend()
+        axes[0, 1].grid(True, alpha=0.3)
+        
+        # 3. Triple interaction detection (empirical)
+        if data.shape[2] >= 3:
+            triple_effects = []
+            for t in range(n_time_steps):
+                x0 = data[t, :, 0]
+                x1 = data[t, :, 1]
+                x2 = data[t, :, 2]
+                
+                x0x1_product = x0 * x1
+                triple_corr = np.corrcoef(x2, x0x1_product)[0, 1]
+                triple_effects.append(np.abs(triple_corr))
+            
+            axes[0, 2].plot(time_indices, triple_effects, 'purple', linewidth=2, label='|Corr(X2, X0*X1)|')
+            
+            # Mark switch times
+            for switch_idx in switch_indices:
+                axes[0, 2].axvline(x=switch_idx, color='black', linestyle='--', alpha=0.5)
+            
+            axes[0, 2].set_xlabel('Time')
+            axes[0, 2].set_ylabel('Triple Interaction Strength')
+            axes[0, 2].set_title('Empirical Triple Interaction Detection')
+            axes[0, 2].legend()
+            axes[0, 2].grid(True, alpha=0.3)
+        
+        # 4. Correlation matrices at different regimes
+        regime_times = [5]
+        if len(switch_indices) > 0:
+            regime_times.append(switch_indices[0] + 5)
+        if len(switch_indices) > 1:
+            regime_times.append(switch_indices[1] + 5)
+        
+        regime_labels = ['Regime 0', 'Regime 1', 'Regime 2']
+        
+        for i, (t_idx, regime_label) in enumerate(zip(regime_times, regime_labels)):
+            if i >= 3:
+                break
+                
+            row, col = 1, i
+            ax = axes[row, col]
+            
+            if t_idx < n_time_steps:
+                corr_matrix = np.corrcoef(data[t_idx].T)
+                im = ax.imshow(corr_matrix, cmap='RdBu_r', vmin=-1, vmax=1)
+                ax.set_title(f'{regime_label} (t={t_idx})')
+                
+                # Add correlation values as text
+                for ii in range(corr_matrix.shape[0]):
+                    for jj in range(corr_matrix.shape[1]):
+                        text = ax.text(jj, ii, f'{corr_matrix[ii, jj]:.2f}',
+                                     ha="center", va="center", color="black", fontsize=8)
+                
+                plt.colorbar(im, ax=ax)
+        
+        plt.tight_layout()
+        
+        if save_plots:
+            plot_path = os.path.join(self.results_dir, 'beyond_pairwise_visualization.png')
+            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+            print(f"Saved beyond-pairwise visualization: {plot_path}")
+        
+        plt.show()
+    
+    def _create_generic_visualization(self, data, time_indices, metadata, save_plots, dataset_name):
+        """Create generic visualization for standard scenarios"""
+        
         # Create comprehensive visualization
         fig, axes = plt.subplots(2, 3, figsize=(18, 12))
         fig.suptitle(f'Time-Dependent Data Analysis: {dataset_name}', fontsize=16)
@@ -1105,56 +1507,6 @@ class TimeDependentDataGenerator:
             axes[1, 2].set_ylabel('Volatility')
             axes[1, 2].legend()
             axes[1, 2].grid(True, alpha=0.3)
-        elif metadata['type'] == 'block_switching_correlation':
-            # Plot regime sequence and entropy evolution
-            ax_regime = axes[1, 2]
-            ax_entropy = ax_regime.twinx()
-            
-            # Regime sequence
-            regime_line = ax_regime.plot(time_indices, metadata['regime_sequence'], 
-                                       'b-', linewidth=2, label='Regime')
-            ax_regime.set_xlabel('Time')
-            ax_regime.set_ylabel('Regime ID', color='b')
-            ax_regime.tick_params(axis='y', labelcolor='b')
-            
-            # Entropy evolution
-            entropy_line = ax_entropy.plot(time_indices, metadata['entropy_evolution'], 
-                                         'r--', linewidth=2, label='Entropy')
-            ax_entropy.set_ylabel('Entropy (bits)', color='r')
-            ax_entropy.tick_params(axis='y', labelcolor='r')
-            
-            # Mark regime switches
-            switches = np.where(np.diff(metadata['regime_sequence']) != 0)[0] + 1
-            for switch_time in switches:
-                ax_regime.axvline(x=switch_time, color='gray', linestyle=':', alpha=0.7)
-            
-            ax_regime.set_title('Regime Switches & Entropy Evolution')
-            ax_regime.grid(True, alpha=0.3)
-        elif metadata['type'] == 'beyond_pairwise_interactions':
-            # Plot regime sequence and triple interaction strength
-            ax_regime = axes[1, 2]
-            ax_triple = ax_regime.twinx()
-            
-            # Regime sequence
-            regime_line = ax_regime.plot(time_indices, metadata['regime_sequence'], 
-                                       'b-', linewidth=2, label='Regime')
-            ax_regime.set_xlabel('Time')
-            ax_regime.set_ylabel('Regime ID', color='b')
-            ax_regime.tick_params(axis='y', labelcolor='b')
-            
-            # Triple interaction evolution
-            triple_line = ax_triple.plot(time_indices, metadata['triple_interaction_evolution'], 
-                                       'g--', linewidth=2, label='Triple Effect')
-            ax_triple.set_ylabel('Triple Interaction |Effect|', color='g')
-            ax_triple.tick_params(axis='y', labelcolor='g')
-            
-            # Mark regime switches with clean vertical lines
-            if 'switch_indices' in metadata:
-                for switch_idx in metadata['switch_indices']:
-                    ax_regime.axvline(x=switch_idx, color='red', linestyle='--', alpha=0.7, linewidth=2)
-            
-            ax_regime.set_title('Regime Switches & Triple Interactions')
-            ax_regime.grid(True, alpha=0.3)
         else:
             # Generic time series plot
             sample_data = data[:, 0, :min(5, self.dim)]  # First sample, first 5 variables
@@ -1172,10 +1524,6 @@ class TimeDependentDataGenerator:
             print(f"Saved plot: {plot_path}")
         
         plt.show()
-        
-        # Create additional detailed visualization for block switching data
-        if metadata['type'] == 'block_switching_correlation':
-            self._create_block_correlation_detailed_plots(dataset_name, save_plots)
     
     def _create_block_correlation_detailed_plots(self, dataset_name, save_plots):
         """
@@ -1373,6 +1721,730 @@ class TimeDependentDataGenerator:
             elif metadata['type'] == 'regime_switching':
                 print(f"  Number of regimes: {metadata['n_regimes']}")
                 print(f"  Persistence: {metadata['regime_persistence']}")
+
+    def generate_ising_time_series(self,
+                                 n_time_steps=50,
+                                 n_samples_per_time=200,
+                                 J_2d_schedule=None,
+                                 K_3d_schedule=None,
+                                 mcmc_sweeps=100):
+        """
+        Generate data from an Ising-like model with time-varying pairwise and triple couplings
+        
+        Creates sophisticated temporal patterns using:
+        - Time-varying pairwise couplings J_ij(t) 
+        - Optional triple couplings K_ijk(t)
+        - MCMC sampling for each time step
+        - Spin variables in {-1, +1}
+        
+        This tests vine copulas' ability to capture:
+        - Higher-order magnetic interactions
+        - Phase transitions over time
+        - Complex spin correlation patterns
+        
+        Parameters:
+        -----------
+        n_time_steps : int
+            Number of time steps
+        n_samples_per_time : int
+            Number of samples per time step
+        J_2d_schedule : list or function, optional
+            Schedule for pairwise couplings (n_time_steps matrices)
+        K_3d_schedule : list, optional
+            Schedule for triple couplings (n_time_steps 3D arrays)
+        mcmc_sweeps : int
+            Number of MCMC sweeps per sample
+            
+        Returns:
+        --------
+        data : np.ndarray
+            Time series data, shape (n_time_steps, n_samples_per_time, dim)
+        time_indices : np.ndarray
+            Time indices
+        metadata : dict
+            Generation metadata including coupling schedules
+        """
+        
+        print(f"Generating Ising-like time series...")
+        print(f"  Dimensions: {self.dim}")
+        print(f"  Time steps: {n_time_steps}")
+        print(f"  MCMC sweeps per sample: {mcmc_sweeps}")
+        
+        import random
+        import itertools
+        
+        # Set random seeds
+        np.random.seed(self.random_seed)
+        random.seed(self.random_seed)
+        
+        data = np.zeros((n_time_steps, n_samples_per_time, self.dim))
+        
+        # Generate coupling schedules if not provided
+        if J_2d_schedule is None:
+            print("  Generating pairwise coupling schedule...")
+            J_2d_schedule = []
+            for t in range(n_time_steps):
+                # Create time-varying coupling matrix
+                rng = np.random.RandomState(t + self.random_seed)
+                
+                # Different coupling patterns based on time
+                if t < n_time_steps // 3:
+                    # Strong nearest-neighbor coupling
+                    J_t = np.zeros((self.dim, self.dim))
+                    for i in range(self.dim - 1):
+                        J_t[i, i+1] = J_t[i+1, i] = 0.3
+                elif t < 2 * n_time_steps // 3:
+                    # All-to-all weak coupling
+                    J_t = rng.uniform(-0.1, 0.1, size=(self.dim, self.dim))
+                    J_t = 0.5 * (J_t + J_t.T)
+                    np.fill_diagonal(J_t, 0.0)
+                else:
+                    # Strong block coupling
+                    J_t = np.zeros((self.dim, self.dim))
+                    mid = self.dim // 2
+                    # Block 1
+                    for i in range(mid):
+                        for j in range(mid):
+                            if i != j:
+                                J_t[i, j] = 0.25
+                    # Block 2
+                    for i in range(mid, self.dim):
+                        for j in range(mid, self.dim):
+                            if i != j:
+                                J_t[i, j] = 0.25
+                
+                J_2d_schedule.append(J_t)
+        
+        if K_3d_schedule is None:
+            print("  Generating triple coupling schedule...")
+            K_3d_schedule = []
+            for t in range(n_time_steps):
+                # Simple triple interactions that vary over time
+                if self.dim >= 3:
+                    K_t = np.zeros((self.dim, self.dim, self.dim))
+                    # Add some triple interactions in the middle time period
+                    if n_time_steps // 3 <= t < 2 * n_time_steps // 3:
+                        rng = np.random.RandomState(t + self.random_seed + 1000)
+                        strength = 0.1 * np.sin(2 * np.pi * t / n_time_steps)
+                        for i in range(self.dim - 2):
+                            K_t[i, i+1, i+2] = strength
+                    K_3d_schedule.append(K_t)
+                else:
+                    K_3d_schedule.append(None)
+        
+        print("  Running MCMC sampling...")
+        
+        # MCMC sampling for each time step
+        for t in range(n_time_steps):
+            if t % 10 == 0:
+                print(f"    Processing time step {t}/{n_time_steps}")
+                
+            J_t = J_2d_schedule[t]
+            K_t = K_3d_schedule[t]
+            
+            # Initialize spin state
+            spin_state = np.random.choice([-1, 1], size=(self.dim,))
+            
+            for m in range(n_samples_per_time):
+                # MCMC sweeps
+                for _ in range(mcmc_sweeps):
+                    # Pick random site to flip
+                    i_flip = np.random.randint(self.dim)
+                    
+                    # Compute energy difference for flipping spin i_flip
+                    dE = 0.0
+                    
+                    # Pairwise terms: -J_ij * s_i * s_j
+                    for j in range(self.dim):
+                        if j != i_flip:
+                            # Energy change from flipping i_flip
+                            dE += 2 * J_t[i_flip, j] * spin_state[i_flip] * spin_state[j]
+                    
+                    # Triple terms: -K_ijk * s_i * s_j * s_k
+                    if K_t is not None:
+                        for j in range(self.dim):
+                            for k in range(j+1, self.dim):
+                                if j != i_flip and k != i_flip:
+                                    # Energy change from flipping i_flip
+                                    dE += 2 * K_t[i_flip, j, k] * spin_state[i_flip] * spin_state[j] * spin_state[k]
+                    
+                    # Metropolis acceptance
+                    if dE <= 0 or np.random.random() < np.exp(-dE):
+                        spin_state[i_flip] = -spin_state[i_flip]
+                
+                data[t, m, :] = spin_state.copy()
+        
+        # Compute coupling statistics
+        coupling_stats = {
+            'pairwise_coupling_mean': np.mean([np.mean(np.abs(J)) for J in J_2d_schedule]),
+            'pairwise_coupling_max': np.max([np.max(np.abs(J)) for J in J_2d_schedule]),
+            'has_triple_couplings': K_3d_schedule[0] is not None
+        }
+        
+        metadata = {
+            'type': 'ising_time_series',
+            'J_2d_schedule': J_2d_schedule,
+            'K_3d_schedule': K_3d_schedule,
+            'mcmc_sweeps': mcmc_sweeps,
+            'coupling_stats': coupling_stats,
+            'n_time_steps': n_time_steps,
+            'n_samples_per_time': n_samples_per_time,
+            'description': 'Ising-like model with time-varying pairwise and triple couplings'
+        }
+        
+        self.generated_datasets['ising'] = {
+            'data': data,
+            'time_indices': np.arange(n_time_steps),
+            'metadata': metadata
+        }
+        
+        print(f"  Generated Ising data with coupling stats: {coupling_stats}")
+        
+        return data, np.arange(n_time_steps), metadata
+    
+    def generate_hmm_regimes(self,
+                           n_time_steps=60,
+                           n_samples_per_time=150,
+                           n_regimes=3,
+                           regime_transition=0.1):
+        """
+        Generate data from Hidden Markov Model with multiple regimes
+        
+        Creates sophisticated temporal patterns using:
+        - Multiple hidden regimes with different correlation structures
+        - Markov transitions between regimes
+        - Regime-specific correlation matrices
+        - Smooth regime changes
+        
+        This tests vine copulas' ability to capture:
+        - Hidden state dynamics
+        - Regime-dependent correlations
+        - Markov transition patterns
+        
+        Parameters:
+        -----------
+        n_time_steps : int
+            Number of time steps
+        n_samples_per_time : int
+            Number of samples per time step
+        n_regimes : int
+            Number of hidden regimes
+        regime_transition : float
+            Probability of transitioning to different regime
+            
+        Returns:
+        --------
+        data : np.ndarray
+            Time series data, shape (n_time_steps, n_samples_per_time, dim)
+        time_indices : np.ndarray
+            Time indices
+        metadata : dict
+            Generation metadata including regime sequence and correlations
+        """
+        
+        print(f"Generating HMM regime switching data...")
+        print(f"  Dimensions: {self.dim}")
+        print(f"  Number of regimes: {n_regimes}")
+        print(f"  Transition probability: {regime_transition}")
+        
+        # Set up transition matrix
+        p_stay = 1 - regime_transition
+        p_switch = regime_transition / (n_regimes - 1) if n_regimes > 1 else 0
+        
+        transition_matrix = np.full((n_regimes, n_regimes), p_switch)
+        np.fill_diagonal(transition_matrix, p_stay)
+        
+        print(f"  Transition matrix diagonal (stay prob): {p_stay:.3f}")
+        
+        # Generate regime-specific correlation matrices
+        def create_regime_correlation(regime_id, rng):
+            """Create distinctive correlation pattern for each regime"""
+            if regime_id == 0:
+                # Chain structure: strong sequential correlations
+                corr = np.eye(self.dim) * 0.1
+                for i in range(self.dim - 1):
+                    corr[i, i+1] = corr[i+1, i] = 0.8
+                    
+            elif regime_id == 1:
+                # Hub structure: first variable correlates with all others
+                corr = np.eye(self.dim) * 0.1
+                for i in range(1, self.dim):
+                    corr[0, i] = corr[i, 0] = 0.7
+                    
+            elif regime_id == 2:
+                # Block structure: two blocks of strong correlation
+                corr = np.eye(self.dim) * 0.1
+                mid = self.dim // 2
+                # Block 1
+                for i in range(mid):
+                    for j in range(mid):
+                        if i != j:
+                            corr[i, j] = 0.6
+                # Block 2  
+                for i in range(mid, self.dim):
+                    for j in range(mid, self.dim):
+                        if i != j:
+                            corr[i, j] = 0.6
+            else:
+                # Random positive correlation structure
+                base = rng.uniform(0.1, 0.3, (self.dim, self.dim))
+                corr = 0.5 * (base + base.T)
+                np.fill_diagonal(corr, 1.0)
+            
+            # Ensure positive definiteness
+            return self._make_positive_definite_robust(corr)
+        
+        rng = np.random.RandomState(self.random_seed)
+        regime_correlations = []
+        for r in range(n_regimes):
+            corr_matrix = create_regime_correlation(r, rng)
+            regime_correlations.append(corr_matrix)
+        
+        # Sample regime sequence
+        regime_sequence = np.zeros(n_time_steps, dtype=int)
+        regime_sequence[0] = rng.randint(n_regimes)
+        
+        for t in range(1, n_time_steps):
+            prev_regime = regime_sequence[t-1]
+            regime_sequence[t] = rng.choice(
+                np.arange(n_regimes), 
+                p=transition_matrix[prev_regime]
+            )
+        
+        # Generate data according to regime sequence
+        data = np.zeros((n_time_steps, n_samples_per_time, self.dim))
+        
+        for t in range(n_time_steps):
+            regime = regime_sequence[t]
+            mean = np.zeros(self.dim)
+            cov_matrix = regime_correlations[regime]
+            
+            data[t] = rng.multivariate_normal(
+                mean, cov_matrix, size=n_samples_per_time
+            )
+        
+        # Compute regime statistics
+        regime_stats = {
+            'regime_distribution': np.bincount(regime_sequence, minlength=n_regimes) / n_time_steps,
+            'regime_switches': np.sum(np.diff(regime_sequence) != 0),
+            'avg_regime_duration': n_time_steps / (np.sum(np.diff(regime_sequence) != 0) + 1)
+        }
+        
+        metadata = {
+            'type': 'hmm_regimes',
+            'n_regimes': n_regimes,
+            'transition_matrix': transition_matrix,
+            'regime_sequence': regime_sequence,
+            'regime_correlations': regime_correlations,
+            'regime_stats': regime_stats,
+            'n_time_steps': n_time_steps,
+            'n_samples_per_time': n_samples_per_time,
+            'description': 'Hidden Markov Model with regime-specific correlations'
+        }
+        
+        self.generated_datasets['hmm'] = {
+            'data': data,
+            'time_indices': np.arange(n_time_steps),
+            'metadata': metadata
+        }
+        
+        print(f"  Generated HMM data with {regime_stats['regime_switches']} regime switches")
+        print(f"  Regime distribution: {regime_stats['regime_distribution']}")
+        
+        return data, np.arange(n_time_steps), metadata
+    
+    def generate_loglinear_synergy(self,
+                                 n_time_steps=50,
+                                 n_samples_per_time=200,
+                                 triple_synergy=True,
+                                 gibbs_sweeps=100):
+        """
+        Generate data from log-linear synergy model with time-varying parameters
+        
+        Creates sophisticated temporal patterns using:
+        - Log-linear probability model: log P(X) ~ Σ θ_ij(t) X_i X_j + Σ α_ijk(t) X_i X_j X_k
+        - Time-varying pairwise and triple synergy parameters
+        - Gibbs sampling for binary variables X_i ∈ {0,1}
+        - Maximum entropy framework
+        
+        This tests vine copulas' ability to capture:
+        - Information-theoretic synergy patterns
+        - Higher-order statistical interactions
+        - Time-varying synergy strength
+        
+        Parameters:
+        -----------
+        n_time_steps : int
+            Number of time steps
+        n_samples_per_time : int
+            Number of samples per time step
+        triple_synergy : bool
+            Whether to include triple synergy terms
+        gibbs_sweeps : int
+            Number of Gibbs sampling sweeps per sample
+            
+        Returns:
+        --------
+        data : np.ndarray
+            Time series data, shape (n_time_steps, n_samples_per_time, dim)
+        time_indices : np.ndarray
+            Time indices
+        metadata : dict
+            Generation metadata including synergy schedules
+        """
+        
+        print(f"Generating log-linear synergy data...")
+        print(f"  Dimensions: {self.dim}")
+        print(f"  Triple synergy: {triple_synergy}")
+        print(f"  Gibbs sweeps per sample: {gibbs_sweeps}")
+        
+        import random
+        import itertools
+        
+        # Set random seeds
+        np.random.seed(self.random_seed)
+        random.seed(self.random_seed)
+        
+        data = np.zeros((n_time_steps, n_samples_per_time, self.dim), dtype=int)
+        
+        # Generate time-varying pairwise synergy parameters θ_ij(t)
+        theta_schedule = []
+        for t in range(n_time_steps):
+            rng = np.random.RandomState(t + self.random_seed)
+            
+            # Create time-varying synergy pattern
+            phase = 2 * np.pi * t / n_time_steps
+            
+            # Base synergy matrix
+            theta_t = np.zeros((self.dim, self.dim))
+            
+            # Different synergy patterns over time
+            if t < n_time_steps // 3:
+                # Sequential synergy: (i, i+1) pairs
+                strength = 0.5 + 0.3 * np.sin(phase)
+                for i in range(self.dim - 1):
+                    theta_t[i, i+1] = theta_t[i+1, i] = strength
+                    
+            elif t < 2 * n_time_steps // 3:
+                # Hub synergy: variable 0 synergizes with others
+                strength = 0.4 + 0.4 * np.cos(phase)
+                for i in range(1, self.dim):
+                    theta_t[0, i] = theta_t[i, 0] = strength
+                    
+            else:
+                # All-pairs weak synergy
+                base_strength = 0.2 + 0.2 * np.sin(2 * phase)
+                for i in range(self.dim):
+                    for j in range(i+1, self.dim):
+                        theta_t[i, j] = theta_t[j, i] = base_strength
+            
+            theta_schedule.append(theta_t)
+        
+        # Generate triple synergy schedule if requested
+        alpha_schedule = None
+        if triple_synergy:
+            print("  Generating triple synergy schedule...")
+            alpha_schedule = []
+            for t in range(n_time_steps):
+                alpha_t = np.zeros((self.dim, self.dim, self.dim))
+                
+                # Triple synergy that peaks in middle time period
+                if n_time_steps // 4 <= t < 3 * n_time_steps // 4:
+                    phase = 2 * np.pi * t / n_time_steps
+                    strength = 0.3 * np.sin(phase)
+                    
+                    # Add triple synergy for consecutive triplets
+                    for i in range(self.dim - 2):
+                        alpha_t[i, i+1, i+2] = strength
+                        # Ensure symmetry
+                        alpha_t[i+1, i, i+2] = strength
+                        alpha_t[i+2, i, i+1] = strength
+                        alpha_t[i, i+2, i+1] = strength
+                        alpha_t[i+1, i+2, i] = strength
+                        alpha_t[i+2, i+1, i] = strength
+                
+                alpha_schedule.append(alpha_t)
+        
+        def compute_log_energy(x_vec, theta_t, alpha_t):
+            """Compute log-probability energy for configuration x_vec"""
+            energy = 0.0
+            
+            # Pairwise terms
+            for i in range(self.dim):
+                for j in range(i+1, self.dim):
+                    energy += theta_t[i, j] * x_vec[i] * x_vec[j]
+            
+            # Triple terms
+            if alpha_t is not None:
+                for i in range(self.dim):
+                    for j in range(i+1, self.dim):
+                        for k in range(j+1, self.dim):
+                            energy += alpha_t[i, j, k] * x_vec[i] * x_vec[j] * x_vec[k]
+            
+            return energy
+        
+        print("  Running Gibbs sampling...")
+        synergy_evolution = []
+        
+        # Gibbs sampling for each time step
+        for t in range(n_time_steps):
+            if t % 10 == 0:
+                print(f"    Processing time step {t}/{n_time_steps}")
+                
+            theta_t = theta_schedule[t]
+            alpha_t = alpha_schedule[t] if alpha_schedule else None
+            
+            # Track synergy strength
+            pairwise_synergy = np.mean(np.abs(theta_t[np.triu_indices(self.dim, k=1)]))
+            triple_synergy_strength = 0.0
+            if alpha_t is not None:
+                triple_synergy_strength = np.mean(np.abs(alpha_t[alpha_t != 0]))
+            
+            synergy_evolution.append({
+                'pairwise': pairwise_synergy,
+                'triple': triple_synergy_strength
+            })
+            
+            # Initialize binary state
+            x_state = np.random.randint(2, size=(self.dim,))
+            
+            for m in range(n_samples_per_time):
+                # Gibbs sweeps
+                for _ in range(gibbs_sweeps):
+                    for i in range(self.dim):
+                        # Sample x_i given all other variables
+                        
+                        # Try x_i = 0
+                        x_trial_0 = x_state.copy()
+                        x_trial_0[i] = 0
+                        energy_0 = compute_log_energy(x_trial_0, theta_t, alpha_t)
+                        
+                        # Try x_i = 1
+                        x_trial_1 = x_state.copy()
+                        x_trial_1[i] = 1
+                        energy_1 = compute_log_energy(x_trial_1, theta_t, alpha_t)
+                        
+                        # Compute probabilities
+                        log_p_0 = energy_0
+                        log_p_1 = energy_1
+                        
+                        # Normalize
+                        max_log_p = max(log_p_0, log_p_1)
+                        p_0 = np.exp(log_p_0 - max_log_p)
+                        p_1 = np.exp(log_p_1 - max_log_p)
+                        p_total = p_0 + p_1
+                        
+                        # Sample
+                        if np.random.random() < p_1 / p_total:
+                            x_state[i] = 1
+                        else:
+                            x_state[i] = 0
+                
+                data[t, m, :] = x_state.copy()
+        
+        # Compute synergy statistics
+        pairwise_synergies = [s['pairwise'] for s in synergy_evolution]
+        triple_synergies = [s['triple'] for s in synergy_evolution]
+        
+        synergy_stats = {
+            'mean_pairwise_synergy': np.mean(pairwise_synergies),
+            'max_pairwise_synergy': np.max(pairwise_synergies),
+            'mean_triple_synergy': np.mean(triple_synergies),
+            'max_triple_synergy': np.max(triple_synergies)
+        }
+        
+        metadata = {
+            'type': 'loglinear_synergy',
+            'triple_synergy': triple_synergy,
+            'theta_schedule': theta_schedule,
+            'alpha_schedule': alpha_schedule,
+            'synergy_evolution': synergy_evolution,
+            'synergy_stats': synergy_stats,
+            'gibbs_sweeps': gibbs_sweeps,
+            'n_time_steps': n_time_steps,
+            'n_samples_per_time': n_samples_per_time,
+            'description': 'Log-linear synergy model with time-varying pairwise and triple interactions'
+        }
+        
+        self.generated_datasets['loglinear'] = {
+            'data': data,
+            'time_indices': np.arange(n_time_steps),
+            'metadata': metadata
+        }
+        
+        print(f"  Generated synergy data with stats: {synergy_stats}")
+        
+        return data, np.arange(n_time_steps), metadata
+    
+    def generate_spatiotemporal_image_blocks(self,
+                                           height=8,
+                                           width=8,
+                                           n_time_steps=30,
+                                           block_rows=2,
+                                           block_cols=2,
+                                           n_frames_per_time=10):
+        """
+        Generate spatiotemporal image-like data aggregated into blocks
+        
+        Creates sophisticated temporal patterns using:
+        - Synthetic "video" frames with spatial-temporal dynamics
+        - Block-based aggregation to reduce dimensionality
+        - Wave and swirl patterns evolving over time
+        - Spatial correlation structures
+        
+        This tests vine copulas' ability to capture:
+        - Spatial-temporal correlations
+        - Block-level interaction patterns
+        - Dynamic spatial structures
+        
+        Parameters:
+        -----------
+        height : int
+            Image height in pixels
+        width : int
+            Image width in pixels
+        n_time_steps : int
+            Number of time steps
+        block_rows : int
+            Number of block rows for aggregation
+        block_cols : int
+            Number of block columns for aggregation
+        n_frames_per_time : int
+            Number of frames per time step
+            
+        Returns:
+        --------
+        data : np.ndarray
+            Time series data, shape (n_time_steps, n_frames_per_time, n_blocks)
+        time_indices : np.ndarray
+            Time indices
+        metadata : dict
+            Generation metadata including spatial parameters
+        """
+        
+        print(f"Generating spatiotemporal image blocks...")
+        print(f"  Image size: {height}x{width}")
+        print(f"  Block grid: {block_rows}x{block_cols}")
+        print(f"  Frames per time: {n_frames_per_time}")
+        
+        # Calculate total blocks and block sizes
+        n_blocks = block_rows * block_cols
+        block_height = height // block_rows
+        block_width = width // block_cols
+        
+        if n_blocks != self.dim:
+            print(f"  Warning: n_blocks ({n_blocks}) != self.dim ({self.dim})")
+            print(f"  Using n_blocks = {n_blocks} as effective dimension")
+        
+        data = np.zeros((n_time_steps, n_frames_per_time, n_blocks))
+        
+        def generate_spatiotemporal_pattern(t, frame):
+            """Generate spatial pattern for given time and frame"""
+            rng = np.random.RandomState(t * 1000 + frame + self.random_seed)
+            
+            # Create coordinate meshes
+            y = np.arange(height)
+            x = np.arange(width)
+            X, Y = np.meshgrid(x, y)
+            
+            # Time-dependent phase
+            time_phase = 2 * np.pi * t / n_time_steps
+            frame_phase = 2 * np.pi * frame / n_frames_per_time
+            
+            # Multiple pattern components
+            # 1. Traveling wave
+            wave1 = np.sin(0.3 * (X + Y) + time_phase + frame_phase)
+            
+            # 2. Rotating pattern
+            center_x, center_y = width // 2, height // 2
+            R = np.sqrt((X - center_x)**2 + (Y - center_y)**2)
+            Theta = np.arctan2(Y - center_y, X - center_x)
+            wave2 = np.sin(0.2 * R + 3 * Theta + 2 * time_phase)
+            
+            # 3. Standing wave
+            wave3 = np.sin(0.4 * X + time_phase) * np.cos(0.4 * Y + frame_phase)
+            
+            # 4. Random noise component
+            noise = rng.normal(0, 0.5, (height, width))
+            
+            # Combine patterns with time-varying weights
+            weight1 = 1.0 + 0.5 * np.sin(time_phase)
+            weight2 = 1.0 + 0.5 * np.cos(time_phase)
+            weight3 = 1.0 + 0.3 * np.sin(2 * time_phase)
+            
+            pattern = weight1 * wave1 + weight2 * wave2 + weight3 * wave3 + 0.3 * noise
+            
+            return pattern
+        
+        print("  Generating spatial-temporal patterns...")
+        pattern_evolution = []
+        
+        for t in range(n_time_steps):
+            if t % 5 == 0:
+                print(f"    Processing time step {t}/{n_time_steps}")
+                
+            time_patterns = []
+            
+            for f in range(n_frames_per_time):
+                # Generate spatial pattern
+                frame_pattern = generate_spatiotemporal_pattern(t, f)
+                time_patterns.append(frame_pattern)
+                
+                # Aggregate into blocks
+                block_values = np.zeros(n_blocks)
+                block_idx = 0
+                
+                for br in range(block_rows):
+                    for bc in range(block_cols):
+                        # Extract block region
+                        r_start = br * block_height
+                        r_end = r_start + block_height
+                        c_start = bc * block_width
+                        c_end = c_start + block_width
+                        
+                        block_patch = frame_pattern[r_start:r_end, c_start:c_end]
+                        block_values[block_idx] = np.mean(block_patch)
+                        block_idx += 1
+                
+                data[t, f, :] = block_values
+            
+            # Store representative pattern for visualization
+            pattern_evolution.append(time_patterns[0])  # First frame of each time
+        
+        # Compute spatial statistics
+        spatial_stats = {
+            'block_correlations': np.corrcoef(data.reshape(-1, n_blocks).T),
+            'temporal_variance': np.var(data, axis=(0, 1)),
+            'mean_block_intensity': np.mean(data, axis=(0, 1)),
+            'pattern_evolution_variance': np.var([np.var(p) for p in pattern_evolution])
+        }
+        
+        metadata = {
+            'type': 'spatiotemporal_image_blocks',
+            'height': height,
+            'width': width,
+            'block_rows': block_rows,
+            'block_cols': block_cols,
+            'n_blocks': n_blocks,
+            'block_height': block_height,
+            'block_width': block_width,
+            'pattern_evolution': pattern_evolution,
+            'spatial_stats': spatial_stats,
+            'n_time_steps': n_time_steps,
+            'n_frames_per_time': n_frames_per_time,
+            'description': 'Spatiotemporal image data aggregated into blocks with wave and swirl patterns'
+        }
+        
+        self.generated_datasets['spatiotemporal'] = {
+            'data': data,
+            'time_indices': np.arange(n_time_steps),
+            'metadata': metadata
+        }
+        
+        print(f"  Generated spatiotemporal data with {n_blocks} blocks")
+        print(f"  Block correlation range: [{np.min(spatial_stats['block_correlations']):.3f}, {np.max(spatial_stats['block_correlations']):.3f}]")
+        
+        return data, np.arange(n_time_steps), metadata
 
 
 def main():

@@ -85,7 +85,7 @@ class ComprehensiveTimeDependentAnalysis:
     def run_complete_analysis(self, 
                             n_time_steps=100,
                             n_samples_per_time=150,
-                            test_scenarios=['piecewise', 'sinusoidal', 'financial']):
+                            test_scenarios=['piecewise', 'sinusoidal', 'financial', 'ising', 'hmm', 'loglinear', 'spatiotemporal']):
         """
         Run complete time-dependent vine copula analysis
         
@@ -96,7 +96,16 @@ class ComprehensiveTimeDependentAnalysis:
         n_samples_per_time : int
             Samples per time step
         test_scenarios : list
-            Data scenarios to test
+            Data scenarios to test - now includes advanced scenarios:
+            - 'piecewise': Structural breaks in correlation
+            - 'sinusoidal': Smooth periodic changes
+            - 'financial': Volatility clustering with correlation breaks  
+            - 'block_switching': Dynamic block-structured correlations
+            - 'beyond_pairwise': Triple interactions with regime switching
+            - 'ising': Ising-like model with time-varying couplings
+            - 'hmm': Hidden Markov Model with regime-specific correlations
+            - 'loglinear': Log-linear synergy model with triple interactions
+            - 'spatiotemporal': Spatiotemporal image blocks with wave patterns
         """
         
         print("="*80)
@@ -189,7 +198,7 @@ class ComprehensiveTimeDependentAnalysis:
                 regime_persistence=0.9
             )
         elif scenario == 'block_switching':
-            # New sophisticated block-structured switching scenario
+            # Sophisticated block-structured switching scenario
             data, times, metadata = self.data_generator.generate_block_switching_correlation_data(
                 n_time_steps, n_samples_per_time,
                 block_sizes=None,  # Auto-determine based on dimensionality
@@ -199,13 +208,56 @@ class ComprehensiveTimeDependentAnalysis:
                 between_block_corr_range=(-0.6, -0.3)
             )
         elif scenario == 'beyond_pairwise':
-            # New beyond-pairwise interactions scenario
+            # Beyond-pairwise interactions scenario
             data, times, metadata = self.data_generator.generate_beyond_pairwise_interactions(
                 n_time_steps, n_samples_per_time,
                 switch_times=[0.3, 0.7],
                 corr_low=0.2,
                 corr_high=0.8,
                 beyond_pairwise_strength=0.3  # Strong triple interactions
+            )
+        elif scenario == 'ising':
+            # NEW: Ising-like model with time-varying couplings
+            data, times, metadata = self.data_generator.generate_ising_time_series(
+                n_time_steps, n_samples_per_time,
+                J_2d_schedule=None,  # Auto-generate coupling schedule
+                K_3d_schedule=None,  # Auto-generate triple couplings
+                mcmc_sweeps=50  # Moderate MCMC for performance
+            )
+        elif scenario == 'hmm':
+            # NEW: Hidden Markov Model with regime-specific correlations
+            data, times, metadata = self.data_generator.generate_hmm_regimes(
+                n_time_steps, n_samples_per_time,
+                n_regimes=4,  # Multiple regimes for rich dynamics
+                regime_transition=0.12  # Moderate transition rate
+            )
+        elif scenario == 'loglinear':
+            # NEW: Log-linear synergy model with triple interactions
+            data, times, metadata = self.data_generator.generate_loglinear_synergy(
+                n_time_steps, n_samples_per_time,
+                triple_synergy=True,  # Include triple synergy terms
+                gibbs_sweeps=50  # Moderate Gibbs sampling for performance
+            )
+        elif scenario == 'spatiotemporal':
+            # NEW: Spatiotemporal image blocks with wave patterns
+            # Adjust block structure based on dimensionality
+            if self.dim == 4:
+                block_rows, block_cols = 2, 2
+            elif self.dim == 6:
+                block_rows, block_cols = 2, 3
+            elif self.dim == 9:
+                block_rows, block_cols = 3, 3
+            else:
+                # Default to closest square
+                sqrt_dim = int(np.sqrt(self.dim))
+                block_rows = block_cols = sqrt_dim
+                
+            data, times, metadata = self.data_generator.generate_spatiotemporal_image_blocks(
+                height=16, width=16,  # Moderate image size
+                n_time_steps=n_time_steps,
+                block_rows=block_rows,
+                block_cols=block_cols,
+                n_frames_per_time=n_samples_per_time
             )
         else:
             raise ValueError(f"Unknown scenario: {scenario}")
@@ -225,6 +277,27 @@ class ComprehensiveTimeDependentAnalysis:
                   f"std={entropy_stats['entropy_std']:.3f}, "
                   f"range=[{entropy_stats['entropy_range'][0]:.3f}, {entropy_stats['entropy_range'][1]:.3f}]")
             metadata['entropy_stats'] = entropy_stats
+        
+        # Add scenario-specific statistics
+        if metadata['type'] == 'ising_time_series':
+            coupling_stats = metadata['coupling_stats']
+            print(f"  Coupling statistics: mean={coupling_stats['pairwise_coupling_mean']:.3f}, "
+                  f"max={coupling_stats['pairwise_coupling_max']:.3f}, "
+                  f"has_triples={coupling_stats['has_triple_couplings']}")
+        elif metadata['type'] == 'hmm_regimes':
+            regime_stats = metadata['regime_stats']
+            print(f"  Regime statistics: switches={regime_stats['regime_switches']}, "
+                  f"avg_duration={regime_stats['avg_regime_duration']:.1f}")
+        elif metadata['type'] == 'loglinear_synergy':
+            synergy_stats = metadata['synergy_stats']
+            print(f"  Synergy statistics: pairwise={synergy_stats['mean_pairwise_synergy']:.3f}, "
+                  f"triple={synergy_stats['mean_triple_synergy']:.3f}")
+        elif metadata['type'] == 'spatiotemporal_image_blocks':
+            spatial_stats = metadata['spatial_stats']
+            corr_range = (np.min(spatial_stats['block_correlations']), 
+                         np.max(spatial_stats['block_correlations']))
+            print(f"  Spatial statistics: correlation_range=[{corr_range[0]:.3f}, {corr_range[1]:.3f}], "
+                  f"n_blocks={metadata['n_blocks']}")
         
         return data, times, metadata
     
