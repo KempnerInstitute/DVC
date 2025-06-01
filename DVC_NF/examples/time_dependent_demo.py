@@ -16,7 +16,8 @@ warnings.filterwarnings('ignore')
 
 # Add current directory to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(current_dir)
+parent_dir = os.path.dirname(current_dir)  # Go up to DVC_NF directory
+sys.path.append(parent_dir)
 
 # Suppress TensorFlow messages
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
