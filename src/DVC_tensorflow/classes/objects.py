@@ -1860,7 +1860,7 @@ class vine_obj(object):
         
         np_type = x.dtype
         x = tf.convert_to_tensor(x)
-
+        
         ## Initialization
         self.binning = gen_dict['binning']
         self.parallel = gen_dict['parallel']
@@ -1910,11 +1910,11 @@ class vine_obj(object):
             self.Mar_G.append([mar_s1, mar_p1])
             self.theta[:,0,i] = interp_cdf.numpy() #interp1d_np(ccc, mar_s1, mar_p1).numpy()
             del ccc, mar_p1, mar_s1
-        
+            
         ######################################### FITTING #######################################################
         
         if self.fitted == False:
-            self.copulas = []
+        self.copulas = []
         self.correlations = []
         self.correlations_bins = []
         self.flip_flag = []

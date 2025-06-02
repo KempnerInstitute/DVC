@@ -175,7 +175,7 @@ def optimal_tree(data, data_flip, ind_vine, tr, rand=False, optimization_method=
                     else:
                         raise ValueError(f"Unknown optimization method: {optimization_method}")
                     
-                else:
+                else: 
                     # Higher trees: conditional relationships
                     par, inx1, inx2 = parent_var(tr, ind_vine, [i, j])
                     
@@ -184,7 +184,7 @@ def optimal_tree(data, data_flip, ind_vine, tr, rand=False, optimization_method=
                             # Use flipped data
                             data_u = data_flip[:, i] if data_flip is not None else data[:, i]
                             data_v = data[:, j]
-                        else:
+                            else:
                             data_u = data[:, i]
                             data_v = data[:, j]
                         
@@ -201,7 +201,7 @@ def optimal_tree(data, data_flip, ind_vine, tr, rand=False, optimization_method=
                             
                         else:
                             raise ValueError(f"Unknown optimization method: {optimization_method}")
-                    else:
+                            else:
                         continue  # Skip invalid edges
                 
                 # Select edge with maximum criterion value
@@ -214,7 +214,7 @@ def optimal_tree(data, data_flip, ind_vine, tr, rand=False, optimization_method=
             Q.add(best_v)
             V.remove(best_v)
             edges.append([best_u, best_v])
-            weights.append(max_v)
+        weights.append(max_v)
         else:
             break  # No valid edges found
     
