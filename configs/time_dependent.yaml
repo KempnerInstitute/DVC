@@ -1,0 +1,27 @@
+# Time-Dependent Vine Copula Experiment Configuration
+name: "time_dependent_vine_analysis"
+description: "Time-dependent vine copula modeling with normalizing flows"
+output_dir: "results/time_dependent"
+seed: 456
+
+# Time-dependent data configuration
+time_config:
+  n_time_steps: 100
+  n_samples_per_time: 200
+  n_variables: 3
+  correlation_evolution: "sinusoidal"  # Options: sinusoidal, linear, piecewise, constant
+  hidden_dim: 64
+  noise_level: 0.1
+
+# Analysis configuration
+analysis_config:
+  experiment_type: "time_dependent"
+  analyze_correlation_dynamics: true
+  fit_normalizing_flows: true
+  
+# Plotting configuration
+plot_config:
+  create_plots: true
+  plot_correlation_evolution: true
+  plot_bandwidth_evolution: true
+  plot_data_snapshots: true

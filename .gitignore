@@ -34,6 +34,10 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.venv/
+.pytest_cache/
+archive/
+
 
 # DVC
 .dvc/
@@ -211,3 +215,4 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+*.egg-info/

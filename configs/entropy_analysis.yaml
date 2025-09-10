@@ -1,0 +1,24 @@
+# Entropy and Information Analysis Experiment Configuration
+name: "entropy_information_estimation"
+description: "Comprehensive entropy and information estimation experiment"
+output_dir: "results/entropy_analysis"
+seed: 123
+
+# Data generation configuration
+data_config:
+  n_samples: 1500
+  # Multiple datasets with different entropy characteristics will be generated automatically
+
+# Analysis configuration
+analysis_config:
+  experiment_type: "entropy_analysis"
+  entropy_methods:
+    - "gaussian"
+    - "kernel"
+    - "knn"
+  knn_k: 5  # k for k-nearest neighbors entropy estimation
+  
+# Plotting configuration
+plot_config:
+  create_plots: true
+  plot_style: "seaborn"
