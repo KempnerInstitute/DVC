@@ -1,10 +1,77 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+multidim_data/
+# Jupyter Notebook
+.ipynb_checkpoints
+src/DVC_pyolder/
+src/DVC_tensorflow/
+src/DVC_pytorch/_archive_tests_debug/
+results/
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.pytest_cache/
+# Archive folders (keep only DVC_tensorflow for reference)
+archive/DVC_NF/
+archive/experiments/
+archive/md_notes/
+archive/notebooks/
+archive/scripts_legacy/
+archive/src_legacy/
+archive/tests_legacy/
+archive/dvc_accuracy_results/
+archive/README.md
+
+
+# DVC
+.dvc/
+.dvcignore
+/dvc.lock
+/dvc.yaml
+
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Logs
+*.log
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific
+.DS_Store
+Thumbs.db
 
 # Distribution / packaging
 .Python
@@ -75,9 +142,6 @@ docs/_build/
 .pybuilder/
 target/
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
 # IPython
 profile_default/
 ipython_config.py
@@ -127,15 +191,6 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -169,3 +224,4 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+*.egg-info/
