@@ -102,6 +102,21 @@ Outputs are written under `results/neurips_tables/`:
 - `entropy_method_detail.csv` / `.tex`
 - `time_pair_detail.csv` / `.tex`
 
+## Prepare Standalone Draft Assets
+
+To generate benchmark artifacts and vendor all paper assets into `drafts/`
+(tables, figures, and result JSON summaries), run:
+
+```bash
+python scripts/prepare_draft_assets.py --run --compile
+```
+
+This writes to:
+- `drafts/tables/neurips_tables/`
+- `drafts/figures/neurips_results/`
+- `drafts/artifacts/results/`
+- `drafts/assets_manifest.json`
+
 ## Current Status and Known Gaps
 
 - Core unit tests pass under NumPy 2.x and current PyTorch.

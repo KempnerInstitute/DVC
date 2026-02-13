@@ -60,6 +60,20 @@ python scripts/generate_neurips_tables.py --run
 
 This creates CSV and LaTeX tables in `results/neurips_tables/`.
 
+## Standalone Draft Asset Sync
+
+To prepare all Overleaf-ready assets directly under `drafts/`:
+
+```bash
+python scripts/prepare_draft_assets.py --run --compile
+```
+
+This command vendors:
+- tables to `drafts/tables/neurips_tables/`
+- figures to `drafts/figures/neurips_results/`
+- result JSONs to `drafts/artifacts/results/`
+- an asset manifest to `drafts/assets_manifest.json`
+
 ## Reproducibility Tips
 
 - Fix `seed` in config and avoid changing it between ablations.
