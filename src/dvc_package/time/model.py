@@ -9,8 +9,47 @@ from .nf import Softplus, compute_kl_divergence
 from ..core.objects import vine_obj_bin
 from ..core.utils_prob import biv_norm
 from ..core.grid_ops import mk_grid, grid_obj
+from ..core.transformation import Transform
 
 logger = logging.getLogger("DVC.time")
+
+
+def create_grids(knots, device=None, dtype=torch.float32):
+    """Create U, S, and X grids for vine copula evaluation.
+
+    Args:
+        knots: Number of grid knots per dimension.
+        device: Torch device.
+        dtype: Torch dtype.
+
+    Returns:
+        (grid_u, grid_s, grid_x) tuple of grid_obj instances.
+    """
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    ex_u = mk_grid(knots, dtype=dtype).to(device)
+    grid_u = grid_obj(ex_u)
+    grid_u.axis()
+    grid_u.diff()
+    grid_u.min_grid()
+    grid_u.max_grid()
+
+    transformer = Transform(1)
+    ex_s = transformer.forward_u(ex_u)
+    grid_s = grid_obj(ex_s)
+    grid_s.axis()
+    grid_s.diff()
+    grid_s.min_grid()
+    grid_s.max_grid()
+
+    # X-space: identity transform for default (no rotation)
+    grid_x = grid_obj(ex_s.clone())
+    grid_x.axis()
+    grid_x.diff()
+    grid_x.min_grid()
+    grid_x.max_grid()
+
+    return grid_u, grid_s, grid_x
 
 
 class TimeDependentVineCopula(nn.Module):

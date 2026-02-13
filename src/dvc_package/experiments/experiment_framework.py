@@ -27,11 +27,11 @@ import pandas as pd
 from ..core.vine_factory import create_vine, VineType
 from ..core.param_copula import parametric_fit
 from ..core.d_vine_fix import compute_correlation_matrix, compute_kendall_tau_matrix
+from ..core.vine_model import fit_vine
 from ..time.data import generate_synthetic_time_series, create_data_loader, preprocess_real_data
 from ..time.model import TimeDependentVineCopula
 from ..time.flows import TimeBandwidthFlow
 from ..utils.utils_tensor import replace_nan_inf, handle_small_sample_size
-from .benchmarks import VineBenchmark
 
 logger = logging.getLogger("DVC.experiments")
 
@@ -262,13 +262,16 @@ class ProbabilityAnalysisExperiment(BaseExperiment):
                 par_dict = {'param_families': families}
                 bin_dict = {}
                 
-                # Note: You may need to implement the fit method properly
-                # vine.fit(data, gen_dict, npc_dict, par_dict, bin_dict)
+                fit_vine(vine, data, gen_dict, npc_dict, par_dict, bin_dict)
                 
-                # For now, just store the vine structure
                 results[vine_type] = {
+                    'fit_success': True,
                     'vine_structure': vine.ind_vine if hasattr(vine, 'ind_vine') else None,
-                    'r_matrix': vine.r_matrix.tolist() if hasattr(vine, 'r_matrix') else None,
+                    'r_matrix': (
+                        vine.r_matrix.tolist()
+                        if hasattr(vine, 'r_matrix') and vine.r_matrix is not None
+                        else None
+                    ),
                     'families': families,
                     'n_edges': sum(len(level) for level in vine.ind_vine) if hasattr(vine, 'ind_vine') else 0
                 }
@@ -291,7 +294,7 @@ class ProbabilityAnalysisExperiment(BaseExperiment):
                 
             except Exception as e:
                 self.logger.error(f"Failed to fit {vine_type}: {e}")
-                results[vine_type] = {'error': str(e)}
+                results[vine_type] = {'fit_success': False, 'error': str(e)}
         
         return results
     
@@ -842,9 +845,9 @@ class TimeDependentExperiment(BaseExperiment):
         if not model_results.get('model_created', False) or self._trained_model is None:
             return {'evaluation_performed': False, 'reason': 'No trained model available'}
         
+        model = self._trained_model
+
         try:
-            model = self._trained_model
-            
             # Test forward pass on sample data
             sample_data = torch.tensor(time_data[0][:10], dtype=torch.float32)
             sample_times = torch.tensor([0.0] * 10, dtype=torch.float32)
@@ -881,11 +884,38 @@ class TimeDependentExperiment(BaseExperiment):
             }
             
         except Exception as e:
-            self.logger.error(f"Model evaluation failed: {e}")
-            results = {
-                'evaluation_performed': False,
-                'error': str(e)
-            }
+            self.logger.warning(f"Primary model evaluation failed, using fallback summary: {e}")
+            try:
+                time_norm = torch.linspace(0, 1, len(time_indices)).unsqueeze(-1)
+                bandwidths = model.forward(time_norm)
+
+                if bandwidths.shape[0] > 1:
+                    bw_diff = bandwidths[1:] - bandwidths[:-1]
+                    temporal_variation = float(torch.mean(torch.norm(bw_diff.reshape(bw_diff.shape[0], -1), dim=1)))
+                else:
+                    temporal_variation = 0.0
+
+                results = {
+                    'evaluation_performed': True,
+                    'losses': {
+                        'negative_log_likelihood': None,
+                        'entropy_based_loss': None
+                    },
+                    'bandwidth_analysis': {
+                        'temporal_variation': temporal_variation,
+                        'smoothness_score': float(1.0 / (1.0 + temporal_variation))
+                    },
+                    'model_complexity': {
+                        'n_parameters': sum(p.numel() for p in model.parameters()),
+                        'n_edges': len(model.edge_flows)
+                    },
+                    'note': f"Fallback evaluation used due to: {e}"
+                }
+            except Exception as e2:
+                results = {
+                    'evaluation_performed': False,
+                    'error': f"Primary: {e}; Fallback: {e2}"
+                }
         
         return results
     
@@ -932,7 +962,10 @@ class TimeDependentExperiment(BaseExperiment):
                 # Plot bandwidth evolution for each edge and dimension
                 for edge_idx in range(min(3, len(model.edge_flows))):  # Plot first 3 edges
                     for dim in range(2):  # Assuming 2D bandwidths
-                        bw_values = bandwidths[:, edge_idx * 2 + dim].detach().cpu().numpy()
+                        if bandwidths.dim() == 3:
+                            bw_values = bandwidths[:, dim, edge_idx].detach().cpu().numpy()
+                        else:
+                            bw_values = bandwidths[:, edge_idx * 2 + dim].detach().cpu().numpy()
                         plt.plot(time_indices, bw_values, 
                                label=f'Edge {edge_idx}, Dim {dim}', linewidth=2)
                 

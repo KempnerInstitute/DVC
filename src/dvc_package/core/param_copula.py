@@ -2,12 +2,29 @@
 # src/DVC/param_copula.py
 ###############################################
 
+import logging
 import torch
 import math
 import numpy as np
 from scipy.stats import kendalltau, t, norm, multivariate_normal
 
 from ..utils.utils_tensor import replace_nan_inf, check_finite, safe_log, handle_small_sample_size
+
+logger = logging.getLogger("DVC.param_copula")
+
+_FAMILY_ALIASES = {
+    "independence": "ind",
+    "independent": "ind",
+    "gauss": "gaussian",
+    "student-t": "student",
+    "t": "student",
+}
+
+
+def _normalize_family_name(family: str) -> str:
+    """Normalize external family aliases to canonical internal names."""
+    fam = family.lower().strip()
+    return _FAMILY_ALIASES.get(fam, fam)
 
 ################################################
 # GAUSSIAN COPULA
@@ -160,14 +177,9 @@ def fit_student(u: torch.Tensor):
         # Convert to t-distribution quantiles
         u_clamped = torch.clamp(u, 1e-9, 1-1e-9)
         
-        # Use scipy's t.ppf for quantiles (more stable than torch implementation)
-        t_quantiles = torch.zeros_like(u_clamped)
-        for i in range(u_clamped.shape[0]):
-            for j in range(2):
-                t_quantiles[i, j] = torch.tensor(
-                    t.ppf(u_clamped[i, j].cpu().numpy(), nu.cpu().numpy()),
-                    dtype=dtype, device=device
-                )
+        # Use scipy's t.ppf for quantiles (vectorized for efficiency)
+        t_quantiles_np = t.ppf(u_clamped.detach().cpu().numpy(), nu.detach().cpu().numpy())
+        t_quantiles = torch.tensor(t_quantiles_np, dtype=dtype, device=device)
         
         t1, t2 = t_quantiles[:, 0], t_quantiles[:, 1]
         
@@ -609,7 +621,8 @@ def parametric_fit(u: np.ndarray, families, n_cop: int):
         fam_aic = []
         fam_theta = []
         fam_logp = []
-        for fam in families:
+        for family in families:
+            fam = _normalize_family_name(family)
             if fam=='ind':
                 # Independence copula: c(u,v) = 1 for all (u,v)
                 # Log-likelihood = sum(log(1)) = 0
@@ -702,7 +715,7 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
       - "claytonrot90" => flip, then use clayton
       - "student" => partial or raise NotImplemented
     """
-    fam = cop_p.family
+    fam = _normalize_family_name(cop_p.family)
     param = cop_p.theta
     uv_clamped = torch.clamp(uv, 1e-9, 1 - 1e-9)
 
@@ -850,7 +863,7 @@ def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
       - "claytonrot90" => flip, then call clayton
       - "student" => partial or raise
     """
-    fam = cop_p.family
+    fam = _normalize_family_name(cop_p.family)
     param = cop_p.theta
     uv_clamped = torch.clamp(uv, 1e-9, 1 - 1e-9)
 
@@ -859,28 +872,55 @@ def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
 
     elif fam=='gaussian':
         # Handle case where param might be a list
+        # Analytical h-function for Gaussian copula:
+        # h(v|u) = Phi( (Phi^{-1}(v) - rho * Phi^{-1}(u)) / sqrt(1 - rho^2) )
         if isinstance(param, list):
             rho = float(param[0])
         else:
             rho = float(param)
-        from scipy.stats import mvn
-        # We do bivariate normal cdf => for each point
-        results = []
-        for i in range(uv_clamped.shape[0]):
-            uval = uv_clamped[i,0].item()
-            vval = uv_clamped[i,1].item()
-            # invert => x=Phi^-1(u), y=Phi^-1(v)
-            x = norm.ppf(uval)
-            y = norm.ppf(vval)
-            # use scipy's multivariate_normal cdf => 2D
-            mean_ = [0.0, 0.0]
-            cov_ = [[1.0, rho],[rho,1.0]]
-            cdf_val = multivariate_normal.cdf([x,y], mean=mean_, cov=cov_)
-            results.append(cdf_val)
-        return torch.tensor(results, dtype=uv.dtype, device=uv.device)
+        r = max(min(rho, 0.999999), -0.999999)
+        normal_dist = torch.distributions.Normal(0., 1.)
+
+        # Transform to normal space
+        z1 = normal_dist.icdf(uv_clamped[:, 0])
+        z2 = normal_dist.icdf(uv_clamped[:, 1])
+
+        # Conditional distribution: Z2|Z1 ~ N(rho*Z1, sqrt(1-rho^2))
+        one_minus_r2 = 1.0 - r * r
+        if one_minus_r2 < 1e-12:
+            one_minus_r2 = 1e-12
+        z_std = (z2 - r * z1) / math.sqrt(one_minus_r2)
+
+        return normal_dist.cdf(z_std).clamp(1e-9, 1 - 1e-9)
 
     elif fam=='student':
-        raise NotImplementedError("Student copula CDF not implemented. Use external library for bvt cdf.")
+        # Student-t copula conditional CDF (h-function):
+        # h(v|u; rho, nu) = t_{nu+1}( (t_nu^{-1}(v) - rho * t_nu^{-1}(u)) /
+        #                              sqrt((nu + t_nu^{-1}(u)^2) * (1 - rho^2) / (nu + 1)) )
+        if isinstance(param, (list, tuple)) and len(param) >= 2:
+            rho, nu = float(param[0]), float(param[1])
+        else:
+            rho, nu = 0.0, 4.0
+        rho = max(min(rho, 0.999999), -0.999999)
+        nu = max(nu, 2.1)
+
+        u_np = uv_clamped.cpu().numpy()
+        # t_nu^{-1}(u) and t_nu^{-1}(v)
+        x = t.ppf(u_np[:, 0], nu)
+        y = t.ppf(u_np[:, 1], nu)
+
+        # Numerator: t_nu^{-1}(v) - rho * t_nu^{-1}(u)
+        numerator = y - rho * x
+
+        # Denominator: sqrt((nu + x^2) * (1 - rho^2) / (nu + 1))
+        denominator = np.sqrt((nu + x**2) * (1 - rho**2) / (nu + 1))
+        denominator = np.maximum(denominator, 1e-15)
+
+        # h(v|u) = t_{nu+1}(numerator / denominator)
+        z = numerator / denominator
+        h_val = t.cdf(z, nu + 1)
+
+        return torch.tensor(h_val, dtype=uv.dtype, device=uv.device).clamp(1e-9, 1 - 1e-9)
 
     elif fam=='clayton':
         alpha = float(param)
@@ -954,7 +994,7 @@ def copulainvccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
       - "claytonrot90" => flip
       - "student" => partial or not implemented
     """
-    fam = cop_p.family
+    fam = _normalize_family_name(cop_p.family)
     param = cop_p.theta
     uv_clamped = torch.clamp(uv, 1e-9, 1 - 1e-9)
 
@@ -1007,16 +1047,50 @@ def copulainvccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
                 ext_e = e[extreme_mask]
                 ext_y = y[extreme_mask]
                 ext_v2 = v2[extreme_mask]
-                print(f"Warning: {extreme_count} extreme values in Gaussian h-function:")
-                print(f"   x range: [{ext_x.min().item():.2f}, {ext_x.max().item():.2f}]")
-                print(f"   e range: [{ext_e.min().item():.2f}, {ext_e.max().item():.2f}]")
-                print(f"   y range: [{ext_y.min().item():.2f}, {ext_y.max().item():.2f}]")
-                print(f"   rho: {r:.4f}")
+                logger.warning(
+                    "%d extreme values in Gaussian h-function: "
+                    "x range: [%.2f, %.2f], e range: [%.2f, %.2f], "
+                    "y range: [%.2f, %.2f], rho: %.4f",
+                    extreme_count,
+                    ext_x.min().item(), ext_x.max().item(),
+                    ext_e.min().item(), ext_e.max().item(),
+                    ext_y.min().item(), ext_y.max().item(),
+                    r
+                )
         
         return torch.clamp(v2, 1e-9, 1-1e-9)
 
     elif fam=='student':
-        raise NotImplementedError("Student copula inverse CCDF not implemented. Use partial logic or external library.")
+        # Inverse h-function for Student-t copula:
+        # v = t_nu( rho * t_nu^{-1}(u1) + t_{nu+1}^{-1}(w) *
+        #           sqrt((nu + t_nu^{-1}(u1)^2) * (1 - rho^2) / (nu + 1)) )
+        if isinstance(param, (list, tuple)) and len(param) >= 2:
+            rho, nu = float(param[0]), float(param[1])
+        else:
+            rho, nu = 0.0, 4.0
+        rho = max(min(rho, 0.999999), -0.999999)
+        nu = max(nu, 2.1)
+
+        u_np = uv_clamped.cpu().numpy()
+        u1_np = u_np[:, 0]
+        w_np = u_np[:, 1]
+
+        # t_nu^{-1}(u1)
+        x = t.ppf(u1_np, nu)
+
+        # t_{nu+1}^{-1}(w)
+        e = t.ppf(w_np, nu + 1)
+
+        # sqrt((nu + x^2) * (1 - rho^2) / (nu + 1))
+        scale = np.sqrt((nu + x**2) * (1 - rho**2) / (nu + 1))
+
+        # y = rho * x + e * scale
+        y = rho * x + e * scale
+
+        # v = t_nu(y)
+        v = t.cdf(y, nu)
+
+        return torch.tensor(v, dtype=uv.dtype, device=uv.device).clamp(1e-9, 1 - 1e-9)
 
     elif fam=='clayton':
         alpha = float(param)
@@ -1050,25 +1124,29 @@ def copulainvccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         theta = float(param)
         if abs(theta) < 1e-6:
             return uv_clamped[:, 1]
-        
+
         u1 = uv_clamped[:, 0]
-        c2 = uv_clamped[:, 1]
-        
-        # Frank copula conditional CDF inverse (approximate)
-        # For simplicity, use numerical approximation
-        exp_theta = torch.exp(torch.tensor(theta))
-        exp_theta_u1 = torch.exp(theta * u1)
-        
-        # Approximate inverse using iterative approach or direct formula
-        # Direct formula is complex, so use approximation
-        if theta > 0:
-            # Positive dependence case
-            u2_approx = -torch.log(1 - c2 * (1 - torch.exp(-theta)) / (exp_theta_u1 - c2 * (exp_theta_u1 - 1))) / theta
-        else:
-            # Negative dependence case
-            u2_approx = -torch.log(1 + c2 * (torch.exp(-theta) - 1) / (1 - c2 + c2 * exp_theta_u1)) / theta
-            
-        return torch.clamp(u2_approx, 1e-9, 1-1e-9)
+        w = uv_clamped[:, 1]
+
+        # Exact inverse h-function for Frank copula:
+        # The h-function (conditional CDF) for Frank copula is:
+        #   h(v|u) = exp(-theta*u) / (exp(-theta*u) + (exp(-theta) - 1) / (exp(-theta*v) - 1))
+        # Its inverse (solving for v given w = h(v|u)):
+        #   v = -log(1 + (exp(-theta) - 1) / (exp(-theta*u) * (1/w - 1) + 1)) / theta
+        exp_neg_theta = torch.exp(torch.tensor(-theta, dtype=u1.dtype, device=u1.device))
+        exp_neg_theta_u1 = torch.exp(-theta * u1)
+
+        # Compute the denominator term: exp(-theta*u1) * (1/w - 1) + 1
+        denom_term = exp_neg_theta_u1 * (1.0 / w - 1.0) + 1.0
+        denom_term = torch.clamp(denom_term, min=1e-15)
+
+        # Compute the argument to log: 1 + (exp(-theta) - 1) / denom_term
+        log_arg = 1.0 + (exp_neg_theta - 1.0) / denom_term
+        log_arg = torch.clamp(log_arg, min=1e-15)
+
+        u2 = -torch.log(log_arg) / theta
+
+        return torch.clamp(u2, 1e-9, 1-1e-9)
 
     elif fam=='gumbel':
         theta = float(param)

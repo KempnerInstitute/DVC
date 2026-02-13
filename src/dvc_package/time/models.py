@@ -43,15 +43,17 @@ class TimeBandwidthFlow(nn.Module):
         Maximum bandwidth value
     """
     
-    def __init__(self, 
+    def __init__(self,
                  n_edges: int,
-                 hidden_dims: List[int] = [64, 32],
+                 hidden_dims: Optional[List[int]] = None,
                  time_embedding_dim: int = 16,
                  activation: str = 'relu',
                  dropout_rate: float = 0.1,
                  min_bandwidth: float = 0.01,
                  max_bandwidth: float = 2.0):
         super().__init__()
+        if hidden_dims is None:
+            hidden_dims = [64, 32]
         
         self.n_edges = n_edges
         self.min_bandwidth = min_bandwidth

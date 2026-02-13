@@ -14,7 +14,7 @@ import logging
 import time
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Tuple
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import pickle
 
@@ -54,7 +54,7 @@ class ExperimentConfig:
     time_config: Optional[Dict[str, Any]] = None
     
     # Evaluation configuration
-    evaluation_metrics: List[str]
+    evaluation_metrics: List[str] = field(default_factory=list)
     n_monte_carlo_samples: int = 1000
     n_bootstrap_runs: int = 10
     
