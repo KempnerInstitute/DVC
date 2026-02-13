@@ -186,7 +186,11 @@ def _summarize_time_dependent(result: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.
 
 def _write_table(df: pd.DataFrame, csv_path: Path, tex_path: Path):
     df.to_csv(csv_path, index=False)
-    tex = df.to_latex(index=False, float_format=lambda x: f"{x:.4f}" if pd.notnull(x) else "")
+    tex = df.to_latex(
+        index=False,
+        escape=True,
+        float_format=lambda x: f"{x:.4f}" if pd.notnull(x) else "",
+    )
     tex_path.write_text(tex)
 
 
@@ -286,4 +290,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

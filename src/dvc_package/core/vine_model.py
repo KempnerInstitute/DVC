@@ -120,8 +120,11 @@ def fit_vine(
             # This works for C-vine (where center logic was applied during structure creation),
             # D-vine (path structure), and R-vine (arbitrary valid structure)
 
-            ui = vine.theta[:, level, i]  # shape [N]
-            uj = vine.theta[:, level, j]  # shape [N]
+            ui = vine.theta[:, level, i]
+            uj = vine.theta[:, level, j]
+            # Keep uniforms in a valid finite range before pair-copula fitting/transform.
+            ui = torch.nan_to_num(ui, nan=0.5, posinf=1 - 1e-6, neginf=1e-6).clamp(1e-6, 1 - 1e-6)
+            uj = torch.nan_to_num(uj, nan=0.5, posinf=1 - 1e-6, neginf=1e-6).clamp(1e-6, 1 - 1e-6)
             # Stack => shape [N,2,1]
             data_pair = torch.stack([ui, uj], dim=1).unsqueeze(-1)
             
@@ -136,7 +139,13 @@ def fit_vine(
             if np.std(xvals)<1e-15 or np.std(yvals)<1e-15:
                 emp_corr = 0.0
             else:
-                c_ = np.corrcoef(xvals, yvals)[0,1]
+                x_centered = xvals - np.mean(xvals)
+                y_centered = yvals - np.mean(yvals)
+                sx = np.std(x_centered, ddof=0)
+                sy = np.std(y_centered, ddof=0)
+                c_ = 0.0
+                if sx > 1e-12 and sy > 1e-12:
+                    c_ = float(np.mean((x_centered / sx) * (y_centered / sy)))
                 if not np.isfinite(c_):
                     c_ = 0.0
                 emp_corr = abs(c_)
@@ -161,6 +170,7 @@ def fit_vine(
                 try:
                     # partial transform => hVal = F_j|i ( uj | ui )
                     hval = copulaccdf(cobj, uv).clamp(1e-6, 1-1e-6)
+                    hval = torch.where(torch.isfinite(hval), hval, uj)
                     vine.theta[:, level+1, j] = hval
                 except Exception as e:
                     logger.error(f"Error partial transform (level={level},edge=({i},{j})): {str(e)}")
@@ -268,8 +278,15 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict]=None):
                 data_cols.append(np.random.randn(max(nsamples, 128)))
         train_data = np.column_stack(data_cols)
 
-        corr = np.corrcoef(train_data.T)
+        centered = train_data - np.mean(train_data, axis=0, keepdims=True)
+        std = np.std(centered, axis=0, ddof=0)
+        valid = std > 1e-12
+        z = np.zeros_like(centered, dtype=np.float64)
+        if np.any(valid):
+            z[:, valid] = centered[:, valid] / std[valid]
+        corr = (z.T @ z) / max(train_data.shape[0] - 1, 1)
         corr = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
+        corr = np.clip(corr, -1.0, 1.0)
         corr = 0.5 * (corr + corr.T)
         np.fill_diagonal(corr, 1.0)
 

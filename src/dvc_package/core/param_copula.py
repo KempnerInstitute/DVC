@@ -26,6 +26,26 @@ def _normalize_family_name(family: str) -> str:
     fam = family.lower().strip()
     return _FAMILY_ALIASES.get(fam, fam)
 
+
+def _safe_empirical_corr(x: np.ndarray, y: np.ndarray) -> float:
+    """Numerically stable Pearson correlation with finite fallback."""
+    x = np.asarray(x, dtype=np.float64).reshape(-1)
+    y = np.asarray(y, dtype=np.float64).reshape(-1)
+    if x.size == 0 or y.size == 0 or x.size != y.size:
+        return 0.0
+
+    x_centered = x - np.mean(x)
+    y_centered = y - np.mean(y)
+    sx = np.std(x_centered, ddof=0)
+    sy = np.std(y_centered, ddof=0)
+    if sx <= 1e-12 or sy <= 1e-12:
+        return 0.0
+
+    corr = float(np.mean((x_centered / sx) * (y_centered / sy)))
+    if not np.isfinite(corr):
+        return 0.0
+    return max(min(corr, 1.0), -1.0)
+
 ################################################
 # GAUSSIAN COPULA
 ################################################
@@ -638,7 +658,7 @@ def parametric_fit(u: np.ndarray, families, n_cop: int):
                 
                 # Improved independence penalty to match TensorFlow behavior
                 u_vals = data_i.cpu().numpy()
-                emp_corr = np.corrcoef(u_vals[:, 0], u_vals[:, 1])[0, 1]
+                emp_corr = _safe_empirical_corr(u_vals[:, 0], u_vals[:, 1])
                 
                 # More sophisticated penalty that matches TensorFlow's implicit behavior
                 # TensorFlow tends to select Gaussian over independence when correlation exists
