@@ -10,6 +10,7 @@ from ..core.objects import vine_obj_bin
 from ..core.utils_prob import biv_norm
 from ..core.grid_ops import mk_grid, grid_obj
 from ..core.transformation import Transform
+from ..core.utils_locallik import loclik_batch_eval
 
 logger = logging.getLogger("DVC.time")
 
@@ -97,28 +98,68 @@ class TimeDependentVineCopula(nn.Module):
         # Predict bandwidths for all edges
         bw_edges = self.forward(t_norm)  # (batch, 2, n_edges)
 
-        # Prepare per-time evaluation on grid via local likelihood
-        x1_s, x2_s = self.grid_s.axis()
-        NORM = biv_norm(x1_s, x2_s)
-        NORM = NORM.unsqueeze(-1)
+        # Prepare per-time evaluation on a deduplicated grid.
+        grid_eval_base = self.grid_x.ex
+        if grid_eval_base.dim() == 3 and grid_eval_base.shape[-1] == 1:
+            grid_eval_base = grid_eval_base.squeeze(-1)
+        if grid_eval_base.dim() != 2 or grid_eval_base.shape[1] != 2:
+            raise ValueError(f"Unexpected grid shape for likelihood evaluation: {tuple(grid_eval_base.shape)}")
+
+        grid_eval_unique = torch.unique(grid_eval_base, dim=0)
+        if grid_eval_unique.shape[0] == 0:
+            raise ValueError("No grid points available for likelihood evaluation.")
+        grid_eval = grid_eval_unique.unsqueeze(-1).to(device=device, dtype=dtype)  # (M, 2, 1)
+
+        x_vals = torch.sort(torch.unique(grid_eval_unique[:, 0]))[0]
+        y_vals = torch.sort(torch.unique(grid_eval_unique[:, 1]))[0]
+        NORM = biv_norm(x_vals, y_vals).unsqueeze(-1).to(device=device, dtype=dtype)
+        grid_h, grid_w = NORM.shape[0], NORM.shape[1]
 
         nll_total = torch.zeros((), device=device, dtype=dtype)
 
         # Map edge index to tree
         # We evaluate each tree separately to re-use existing kernels; this is simplified
         for edge_idx, (tr, rel_idx) in enumerate(self.edge_index_map):
-            # Data for this edge at tree tr
-            data_x = self.vine.data_x[:, :, rel_idx]
+            if self.vine.data_x is None:
+                raise ValueError("vine.data_x is required for negative_log_likelihood but is not initialized.")
+            if self.vine.data_x.dim() != 3:
+                raise ValueError(f"Expected vine.data_x to have shape [N, 2, E], got {tuple(self.vine.data_x.shape)}")
+
+            # Prefer global edge indexing; fallback to rel_idx for older layouts.
+            if edge_idx < self.vine.data_x.shape[2]:
+                data_x = self.vine.data_x[:, :, edge_idx]
+            elif rel_idx < self.vine.data_x.shape[2]:
+                data_x = self.vine.data_x[:, :, rel_idx]
+            else:
+                raise IndexError(
+                    f"No data for edge_idx={edge_idx}, rel_idx={rel_idx}, available={self.vine.data_x.shape[2]}"
+                )
             data_x = data_x.to(device)
 
             # For each time in batch, evaluate loc-lik and accumulate NLL via nearest interpolation
             bw_pair = bw_edges[:, :, edge_idx]  # (batch, 2)
             for b in range(batch):
-                B = bw_pair[b].unsqueeze(1)  # (2,1)
-                # Expand to expected shape (2, n_cop=1)
-                B = torch.stack([B[0], B[1]], dim=0)
-                ker_grid = loclik_batch_eval(B, data_x.unsqueeze(-1), self.grid_x.ex, 1, batch_size=torch.tensor(1))
-                ker_grid = ker_grid.reshape(self.grid_u.diff()[0].shape[0], self.grid_u.diff()[0].shape[0], 1).permute(1, 0, 2)
+                B = bw_pair[b].unsqueeze(1)  # (2, 1)
+                ker_grid = loclik_batch_eval(B, data_x.unsqueeze(-1), grid_eval, 1, batch_size=1)
+
+                # Normalize possible output layouts from local-likelihood code to [M, 1].
+                if ker_grid.dim() == 3 and ker_grid.shape[0] == data_x.shape[0]:
+                    ker_grid = ker_grid.mean(dim=0)
+                elif ker_grid.dim() == 3 and ker_grid.shape[1] == data_x.shape[0]:
+                    ker_grid = ker_grid.mean(dim=1)
+                elif ker_grid.dim() > 2:
+                    ker_grid = ker_grid.reshape(ker_grid.shape[0], -1).mean(dim=1, keepdim=True)
+                elif ker_grid.dim() == 1:
+                    ker_grid = ker_grid.unsqueeze(-1)
+
+                target = grid_h * grid_w
+                if ker_grid.shape[0] < target:
+                    pad_rows = target - ker_grid.shape[0]
+                    ker_grid = torch.cat([ker_grid, ker_grid[-1:].repeat(pad_rows, 1)], dim=0)
+                elif ker_grid.shape[0] > target:
+                    ker_grid = ker_grid[:target]
+
+                ker_grid = ker_grid.reshape(grid_h, grid_w, 1).permute(1, 0, 2)
                 pdf_uv = ker_grid / (NORM + 1e-12)
                 avg_pdf = torch.clamp(pdf_uv.mean(), 1e-10)
                 nll_total = nll_total - torch.log(avg_pdf)
@@ -291,5 +332,3 @@ class TimeDependentVineCopula(nn.Module):
                 metrics[f"{edge_id}_temporal_variation"] = torch.mean(torch.norm(bw_diff, dim=1))
         
         return metrics
-
-

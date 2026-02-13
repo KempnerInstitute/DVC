@@ -801,6 +801,25 @@ class TimeDependentExperiment(BaseExperiment):
                 n_time_steps=n_time_steps,
                 hidden_dim=hidden_dim
             )
+
+            # Initialize per-edge training pairs so likelihood-based evaluation is available.
+            # Shape convention: [N_total, 2, n_edges] where n_edges follows model.edge_index_map.
+            flat_data = torch.tensor(time_data.reshape(-1, n_variables), dtype=torch.float32)
+            max_likelihood_samples = int(time_config.get('likelihood_training_samples', 2000))
+            if flat_data.shape[0] > max_likelihood_samples:
+                idx = torch.randperm(flat_data.shape[0])[:max_likelihood_samples]
+                flat_data = flat_data[idx]
+            edge_pairs = []
+            for tr, edge_idx in model.edge_index_map:
+                edges = base_vine.ind_vine[tr] if tr < len(base_vine.ind_vine) else []
+                if edge_idx >= len(edges):
+                    continue
+                i, j = edges[edge_idx]
+                edge_pairs.append(flat_data[:, [i, j]])
+            if edge_pairs:
+                base_vine.data_x = torch.stack(edge_pairs, dim=2)
+            else:
+                base_vine.data_x = torch.zeros((flat_data.shape[0], 2, 0), dtype=torch.float32)
             
             # Test bandwidth prediction
             time_norm = torch.linspace(0, 1, n_time_steps).unsqueeze(-1)
@@ -817,10 +836,10 @@ class TimeDependentExperiment(BaseExperiment):
                 'hidden_dim': hidden_dim,
                 'bandwidth_shape': list(bandwidths.shape),
                 'bandwidth_statistics': {
-                    'mean': float(bandwidths.mean()),
-                    'std': float(bandwidths.std()),
-                    'min': float(bandwidths.min()),
-                    'max': float(bandwidths.max())
+                    'mean': float(bandwidths.mean().detach()),
+                    'std': float(bandwidths.std().detach()),
+                    'min': float(bandwidths.min().detach()),
+                    'max': float(bandwidths.max().detach())
                 },
                 'bandwidth_metrics': {k: v.tolist() if isinstance(v, torch.Tensor) else v 
                                     for k, v in bandwidth_metrics.items()}
@@ -847,14 +866,45 @@ class TimeDependentExperiment(BaseExperiment):
         
         model = self._trained_model
 
+        # If per-edge training data is unavailable, provide a stable bandwidth-only summary.
+        if getattr(model.vine, 'data_x', None) is None:
+            time_norm = torch.linspace(0, 1, len(time_indices)).unsqueeze(-1)
+            bandwidths = model.forward(time_norm)
+
+            if bandwidths.shape[0] > 1:
+                bw_diff = bandwidths[1:] - bandwidths[:-1]
+                temporal_variation = float(
+                    torch.mean(torch.norm(bw_diff.reshape(bw_diff.shape[0], -1), dim=1)).detach()
+                )
+            else:
+                temporal_variation = 0.0
+
+            return {
+                'evaluation_performed': True,
+                'losses': {
+                    'negative_log_likelihood': None,
+                    'entropy_based_loss': None
+                },
+                'bandwidth_analysis': {
+                    'temporal_variation': temporal_variation,
+                    'smoothness_score': float(1.0 / (1.0 + temporal_variation))
+                },
+                'model_complexity': {
+                    'n_parameters': sum(p.numel() for p in model.parameters()),
+                    'n_edges': len(model.edge_flows)
+                },
+                'note': 'Likelihood metrics skipped because vine.data_x is not initialized in this prototype path.'
+            }
+
         try:
             # Test forward pass on sample data
             sample_data = torch.tensor(time_data[0][:10], dtype=torch.float32)
-            sample_times = torch.tensor([0.0] * 10, dtype=torch.float32)
+            sample_times = torch.linspace(0.0, 1.0, steps=10, dtype=torch.float32)
             
             # Compute loss
-            nll_loss = model.negative_log_likelihood(sample_data, sample_times)
-            entropy_loss = model.entropy_based_loss(sample_data, sample_times)
+            with torch.no_grad():
+                nll_loss = model.negative_log_likelihood(sample_data, sample_times)
+                entropy_loss = model.entropy_based_loss(sample_data, sample_times)
             
             # Bandwidth evolution analysis
             time_norm = torch.linspace(0, 1, len(time_indices)).unsqueeze(-1)
@@ -866,7 +916,7 @@ class TimeDependentExperiment(BaseExperiment):
                 temporal_variation = torch.mean(torch.norm(bandwidth_diff, dim=1))
             else:
                 temporal_variation = torch.tensor(0.0)
-            
+
             results = {
                 'evaluation_performed': True,
                 'losses': {
@@ -874,8 +924,8 @@ class TimeDependentExperiment(BaseExperiment):
                     'entropy_based_loss': float(entropy_loss)
                 },
                 'bandwidth_analysis': {
-                    'temporal_variation': float(temporal_variation),
-                    'smoothness_score': float(1.0 / (1.0 + temporal_variation))  # Higher is smoother
+                    'temporal_variation': float(temporal_variation.detach()),
+                    'smoothness_score': float((1.0 / (1.0 + temporal_variation)).detach())  # Higher is smoother
                 },
                 'model_complexity': {
                     'n_parameters': sum(p.numel() for p in model.parameters()),
@@ -891,7 +941,9 @@ class TimeDependentExperiment(BaseExperiment):
 
                 if bandwidths.shape[0] > 1:
                     bw_diff = bandwidths[1:] - bandwidths[:-1]
-                    temporal_variation = float(torch.mean(torch.norm(bw_diff.reshape(bw_diff.shape[0], -1), dim=1)))
+                    temporal_variation = float(
+                        torch.mean(torch.norm(bw_diff.reshape(bw_diff.shape[0], -1), dim=1)).detach()
+                    )
                 else:
                     temporal_variation = 0.0
 

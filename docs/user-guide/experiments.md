@@ -36,6 +36,10 @@ Typical top-level keys:
 
 Use the existing config files as templates for custom studies.
 
+For time-dependent configs (`analysis_config.experiment_type: time_dependent`), you can set:
+
+- `time_config.likelihood_training_samples`: subsample size used to build per-edge likelihood data for NLL/entropy evaluation.
+
 ## Outputs
 
 Runs typically write:

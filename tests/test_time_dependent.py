@@ -22,6 +22,10 @@ from dvc_package.time.data import (
     preprocess_real_data,
     compute_time_varying_correlations,
 )
+from dvc_package.experiments.experiment_framework import (
+    ExperimentConfig,
+    TimeDependentExperiment,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -260,3 +264,45 @@ class TestTimeVaryingCorrelations:
         corrs = compute_time_varying_correlations(data)
         for t in range(3):
             np.testing.assert_allclose(corrs[t], corrs[t].T, atol=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Time-dependent experiment integration
+# ---------------------------------------------------------------------------
+
+class TestTimeDependentExperimentIntegration:
+    """Integration checks for config-driven time-dependent experiments."""
+
+    def test_reports_numeric_likelihood_losses(self, tmp_path):
+        """Time-dependent experiment should report finite numeric NLL/entropy losses."""
+        cfg = ExperimentConfig(
+            name="time_dep_loss_regression",
+            description="Regression check for numeric time-dependent losses",
+            output_dir=str(tmp_path / "time_dep_loss_regression"),
+            seed=123,
+            data_config={},
+            vine_config={},
+            time_config={
+                "n_time_steps": 6,
+                "n_samples_per_time": 30,
+                "n_variables": 3,
+                "correlation_evolution": "sinusoidal",
+                "hidden_dim": 16,
+                "noise_level": 0.1,
+                "likelihood_training_samples": 300,
+            },
+            analysis_config={"experiment_type": "time_dependent"},
+            plot_config={"create_plots": False},
+        )
+
+        experiment = TimeDependentExperiment(cfg)
+        results = experiment.run()
+
+        losses = results["evaluation"]["losses"]
+        nll = losses["negative_log_likelihood"]
+        entropy_loss = losses["entropy_based_loss"]
+
+        assert nll is not None
+        assert entropy_loss is not None
+        assert np.isfinite(nll)
+        assert np.isfinite(entropy_loss)
