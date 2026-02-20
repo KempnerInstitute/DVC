@@ -28,7 +28,7 @@ import torch
 
 from ..core.objects import cop_par_obj, vine_obj_bin
 from ..core.vine_factory import create_vine
-from ..core.param_copula import copulaccdf, copulainvccdf, copulapdf
+from ..core.param_copula import copulaccdf, copulainvccdf, copulapdf, parametric_fit
 from ..core.vine_model import fit_vine
 from ..optimization.structure import optimize_vine_structure
 
@@ -46,6 +46,72 @@ def _set_seaborn_style() -> None:
             "ytick.labelsize": 8,
         }
     )
+
+
+def _normalize_family_name(family: str) -> str:
+    fam = str(family).lower().strip()
+    if fam in {"independence", "independent"}:
+        return "ind"
+    if fam in {"gauss"}:
+        return "gaussian"
+    if fam in {"student-t", "t"}:
+        return "student"
+    return fam
+
+
+def _pseudo_obs_from_gaussianized(x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+    """Convert approximately N(0,1) marginals to pseudo-observations via N(0,1) CDF."""
+    u = norm.cdf(np.asarray(x, dtype=np.float64))
+    return np.clip(u, eps, 1.0 - eps).astype(np.float32)
+
+
+def _pseudo_obs_rank(x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+    """Rank-based pseudo-observations U in (0,1), per column (copula-preserving)."""
+    x = np.asarray(x)
+    if x.ndim != 2:
+        raise ValueError(f"Expected 2D array, got shape={x.shape}")
+    n, d = x.shape
+    u = np.zeros((n, d), dtype=np.float64)
+    for j in range(d):
+        col = x[:, j]
+        ranks = np.argsort(np.argsort(col, kind="mergesort"), kind="mergesort").astype(np.float64) + 1.0
+        u[:, j] = ranks / (n + 1.0)
+    return np.clip(u, eps, 1.0 - eps).astype(np.float32)
+
+
+def _fit_best_bivariate_copula(
+    u_train: np.ndarray,
+    families: List[str],
+) -> cop_par_obj:
+    """Fit a bivariate copula by AIC over candidate families.
+
+    Parameters
+    ----------
+    u_train:
+        Pseudo-observations in (0,1), shape (N,2).
+    families:
+        Candidate family names.
+    """
+    u_train = np.asarray(u_train, dtype=np.float32)
+    if u_train.ndim != 2 or u_train.shape[1] != 2:
+        raise ValueError(f"Expected u_train shape (N,2), got {u_train.shape}")
+
+    # parametric_fit expects shape [N,2,n_edges].
+    u3 = u_train[:, :, None]
+    aic2, theta_list, _logp_list = parametric_fit(u3, families=families, n_cop=1)
+    aic = np.asarray(aic2[0], dtype=np.float64)
+    best_idx = int(np.nanargmin(aic))
+    fam = _normalize_family_name(families[best_idx])
+    theta = theta_list[0][best_idx]
+    return cop_par_obj(fam, theta)
+
+
+def _mean_bivariate_copula_nll(cop: cop_par_obj, u_test: np.ndarray) -> float:
+    """Mean bivariate copula NLL (nats) on pseudo-observations u_test[:,2]."""
+    u_test = np.asarray(u_test, dtype=np.float32)
+    uv = torch.tensor(u_test, dtype=torch.float32)
+    pdf = copulapdf(cop, uv).clamp_min(1e-30)
+    return float((-torch.log(pdf)).mean().detach().cpu())
 
 
 def gaussianize_columns(x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
@@ -144,6 +210,33 @@ def _mean_copula_nll(vine: vine_obj_bin, x: np.ndarray) -> float:
     return float((-log_cop).mean().detach().cpu())
 
 
+def _mean_level0_edge_nll(vine: vine_obj_bin, x: np.ndarray) -> float:
+    """Mean NLL (nats) of only the level-0 edges of a fitted C-vine.
+
+    This is useful for comparing against a pairwise-only baseline on the same edge set.
+    """
+    x = np.asarray(x, dtype=np.float32)
+    if x.ndim != 2:
+        raise ValueError(f"Expected x shape (N,d), got {x.shape}")
+
+    if not getattr(vine, "copulas", None) or not vine.copulas or not vine.copulas[0]:
+        return float("nan")
+    if not getattr(vine, "ind_vine", None) or not vine.ind_vine or not vine.ind_vine[0]:
+        return float("nan")
+
+    u = _pseudo_obs_from_gaussianized(x)
+    nlls: List[float] = []
+    for e_idx, cop in enumerate(vine.copulas[0]):
+        if e_idx >= len(vine.ind_vine[0]):
+            continue
+        i, j = vine.ind_vine[0][e_idx]
+        u_pair = u[:, [int(i), int(j)]]
+        nlls.append(_mean_bivariate_copula_nll(cop, u_pair))
+    if not nlls:
+        return float("nan")
+    return float(np.mean(nlls))
+
+
 def _gaussian_copula_nll(x: np.ndarray, ridge: float = 1e-4) -> float:
     """Mean negative log copula density under Gaussian copula fit, in nats.
 
@@ -177,6 +270,84 @@ def _gaussian_copula_nll(x: np.ndarray, ridge: float = 1e-4) -> float:
     quad = np.einsum("ni,ij,nj->n", x, A, x)
     log_c = -0.5 * logdet - 0.5 * quad
     return float(-np.mean(log_c))
+
+
+def _gaussian_copula_fit_corr(x_train: np.ndarray, ridge: float = 1e-4) -> np.ndarray:
+    """Fit a stabilized correlation matrix for a Gaussian copula."""
+    x_train = np.asarray(x_train, dtype=np.float64)
+    n, d = x_train.shape
+    if n < 5:
+        return np.eye(d, dtype=np.float64)
+
+    R = np.corrcoef(x_train, rowvar=False)
+    R = np.nan_to_num(R, nan=0.0, posinf=0.0, neginf=0.0)
+    R = 0.5 * (R + R.T)
+    np.fill_diagonal(R, 1.0)
+
+    R = R + ridge * np.eye(d)
+    w, V = np.linalg.eigh(R)
+    w = np.clip(w, 1e-6, None)
+    R = V @ np.diag(w) @ V.T
+    dstd = np.sqrt(np.clip(np.diag(R), 1e-12, None))
+    R = R / np.outer(dstd, dstd)
+    np.fill_diagonal(R, 1.0)
+    return R
+
+
+def _gaussian_copula_nll_given_corr(x: np.ndarray, R: np.ndarray) -> float:
+    """Mean negative log copula density under a Gaussian copula with fixed correlation."""
+    x = np.asarray(x, dtype=np.float64)
+    R = np.asarray(R, dtype=np.float64)
+    n, d = x.shape
+    if n < 5:
+        return float("nan")
+
+    sign, logdet = np.linalg.slogdet(R)
+    if sign <= 0 or not np.isfinite(logdet):
+        return float("nan")
+    invR = np.linalg.inv(R)
+    A = invR - np.eye(d)
+    quad = np.einsum("ni,ij,nj->n", x, A, x)
+    log_c = -0.5 * logdet - 0.5 * quad
+    return float(-np.mean(log_c))
+
+
+def _gaussian_copula_nll_fit_eval(x_train: np.ndarray, x_test: np.ndarray, ridge: float = 1e-4) -> float:
+    """Fit Gaussian-copula correlation on train and evaluate copula NLL on test."""
+    R = _gaussian_copula_fit_corr(x_train, ridge=ridge)
+    return _gaussian_copula_nll_given_corr(x_test, R)
+
+
+def _estimate_hub_by_correlation(x: np.ndarray) -> int:
+    """Heuristic hub estimate: argmax_i sum_j |corr(i,j)|."""
+    x = np.asarray(x, dtype=np.float64)
+    R = np.corrcoef(x, rowvar=False)
+    R = np.nan_to_num(R, nan=0.0, posinf=0.0, neginf=0.0)
+    np.fill_diagonal(R, 0.0)
+    score = np.sum(np.abs(R), axis=1)
+    return int(np.argmax(score))
+
+
+def _estimate_hub_by_glasso(
+    x: np.ndarray,
+    alpha: float = 0.02,
+    edge_threshold: float = 0.05,
+) -> int:
+    """Heuristic hub estimate from Graphical Lasso partial-correlation degrees."""
+    from sklearn.covariance import GraphicalLasso
+
+    x = np.asarray(x, dtype=np.float64)
+    model = GraphicalLasso(alpha=float(alpha), max_iter=200)
+    model.fit(x)
+    P = np.asarray(model.precision_, dtype=np.float64)
+    denom = np.sqrt(np.outer(np.diag(P), np.diag(P)))
+    denom = np.clip(denom, 1e-12, None)
+    pcor = -P / denom
+    np.fill_diagonal(pcor, 0.0)
+    adj = (np.abs(pcor) >= float(edge_threshold)).astype(np.int32)
+    deg = adj.sum(axis=1)
+    # Break ties deterministically by lowest index.
+    return int(np.argmax(deg))
 
 
 def _empirical_tail_dependence(u: np.ndarray, q: float, tail: str) -> float:
@@ -425,6 +596,48 @@ def _fit_parametric_vine(
     return vine
 
 
+def _fit_truncated_cvine_level0(
+    x_train: np.ndarray,
+    families: List[str],
+    order: Optional[List[int]] = None,
+) -> vine_obj_bin:
+    """Fit a 1-truncated C-vine: level-0 edges are fitted; higher trees are set to independence.
+
+    This provides a coherent multivariate baseline that uses only pairwise dependence terms.
+    """
+    x_train = np.asarray(x_train, dtype=np.float32)
+    if x_train.ndim != 2:
+        raise ValueError(f"Expected x_train shape (N,d), got {x_train.shape}")
+    d = int(x_train.shape[1])
+    if order is None:
+        order = list(range(d))
+
+    fams = sorted({_normalize_family_name(f) for f in families} | {"ind"})
+    vine = create_vine("c-vine", d, families=fams)
+    vine.ind_vine = _build_cvine_edges(order)
+
+    u = _pseudo_obs_rank(x_train)
+    copulas: List[List[cop_par_obj]] = []
+
+    # Level 0: fit each edge independently on rank pseudo-observations.
+    cops0: List[cop_par_obj] = []
+    for edge in vine.ind_vine[0]:
+        i, j = int(edge[0]), int(edge[1])
+        u_pair = u[:, [i, j]]
+        cops0.append(_fit_best_bivariate_copula(u_pair, families=families))
+    copulas.append(cops0)
+
+    # Levels 1..: independence.
+    for level in range(1, d - 1):
+        cops_level = [cop_par_obj("ind", None) for _ in vine.ind_vine[level]]
+        copulas.append(cops_level)
+
+    vine.copulas = copulas
+    vine.param = True
+    vine.fitted = True
+    return vine
+
+
 def _plot_multiplicative_triplet(
     out_png: Path,
     x: np.ndarray,
@@ -515,12 +728,22 @@ def _plot_dynamic_panel(
     else:
         ax3.axis("off")
 
-    # Panel 4: NLL gap.
-    ax4.plot(time, series["nll_gap"], color="black", linewidth=1.6)
+    # Panel 4: NLL gaps vs baselines (positive = DVC better).
+    ax4.plot(time, series["nll_gap"], color="black", linewidth=1.6, label="Gaussian copula")
+    if "nll_gap_truncated_level0" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_truncated_level0"],
+            color="tab:blue",
+            linewidth=1.4,
+            linestyle="--",
+            label="1-truncated C-vine",
+        )
     ax4.axhline(0.0, color="gray", linewidth=1.0, linestyle="--")
-    ax4.set_title("Gaussian baseline NLL gap (positive = vine better)")
+    ax4.set_title("Held-out copula NLL gap (positive = DVC better)")
     ax4.set_xlabel("time")
-    ax4.set_ylabel("NLL(g) - NLL(v)")
+    ax4.set_ylabel("NLL(baseline) - NLL(DVC)")
+    ax4.legend(frameon=True)
 
     if change_point is not None:
         for ax in (ax1, ax2, ax4):
@@ -538,6 +761,8 @@ def _plot_hub_switch_panel(
     time: np.ndarray,
     true_hub: List[int],
     est_hub: List[int],
+    corr_hub: Optional[List[int]],
+    glasso_hub: Optional[List[int]],
     change_point: int,
     title: str,
 ) -> None:
@@ -545,7 +770,11 @@ def _plot_hub_switch_panel(
     fig, axes = plt.subplots(1, 2, figsize=(11.2, 3.4))
 
     axes[0].plot(time, true_hub, label="true hub", linewidth=2.0)
-    axes[0].plot(time, est_hub, label="estimated hub (C-vine root)", linewidth=1.6)
+    axes[0].plot(time, est_hub, label="DVC (C-vine root)", linewidth=1.6)
+    if corr_hub is not None:
+        axes[0].plot(time, corr_hub, label="corr hub", linewidth=1.2, linestyle="--")
+    if glasso_hub is not None:
+        axes[0].plot(time, glasso_hub, label="glasso hub", linewidth=1.2, linestyle=":")
     axes[0].axvline(float(time[change_point]), color="crimson", linewidth=1.2)
     axes[0].set_title("Hub identity over time")
     axes[0].set_xlabel("time")
@@ -553,11 +782,18 @@ def _plot_hub_switch_panel(
     axes[0].legend(frameon=True)
 
     acc = np.mean(np.asarray(true_hub) == np.asarray(est_hub))
+    acc_corr = None if corr_hub is None else float(np.mean(np.asarray(true_hub) == np.asarray(corr_hub)))
+    acc_glasso = None if glasso_hub is None else float(np.mean(np.asarray(true_hub) == np.asarray(glasso_hub)))
     axes[1].axis("off")
+    extra = ""
+    if acc_corr is not None:
+        extra += f"\nCorr hub accuracy: {acc_corr:.3f}"
+    if acc_glasso is not None:
+        extra += f"\nGlasso hub accuracy: {acc_glasso:.3f}"
     axes[1].text(
         0.0,
         0.8,
-        f"Root recovery accuracy: {acc:.3f}\nChange point: t={int(change_point)}",
+        f"DVC root accuracy: {acc:.3f}{extra}\nChange point: t={int(change_point)}",
         fontsize=11,
     )
 
@@ -606,7 +842,18 @@ def run_neurips_simulation_suite(
             corr_yz_neg = float(np.corrcoef(x[x[:, 0] < 0, 1], x[x[:, 0] < 0, 2])[0, 1])
 
             families = ["independence", "gaussian", "student"]
-            vine = _fit_parametric_vine(x, families=families, optimize_structure=False, seed=seed)
+            # Train/test split for likelihood-based comparisons.
+            n = x.shape[0]
+            n_train = int(0.8 * n)
+            idx = np.random.default_rng(seed).permutation(n)
+            tr = x[idx[:n_train]]
+            te = x[idx[n_train:]]
+
+            vine = _fit_parametric_vine(tr, families=families, optimize_structure=False, seed=seed)
+            dvc_nll = _mean_copula_nll(vine, te)
+            gauss_nll = _gaussian_copula_nll_fit_eval(tr, te)
+            trunc_vine = _fit_truncated_cvine_level0(tr, families=families, order=[0, 1, 2])
+            trunc_nll = _mean_copula_nll(trunc_vine, te)
 
             # Extract the single tree-2 edge (conditional copula) for d=3.
             cond_family = None
@@ -614,6 +861,12 @@ def run_neurips_simulation_suite(
             if len(vine.copulas) >= 2 and len(vine.copulas[1]) >= 1:
                 cond_family = vine.copulas[1][0].family
                 cond_theta = vine.copulas[1][0].theta
+
+            # Pairwise-only fit for (Y,Z) as a baseline (no conditioning).
+            u_tr_yz = _pseudo_obs_from_gaussianized(tr[:, [1, 2]])
+            u_te_yz = _pseudo_obs_from_gaussianized(te[:, [1, 2]])
+            pair_cop = _fit_best_bivariate_copula(u_tr_yz, families=families)
+            pair_nll_yz = _mean_bivariate_copula_nll(pair_cop, u_te_yz)
 
             out_png = plots_dir / "multiplicative_triplet_panel.png"
             _plot_multiplicative_triplet(
@@ -626,8 +879,16 @@ def run_neurips_simulation_suite(
                 "corr_yz": corr_yz,
                 "corr_yz_xpos": corr_yz_pos,
                 "corr_yz_xneg": corr_yz_neg,
+                "dvc_nll": float(dvc_nll),
+                "gaussian_nll": float(gauss_nll),
+                "nll_gap": float(gauss_nll - dvc_nll),
+                "truncated_level0_nll": float(trunc_nll),
+                "nll_gap_truncated_level0": float(trunc_nll - dvc_nll),
                 "conditional_edge_family": cond_family,
                 "conditional_edge_theta": cond_theta,
+                "pairwise_yz_best_family": str(pair_cop.family),
+                "pairwise_yz_best_theta": pair_cop.theta,
+                "pairwise_yz_nll": float(pair_nll_yz),
             }
             continue
 
@@ -649,6 +910,7 @@ def run_neurips_simulation_suite(
             families = ["gaussian", "student", "independence"]
             dvc_nll = []
             gauss_nll = []
+            trunc_nll = []
             tail_emp = []
             tail_fit = []
             corr_mean = []
@@ -666,7 +928,9 @@ def run_neurips_simulation_suite(
 
                 vine = _fit_parametric_vine(tr, families=families, optimize_structure=False, seed=seed + t)
                 dvc_nll.append(_mean_copula_nll(vine, te))
-                gauss_nll.append(_gaussian_copula_nll(te))
+                gauss_nll.append(_gaussian_copula_nll_fit_eval(tr, te))
+                trunc_vine = _fit_truncated_cvine_level0(tr, families=families)
+                trunc_nll.append(_mean_copula_nll(trunc_vine, te))
 
                 # Second-order summaries: mean abs corr/tau for level-0 edges.
                 root = 0
@@ -710,6 +974,7 @@ def run_neurips_simulation_suite(
                 "tail_emp_upper_q95": np.asarray(tail_emp, dtype=np.float32),
                 "tail_fit_upper": np.asarray(tail_fit, dtype=np.float32),
                 "nll_gap": np.asarray(gauss_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_truncated_level0": np.asarray(trunc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
             }
             out_png = plots_dir / "dynamic_tail_df_panel.png"
             _plot_dynamic_panel(
@@ -727,6 +992,8 @@ def run_neurips_simulation_suite(
                 "dvc_nll": dvc_nll,
                 "gaussian_nll": gauss_nll,
                 "nll_gap": (np.asarray(gauss_nll) - np.asarray(dvc_nll)).tolist(),
+                "truncated_level0_nll": trunc_nll,
+                "nll_gap_truncated_level0": (np.asarray(trunc_nll) - np.asarray(dvc_nll)).tolist(),
                 "corr_mean_abs": corr_mean,
                 "tau_mean_abs": tau_mean,
                 "tail_emp_upper_q95": tail_emp,
@@ -750,6 +1017,7 @@ def run_neurips_simulation_suite(
             families = ["gaussian", "clayton", "gumbel", "independence"]
             dvc_nll = []
             gauss_nll = []
+            trunc_nll = []
             tau_mean = []
             tail_u = []
             tail_l = []
@@ -767,7 +1035,9 @@ def run_neurips_simulation_suite(
 
                 vine = _fit_parametric_vine(tr, families=families, optimize_structure=False, seed=seed + 11 * t)
                 dvc_nll.append(_mean_copula_nll(vine, te))
-                gauss_nll.append(_gaussian_copula_nll(te))
+                gauss_nll.append(_gaussian_copula_nll_fit_eval(tr, te))
+                trunc_vine = _fit_truncated_cvine_level0(tr, families=families)
+                trunc_nll.append(_mean_copula_nll(trunc_vine, te))
 
                 # Track Kendall tau stability and tail asymmetry for level-0 edges.
                 edges0 = [(0, j) for j in range(1, cfg["n_variables"])]
@@ -801,6 +1071,7 @@ def run_neurips_simulation_suite(
                 "tail_upper_q95": np.asarray(tail_u, dtype=np.float32),
                 "tail_lower_q05": np.asarray(tail_l, dtype=np.float32),
                 "nll_gap": np.asarray(gauss_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_truncated_level0": np.asarray(trunc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
             }
             out_png = plots_dir / "tail_switch_panel.png"
             _plot_dynamic_panel(
@@ -820,6 +1091,8 @@ def run_neurips_simulation_suite(
                 "dvc_nll": dvc_nll,
                 "gaussian_nll": gauss_nll,
                 "nll_gap": (np.asarray(gauss_nll) - np.asarray(dvc_nll)).tolist(),
+                "truncated_level0_nll": trunc_nll,
+                "nll_gap_truncated_level0": (np.asarray(trunc_nll) - np.asarray(dvc_nll)).tolist(),
                 "tau_mean_abs": tau_mean,
                 "tail_upper_q95": tail_u,
                 "tail_lower_q05": tail_l,
@@ -844,8 +1117,18 @@ def run_neurips_simulation_suite(
             true_hubs = gen["true_hubs"]
 
             est_hubs: List[int] = []
+            corr_hubs: List[int] = []
+            glasso_hubs: List[int] = []
             for t in range(time_data.shape[0]):
                 x_t = time_data[t]
+
+                corr_hub = _estimate_hub_by_correlation(x_t)
+                corr_hubs.append(corr_hub)
+                try:
+                    glasso_hubs.append(_estimate_hub_by_glasso(x_t))
+                except Exception:
+                    glasso_hubs.append(corr_hub)
+
                 # Structure only (fast): optimize C-vine order on pseudo-observations.
                 opt = optimize_vine_structure(
                     x_t,
@@ -870,17 +1153,25 @@ def run_neurips_simulation_suite(
                 time=time,
                 true_hub=true_hubs,
                 est_hub=est_hubs,
+                corr_hub=corr_hubs,
+                glasso_hub=glasso_hubs,
                 change_point=cp,
                 title="Hub switching (C-vine root) via structure optimization",
             )
 
             acc = float(np.mean(np.asarray(true_hubs) == np.asarray(est_hubs)))
+            acc_corr = float(np.mean(np.asarray(true_hubs) == np.asarray(corr_hubs)))
+            acc_glasso = float(np.mean(np.asarray(true_hubs) == np.asarray(glasso_hubs)))
             results["scenarios"][name] = {
                 **cfg,
                 "change_point": cp,
                 "true_hubs": true_hubs,
                 "estimated_hubs": est_hubs,
                 "root_recovery_accuracy": acc,
+                "corr_hub_estimated_hubs": corr_hubs,
+                "corr_hub_recovery_accuracy": acc_corr,
+                "glasso_hub_estimated_hubs": glasso_hubs,
+                "glasso_hub_recovery_accuracy": acc_glasso,
             }
             continue
 
@@ -892,10 +1183,18 @@ def run_neurips_simulation_suite(
         row = {"scenario": name}
         if "root_recovery_accuracy" in payload:
             row["root_recovery_accuracy"] = payload["root_recovery_accuracy"]
+        if "corr_hub_recovery_accuracy" in payload:
+            row["corr_hub_recovery_accuracy"] = payload["corr_hub_recovery_accuracy"]
+        if "glasso_hub_recovery_accuracy" in payload:
+            row["glasso_hub_recovery_accuracy"] = payload["glasso_hub_recovery_accuracy"]
         if "nll_gap" in payload:
             gap = np.asarray(payload["nll_gap"], dtype=np.float64)
             row["nll_gap_mean"] = float(np.nanmean(gap))
             row["nll_gap_std"] = float(np.nanstd(gap))
+        if "nll_gap_truncated_level0" in payload:
+            gap = np.asarray(payload["nll_gap_truncated_level0"], dtype=np.float64)
+            row["nll_gap_truncated_level0_mean"] = float(np.nanmean(gap))
+            row["nll_gap_truncated_level0_std"] = float(np.nanstd(gap))
         summary_rows.append(row)
     results["summary_table"] = summary_rows
 

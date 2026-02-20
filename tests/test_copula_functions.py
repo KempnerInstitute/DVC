@@ -123,7 +123,7 @@ class TestCopulaCCDF:
         cop = cop_par_obj("ind", None)
         uv = torch.rand(100, 2) * 0.98 + 0.01
         h = copulaccdf(cop, uv)
-        expected = uv[:, 0] * uv[:, 1]
+        expected = uv[:, 1]
         assert torch.allclose(h, expected, atol=1e-4)
 
 

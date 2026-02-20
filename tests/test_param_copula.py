@@ -244,7 +244,7 @@ class TestCopulaFamilyAliases:
         inv = copulainvccdf(cop, uv)
 
         assert torch.allclose(pdf, torch.ones_like(pdf))
-        assert torch.allclose(h, uv[:, 0] * uv[:, 1])
+        assert torch.allclose(h, uv[:, 1])
         assert torch.allclose(inv, uv[:, 1])
 
 

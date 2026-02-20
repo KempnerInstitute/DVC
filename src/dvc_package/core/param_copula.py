@@ -853,20 +853,29 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
 
 def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
     """
-    Evaluate the CDF of param copula at points 'uv' shape [N,2].
-    We do:
-      - "ind" => product
-      - "gaussian" => bivariate normal cdf
-      - "clayton" => (u^-alpha + v^-alpha -1)^(-1/ alpha) if sum>1
-      - "claytonrot90" => flip, then call clayton
-      - "student" => partial or raise
+    Evaluate the conditional CDF / h-function h(v|u) of a bivariate copula.
+
+    Notes
+    -----
+    For continuous marginals, the h-function is
+      h(v|u) = ∂C(u,v) / ∂u,
+    and is required for vine construction (pseudo-observations propagation) and
+    sequential sampling.
+
+    Parameters
+    ----------
+    cop_p:
+        Copula object with fields `.family` and `.theta`.
+    uv:
+        Tensor of shape [N,2] with values in [0,1].
     """
     fam = _normalize_family_name(cop_p.family)
     param = cop_p.theta
     uv_clamped = torch.clamp(uv, 1e-9, 1 - 1e-9)
 
     if fam=='ind':
-        return uv_clamped[:,0]*uv_clamped[:,1]
+        # Independence: h(v|u) = v.
+        return uv_clamped[:, 1]
 
     elif fam=='gaussian':
         # Handle case where param might be a list
@@ -921,60 +930,66 @@ def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         return torch.tensor(h_val, dtype=uv.dtype, device=uv.device).clamp(1e-9, 1 - 1e-9)
 
     elif fam=='clayton':
-        alpha = float(param)
-        u_ = uv_clamped[:,0]
-        v_ = uv_clamped[:,1]
-        sum_ = (u_.pow(-alpha) + v_.pow(-alpha) -1.0)
-        # if sum_<0 => cdf=0
-        sum_ = torch.clamp(sum_, min=0.0)
-        cdf_ = sum_.pow(-1.0/ alpha)
-        # if alpha>0 => we typically have cdf=0 if sum<0
-        # clamp to [0,1]
-        cdf_ = torch.clamp(cdf_, 0.0, 1.0)
-        return cdf_
+        # Clayton: C(u,v) = (u^{-a} + v^{-a} - 1)^(-1/a), a>0.
+        # h(v|u) = ∂C/∂u = u^{-a-1} * (u^{-a} + v^{-a} - 1)^(-1/a - 1).
+        alpha = max(float(param), 1e-6)
+        u_ = uv_clamped[:, 0]
+        v_ = uv_clamped[:, 1]
+        u_m_alpha = torch.pow(u_, -alpha)
+        v_m_alpha = torch.pow(v_, -alpha)
+        sum_ = torch.clamp(u_m_alpha + v_m_alpha - 1.0, min=1e-14)
+        h_ = torch.pow(u_, -(alpha + 1.0)) * torch.pow(sum_, -(1.0 / alpha + 1.0))
+        return torch.clamp(h_, 1e-9, 1.0 - 1e-9)
 
     elif fam=='claytonrot90':
-        # flip => pass to clayton
+        # 90-degree rotation: C^{90}(u,v) = v - C(1-u, v).
+        # Then h^{90}(v|u) = ∂C^{90}/∂u = h(v|1-u) for the base copula.
         uv_flip = uv_clamped.clone()
-        uv_flip[:,0] = 1.0 - uv_clamped[:,0]
+        uv_flip[:, 0] = 1.0 - uv_clamped[:, 0]
         from copy import deepcopy
         cop_p_temp = deepcopy(cop_p)
-        cop_p_temp.family='clayton'
+        cop_p_temp.family = 'clayton'
         return copulaccdf(cop_p_temp, uv_flip)
 
     elif fam=='frank':
         theta = float(param)
         if abs(theta) < 1e-6:
-            return uv_clamped[:, 0] * uv_clamped[:, 1]
-        
-        u1, u2 = uv_clamped[:, 0], uv_clamped[:, 1]
-        exp_theta = torch.exp(torch.tensor(theta))
-        exp_theta_u1 = torch.exp(theta * u1)
-        exp_theta_u2 = torch.exp(theta * u2)
-        
-        # Frank copula CDF: C(u,v) = -1/theta * log(1 + (exp(-theta*u)-1)(exp(-theta*v)-1)/(exp(-theta)-1))
-        numerator = (exp_theta_u1 - 1) * (exp_theta_u2 - 1)
-        denominator = exp_theta - 1
-        
-        cdf = -torch.log(1 + numerator / denominator) / theta
-        return torch.clamp(cdf, 0.0, 1.0)
+            return uv_clamped[:, 1]
+
+        u1, v = uv_clamped[:, 0], uv_clamped[:, 1]
+
+        # Stable form using expm1.
+        exp_neg_theta_u1 = torch.exp(-theta * u1)
+        expm1_neg_theta_v = torch.expm1(-theta * v)
+        expm1_neg_theta = torch.expm1(torch.tensor(-theta, dtype=uv.dtype, device=uv.device))
+
+        num = exp_neg_theta_u1 * expm1_neg_theta_v
+        den = num + expm1_neg_theta
+        den = torch.clamp(den, min=1e-15)
+        h_ = num / den
+        return torch.clamp(h_, 1e-9, 1.0 - 1e-9)
 
     elif fam=='gumbel':
         theta = float(param)
-        theta = max(theta, 1.001)
-        
-        u1, u2 = uv_clamped[:, 0], uv_clamped[:, 1]
-        log_u1 = torch.log(u1)
-        log_u2 = torch.log(u2)
-        
-        neg_log_u1_pow = torch.pow(-log_u1, theta)
-        neg_log_u2_pow = torch.pow(-log_u2, theta)
-        sum_pow = neg_log_u1_pow + neg_log_u2_pow
-        sum_pow = torch.clamp(sum_pow, min=1e-15)
-        
-        # Gumbel copula CDF: C(u,v) = exp(-[(-log u)^theta + (-log v)^theta]^(1/theta))
-        cdf = torch.exp(-torch.pow(sum_pow, 1.0/theta))
-        return torch.clamp(cdf, 0.0, 1.0)
+        if theta <= 1.0 + 1e-6:
+            return uv_clamped[:, 1]
+        theta = max(theta, 1.0 + 1e-6)
+
+        u, v = uv_clamped[:, 0], uv_clamped[:, 1]
+        log_u = torch.log(u)
+        log_v = torch.log(v)
+
+        a = torch.pow(-log_u, theta)
+        b = torch.pow(-log_v, theta)
+        sum_pow = torch.clamp(a + b, min=1e-15)
+        sum_pow_1_theta = torch.pow(sum_pow, 1.0 / theta)
+        C = torch.exp(-sum_pow_1_theta)
+
+        # h(v|u) = ∂C/∂u = C * (a+b)^{1/theta - 1} * (-log u)^{theta-1} / u.
+        term1 = torch.pow(sum_pow, 1.0 / theta - 1.0)
+        term2 = torch.pow(-log_u, theta - 1.0) / torch.clamp(u, min=1e-12)
+        h_ = C * term1 * term2
+        return torch.clamp(h_, 1e-9, 1.0 - 1e-9)
 
     else:
         return torch.zeros(uv.shape[0], dtype=uv.dtype, device=uv.device)
