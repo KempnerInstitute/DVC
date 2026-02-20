@@ -1,0 +1,39 @@
+# NeurIPS 2026 Simulation Suite (Paper-Defining Synthetic Experiments)
+name: "neurips_simulations"
+description: "Synthetic simulations highlighting higher-order and time-varying dependence beyond correlation"
+output_dir: "results/neurips_simulations"
+seed: 2026
+
+analysis_config:
+  experiment_type: "neurips_simulations"
+  scenarios:
+    - name: "multiplicative_triplet"
+      n_samples: 6000
+      noise_std: 0.25
+
+    - name: "dynamic_tail_df"
+      n_time_steps: 24
+      n_samples_per_time: 250
+      n_variables: 5
+      rho: 0.6
+      nu_low: 3.0
+      nu_high: 30.0
+      schedule: "piecewise"
+
+    - name: "tail_switch"
+      n_time_steps: 24
+      n_samples_per_time: 250
+      n_variables: 5
+      kendall_tau: 0.4
+
+    - name: "hub_switch"
+      n_time_steps: 24
+      n_samples_per_time: 250
+      n_variables: 8
+      hub_a: 0
+      hub_b: 1
+      rho_hub: 0.7
+
+plot_config:
+  create_plots: true
+

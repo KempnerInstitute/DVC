@@ -32,6 +32,7 @@ from ..time.data import generate_synthetic_time_series, create_data_loader, prep
 from ..time.model import TimeDependentVineCopula
 from ..time.flows import TimeBandwidthFlow
 from ..utils.utils_tensor import replace_nan_inf, handle_small_sample_size
+from .neurips_simulations import run_neurips_simulation_suite
 
 logger = logging.getLogger("DVC.experiments")
 
@@ -1052,6 +1053,43 @@ class TimeDependentExperiment(BaseExperiment):
         plt.close()
 
 
+class NeuripsSimulationsExperiment(BaseExperiment):
+    """NeurIPS-oriented synthetic simulation suite.
+
+    Generates paper-defining scenarios that stress-test higher-order and time-varying dependence:
+    - beyond pairwise (conditional dependence with near-zero pairwise correlation)
+    - dynamic tail dependence at stable second-order summaries
+    - matched Kendall-tau with switching tail asymmetry (Clayton ↔ Gumbel)
+    - hub/root switching recovered via structure optimization
+    """
+
+    def run(self) -> Dict[str, Any]:
+        self.logger.info(f"Running NeurIPS simulation suite: {self.config.name}")
+
+        scenarios = self.config.analysis_config.get("scenarios", [])
+        if not isinstance(scenarios, list) or not scenarios:
+            # Default suite if not specified in YAML.
+            scenarios = [
+                {"name": "multiplicative_triplet"},
+                {"name": "dynamic_tail_df"},
+                {"name": "tail_switch"},
+                {"name": "hub_switch"},
+            ]
+
+        results = run_neurips_simulation_suite(
+            output_dir=self.output_dir,
+            seed=int(self.config.seed or 0),
+            scenarios=scenarios,
+        )
+
+        # Add top-level metadata for consistency with other experiments.
+        results["timestamp"] = datetime.now().isoformat()
+        results["config"] = self.config.__dict__
+
+        self.save_results(results)
+        return results
+
+
 class ExperimentRunner:
     """Main class for running experiments from YAML configurations."""
     
@@ -1076,6 +1114,8 @@ class ExperimentRunner:
             experiment = EntropyAnalysisExperiment(config)
         elif experiment_type == 'time_dependent':
             experiment = TimeDependentExperiment(config)
+        elif experiment_type == 'neurips_simulations':
+            experiment = NeuripsSimulationsExperiment(config)
         else:
             raise ValueError(f"Unknown experiment type: {experiment_type}")
         

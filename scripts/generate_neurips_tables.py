@@ -184,11 +184,47 @@ def _summarize_time_dependent(result: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.
     return detail_df, summary_df
 
 
+def _summarize_neurips_simulations(result: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    run_name = result.get("config", {}).get("name", "unknown")
+    rows = result.get("summary_table", [])
+
+    detail_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        detail_rows.append({"experiment_name": run_name, **row})
+    detail_df = pd.DataFrame(detail_rows)
+
+    # Minimal one-row summary.
+    n_scenarios = int(detail_df["scenario"].nunique()) if not detail_df.empty and "scenario" in detail_df else 0
+    mean_gap = None
+    if not detail_df.empty and "nll_gap_mean" in detail_df:
+        mean_gap = float(detail_df["nll_gap_mean"].mean())
+
+    root_acc = None
+    if not detail_df.empty and "root_recovery_accuracy" in detail_df:
+        root_acc = float(detail_df["root_recovery_accuracy"].mean())
+
+    summary_df = pd.DataFrame(
+        [
+            {
+                "experiment_name": run_name,
+                "experiment_type": "neurips_simulations",
+                "n_scenarios": n_scenarios,
+                "mean_nll_gap_mean": mean_gap,
+                "mean_root_recovery_accuracy": root_acc,
+            }
+        ]
+    )
+    return detail_df, summary_df
+
+
 def _write_table(df: pd.DataFrame, csv_path: Path, tex_path: Path):
     df.to_csv(csv_path, index=False)
     tex = df.to_latex(
         index=False,
         escape=True,
+        na_rep="",
         float_format=lambda x: f"{x:.4f}" if pd.notnull(x) else "",
     )
     tex_path.write_text(tex)
@@ -203,6 +239,7 @@ def main():
             "configs/probability_analysis.yaml",
             "configs/entropy_analysis.yaml",
             "configs/time_dependent.yaml",
+            "configs/neurips_simulations.yaml",
         ],
         help="YAML configs to include.",
     )
@@ -234,6 +271,7 @@ def main():
     prob_details = []
     entropy_details = []
     time_details = []
+    sim_details = []
     summary_rows = []
 
     for result_json in result_jsons:
@@ -251,6 +289,10 @@ def main():
         elif experiment_type == "time_dependent":
             detail_df, summary_df = _summarize_time_dependent(result)
             time_details.append(detail_df)
+            summary_rows.append(summary_df)
+        elif experiment_type == "neurips_simulations":
+            detail_df, summary_df = _summarize_neurips_simulations(result)
+            sim_details.append(detail_df)
             summary_rows.append(summary_df)
 
     if prob_details:
@@ -275,6 +317,14 @@ def main():
             time_df,
             outdir / "time_pair_detail.csv",
             outdir / "time_pair_detail.tex",
+        )
+
+    if sim_details:
+        sim_df = pd.concat(sim_details, ignore_index=True)
+        _write_table(
+            sim_df,
+            outdir / "neurips_simulation_detail.csv",
+            outdir / "neurips_simulation_detail.tex",
         )
 
     if summary_rows:

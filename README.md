@@ -101,6 +101,7 @@ Outputs are written under `results/neurips_tables/`:
 - `probability_vine_detail.csv` / `.tex`
 - `entropy_method_detail.csv` / `.tex`
 - `time_pair_detail.csv` / `.tex`
+- `neurips_simulation_detail.csv` / `.tex` (from `configs/neurips_simulations.yaml`)
 
 ## Prepare Standalone Draft Assets
 

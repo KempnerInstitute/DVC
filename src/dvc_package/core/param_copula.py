@@ -152,120 +152,94 @@ def fit_gaussian(u: torch.Tensor):
 
 def fit_student(u: torch.Tensor):
     """
-    Fit a bivariate Student copula using gradient-based optimization (matching TensorFlow).
-    
-    Uses Nadam optimizer to minimize negative log-likelihood of bivariate t-copula.
-    Parameters: correlation (rho) and degrees of freedom (nu).
-    
-    u shape: [N,2]
-    returns: ( (rho, df), logL, aic )
+    Fit a bivariate Student-t copula.
+
+    Notes
+    -----
+    The copula density is
+      c(u,v) = f_{t,2}(t^{-1}(u), t^{-1}(v); rho, nu) / (f_{t,1}(t^{-1}(u);nu) f_{t,1}(t^{-1}(v);nu)).
+
+    We estimate rho from Kendall's tau (elliptical copulas) and select nu by
+    a lightweight grid-search on AIC. This avoids unstable gradients through
+    scipy's `t.ppf` and is robust for typical sample sizes.
+
+    Parameters
+    ----------
+    u : torch.Tensor
+        Pseudo-observations in [0,1], shape (N,2).
+
+    Returns
+    -------
+    (rho, nu), ll, aic
     """
-    device = u.device
-    dtype = u.dtype
-    n_samples = u.shape[0]
-    
-    # Initialize parameters: [rho, log(nu-2)] to ensure nu > 2
-    # Start with Gaussian fit for rho, and nu=4
-    rho_init, _, _ = fit_gaussian(u)
-    params_init = torch.tensor([rho_init, math.log(2.0)], dtype=dtype, device=device, requires_grad=True)
-    
-    # Optimization parameters from TensorFlow
-    lr = 0.01
-    conv_tol = 1e-3
-    max_iter = 200 if u.shape[0] > 100 else 100
-    beta1 = 0.9
-    beta2 = 0.999
-    eps = 1e-6
-    
-    # Initialize Nadam parameters
-    m = torch.zeros_like(params_init)
-    v = torch.zeros_like(params_init)
-    
-    # Previous error for convergence check
-    prev_err = torch.tensor(float('inf'), dtype=dtype, device=device)
-    
-    for iter_num in range(max_iter):
-        # Zero gradients
-        if params_init.grad is not None:
-            params_init.grad.zero_()
-            
-        # Extract parameters
-        rho = torch.clamp(params_init[0], -0.999, 0.999)
-        nu = torch.exp(params_init[1]) + 2.0  # Ensure nu > 2
-        nu = torch.clamp(nu, 2.1, 50.0)  # Reasonable bounds
-        
-        # Convert to t-distribution quantiles
-        u_clamped = torch.clamp(u, 1e-9, 1-1e-9)
-        
-        # Use scipy's t.ppf for quantiles (vectorized for efficiency)
-        t_quantiles_np = t.ppf(u_clamped.detach().cpu().numpy(), nu.detach().cpu().numpy())
-        t_quantiles = torch.tensor(t_quantiles_np, dtype=dtype, device=device)
-        
-        t1, t2 = t_quantiles[:, 0], t_quantiles[:, 1]
-        
-        # Compute copula log-density for bivariate t-copula
-        # Formula: log c(u,v) = log(Gamma((nu+2)/2) * Gamma(nu/2)) - log(Gamma((nu+1)/2))^2 
-        #                      - 0.5 * log(1-rho^2) + (nu+1)/2 * log(1 + (t1^2 + t2^2 - 2*rho*t1*t2)/(nu*(1-rho^2)))
-        #                      - log(1 + t1^2/nu)^((nu+1)/2) - log(1 + t2^2/nu)^((nu+1)/2)
-        
-        one_minus_rho2 = 1 - rho**2
-        one_minus_rho2 = torch.clamp(one_minus_rho2, min=1e-12)
-        
-        # Gamma function terms
-        log_gamma_term = (torch.lgamma((nu + 2) / 2) + torch.lgamma(nu / 2) 
-                         - 2 * torch.lgamma((nu + 1) / 2))
-        
-        # Quadratic form
-        quad_form = (t1**2 + t2**2 - 2*rho*t1*t2) / (nu * one_minus_rho2)
-        
-        # Log copula density
-        log_copula_pdf = (log_gamma_term - 0.5 * torch.log(one_minus_rho2) 
-                         + (nu + 1) / 2 * torch.log(1 + quad_form)
-                         - (nu + 1) / 2 * torch.log(1 + t1**2 / nu)
-                         - (nu + 1) / 2 * torch.log(1 + t2**2 / nu))
-        
-        # Handle potential NaN/Inf values
-        log_copula_pdf = torch.where(torch.isfinite(log_copula_pdf), 
-                                   log_copula_pdf, torch.tensor(-30.0, dtype=dtype, device=device))
-        
-        # Negative log-likelihood
-        err = -torch.sum(log_copula_pdf)
-        
-        # Check convergence
-        if torch.abs(err - prev_err) < conv_tol:
-            break
-            
-        # Backward pass
-        err.backward()
-        
-        # Nadam update (matching TensorFlow)
-        grad = params_init.grad
-        iter1 = float(iter_num + 1)
-        
-        m = beta1 * m + (1 - beta1) * grad
-        v = beta2 * v + (1 - beta2) * grad**2
-        
-        m_hat = m / (1 - beta1**iter1) + (1 - beta1) * grad / (1 - beta1**iter1)
-        v_hat = v / (1 - beta2**iter1)
-        
-        # Update parameters
-        with torch.no_grad():
-            params_init -= lr * m_hat / (torch.sqrt(v_hat) + eps)
-            
-        prev_err = err.clone()
-    
-    # Final parameter values
-    rho_final = torch.clamp(params_init[0], -0.999, 0.999).item()
-    nu_final = (torch.exp(params_init[1]) + 2.0).item()
-    nu_final = max(min(nu_final, 50.0), 2.1)
-    
-    # Compute final log-likelihood for AIC
-    ll_val = -err.item()
-    
-    k = 2  # Two parameters: rho and nu
-    aic = 2*k - 2*ll_val
-    
-    return (float(rho_final), float(nu_final)), ll_val, aic
+    # Clamp to open interval (0,1) for stability in quantile transforms.
+    u_np = torch.clamp(u.detach().cpu(), 1e-9, 1.0 - 1e-9).numpy()
+    if u_np.shape[0] < 10:
+        # Too few samples to reliably fit nu; fall back to a near-Gaussian t-copula.
+        tau, _ = kendalltau(u_np[:, 0], u_np[:, 1])
+        tau = 0.0 if not np.isfinite(tau) else float(tau)
+        rho = math.sin(0.5 * math.pi * max(min(tau, 0.999), -0.999))
+        nu = 50.0
+        ll_val = 0.0
+        k = 2
+        aic = 2 * k - 2 * ll_val
+        return (float(rho), float(nu)), float(ll_val), float(aic)
+
+    tau, _ = kendalltau(u_np[:, 0], u_np[:, 1])
+    tau = 0.0 if not np.isfinite(tau) else float(tau)
+    rho = math.sin(0.5 * math.pi * max(min(tau, 0.999), -0.999))
+    rho = float(np.clip(rho, -0.999999, 0.999999))
+
+    # Candidate nu grid; favor lower nu resolution near 2 where tails change rapidly.
+    nu_grid = np.array([2.2, 2.5, 3.0, 4.0, 6.0, 8.0, 10.0, 15.0, 20.0, 30.0, 50.0], dtype=np.float64)
+
+    one_minus_rho2 = max(1.0 - rho * rho, 1e-12)
+    log_const_nu = None
+
+    best = {"aic": float("inf"), "ll": float("-inf"), "nu": 50.0}
+    x_u = u_np[:, 0]
+    y_u = u_np[:, 1]
+
+    for nu in nu_grid:
+        nu = float(np.clip(nu, 2.1, 50.0))
+        x = t.ppf(x_u, nu)
+        y = t.ppf(y_u, nu)
+
+        # Guard against numerical issues in extreme tails.
+        if not (np.all(np.isfinite(x)) and np.all(np.isfinite(y))):
+            continue
+
+        quad = (x * x + y * y - 2.0 * rho * x * y) / (nu * one_minus_rho2)
+        quad = np.maximum(quad, 0.0)
+
+        # log constant term:
+        # log Γ((nu+2)/2) + log Γ(nu/2) - 2 log Γ((nu+1)/2) - 0.5 log(1-rho^2)
+        log_gamma_term = (
+            math.lgamma((nu + 2.0) / 2.0)
+            + math.lgamma(nu / 2.0)
+            - 2.0 * math.lgamma((nu + 1.0) / 2.0)
+        )
+        log_const = log_gamma_term - 0.5 * math.log(one_minus_rho2)
+
+        log_c = (
+            log_const
+            - 0.5 * (nu + 2.0) * np.log1p(quad)
+            + 0.5 * (nu + 1.0) * (np.log1p((x * x) / nu) + np.log1p((y * y) / nu))
+        )
+        if not np.all(np.isfinite(log_c)):
+            continue
+
+        ll = float(np.sum(log_c))
+        k = 2
+        aic = 2.0 * k - 2.0 * ll
+        if aic < best["aic"]:
+            best = {"aic": aic, "ll": ll, "nu": nu}
+
+    # If all candidates failed, fall back.
+    nu_best = float(best["nu"])
+    ll_val = float(best["ll"]) if np.isfinite(best["ll"]) else 0.0
+    aic = float(best["aic"]) if np.isfinite(best["aic"]) else float("inf")
+    return (float(rho), float(nu_best)), ll_val, aic
 
 
 ################################################
@@ -776,28 +750,32 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         rho = max(min(rho, 0.999999), -0.999999)
         nu = max(nu, 2.1)
         
-        # Convert to t-distribution quantiles
-        t_quantiles = torch.zeros_like(uv_clamped)
-        for i in range(uv_clamped.shape[0]):
-            for j in range(2):
-                t_quantiles[i, j] = torch.tensor(
-                    t.ppf(uv_clamped[i, j].cpu().numpy(), nu),
-                    dtype=uv_clamped.dtype, device=uv_clamped.device
-                )
+        # Convert to t-distribution quantiles (vectorized via SciPy).
+        u_np = uv_clamped.detach().cpu().numpy()
+        t_quantiles_np = t.ppf(u_np, nu)
+        t_quantiles = torch.tensor(t_quantiles_np, dtype=uv_clamped.dtype, device=uv_clamped.device)
         
         t1, t2 = t_quantiles[:, 0], t_quantiles[:, 1]
         one_minus_rho2 = 1 - rho**2
         
         # Student t copula PDF
-        log_gamma_term = (torch.lgamma(torch.tensor((nu + 2) / 2)) + torch.lgamma(torch.tensor(nu / 2)) 
-                         - 2 * torch.lgamma(torch.tensor((nu + 1) / 2)))
+        nu_t = torch.tensor(nu, dtype=uv_clamped.dtype, device=uv_clamped.device)
+        log_gamma_term = (
+            torch.lgamma((nu_t + 2.0) / 2.0)
+            + torch.lgamma(nu_t / 2.0)
+            - 2.0 * torch.lgamma((nu_t + 1.0) / 2.0)
+        )
         
         quad_form = (t1**2 + t2**2 - 2*rho*t1*t2) / (nu * one_minus_rho2)
         
-        log_pdf = (log_gamma_term - 0.5 * math.log(one_minus_rho2) 
-                  + (nu + 1) / 2 * torch.log(1 + quad_form)
-                  - (nu + 1) / 2 * torch.log(1 + t1**2 / nu)
-                  - (nu + 1) / 2 * torch.log(1 + t2**2 / nu))
+        # Correct log copula density:
+        # log c(u,v) = const - (nu+2)/2 * log(1 + quad) + (nu+1)/2 * [log(1+x^2/nu) + log(1+y^2/nu)]
+        log_pdf = (
+            log_gamma_term
+            - 0.5 * math.log(max(one_minus_rho2, 1e-12))
+            - 0.5 * (nu + 2.0) * torch.log1p(torch.clamp(quad_form, min=0.0))
+            + 0.5 * (nu + 1.0) * (torch.log1p((t1**2) / nu) + torch.log1p((t2**2) / nu))
+        )
         
         return torch.exp(torch.clamp(log_pdf, -30.0, 30.0))
 

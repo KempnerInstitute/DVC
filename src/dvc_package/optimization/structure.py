@@ -161,46 +161,37 @@ def _optimize_cvine_sequential(data: np.ndarray, data_u: np.ndarray,
                               criterion: str, verbose: bool) -> vine_obj_bin:
     """Optimize C-vine by selecting best root variable ordering."""
     d = data.shape[1]
-    
-    # Try different root orderings and select best
-    lower_is_better = criterion in {"aic", "bic"}
-    best_score = float("inf") if lower_is_better else float("-inf")
-    best_order = list(range(d))
-    
-    # For C-vine, we optimize the order of root variables
-    for root_order in _generate_variable_permutations(
-        d, max_permutations=min(24, math.factorial(d))
-    ):
-        score = 0
-        
-        # Compute total dependence for this root ordering
-        for level in range(d - 1):
-            root = root_order[level]
-            for j in range(level + 1, d):
-                var = root_order[j]
-                
-                if criterion == "kendall_tau":
-                    tau, _ = kendalltau(data_u[:, root], data_u[:, var])
-                    score += abs(tau)
-                elif criterion in {"entropy", "aic", "bic"}:
-                    # Simplified entropy approximation
-                    score += _pairwise_mutual_information(data_u[:, root], data_u[:, var])
-        
-        is_better = score < best_score if lower_is_better else score > best_score
-        if is_better:
-            best_score = score
-            best_order = root_order
-    
+
+    # Greedy ordering scales to moderate/high d and is deterministic enough for benchmarking.
+    dep = np.zeros((d, d), dtype=np.float64)
+    for i in range(d):
+        for j in range(i + 1, d):
+            if criterion == "kendall_tau":
+                tau, _ = kendalltau(data_u[:, i], data_u[:, j])
+                val = abs(tau) if np.isfinite(tau) else 0.0
+            elif criterion in {"entropy", "aic", "bic"}:
+                # Proxy: pairwise MI on pseudo-observations.
+                val = float(_pairwise_mutual_information(data_u[:, i], data_u[:, j]))
+            else:
+                tau, _ = kendalltau(data_u[:, i], data_u[:, j])
+                val = abs(tau) if np.isfinite(tau) else 0.0
+            dep[i, j] = dep[j, i] = val
+
+    remaining = list(range(d))
+    order: List[int] = []
+    while len(remaining) > 1:
+        scores = [float(dep[v, remaining].sum() - dep[v, v]) for v in remaining]
+        best_idx = int(np.argmax(scores))
+        best_var = int(remaining.pop(best_idx))
+        order.append(best_var)
+    order.extend(remaining)
+
     if verbose:
-        logger.info(f"Best C-vine root order: {best_order}, score: {best_score:.4f}")
-    
-    # Create optimized C-vine
+        logger.info(f"Greedy C-vine root order: {order}")
+
     vine = create_vine("c-vine", d)
-    
-    # Reorder variables in vine structure
-    vine.variable_order = best_order
-    _reorder_vine_structure(vine, best_order)
-    
+    vine.variable_order = order
+    _reorder_vine_structure(vine, order)
     return vine
 
 
