@@ -15,7 +15,10 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+import seaborn as sns
 import yaml
 
 import sys
@@ -219,6 +222,145 @@ def _summarize_neurips_simulations(result: Dict[str, Any]) -> Tuple[pd.DataFrame
     return detail_df, summary_df
 
 
+def _as_1d_float_array(value: Any) -> Optional[np.ndarray]:
+    """Convert scalar/list-like value to a finite 1D float array."""
+    if value is None:
+        return None
+    if isinstance(value, (float, int)):
+        arr = np.asarray([value], dtype=np.float64)
+    else:
+        try:
+            arr = np.asarray(value, dtype=np.float64).reshape(-1)
+        except Exception:
+            return None
+    if arr.size == 0:
+        return None
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return None
+    return arr
+
+
+def _extract_effective_behavior_rows(
+    result: Dict[str, Any],
+    run_name: str,
+) -> pd.DataFrame:
+    """Build per-scenario/per-baseline effective-behavior metrics from time-series NLL gaps."""
+    scenarios = result.get("scenarios", {})
+    if not isinstance(scenarios, dict):
+        return pd.DataFrame()
+
+    gap_fields = {
+        "nll_gap": "Gaussian copula",
+        "nll_gap_truncated_level0": "1-truncated C-vine",
+        "nll_gap_glasso": "Graphical Lasso",
+        "nll_gap_tvgl": "TVGL (Frobenius)",
+        "nll_gap_kde_flow": "KDE-flow (time BW)",
+    }
+
+    rows: List[Dict[str, Any]] = []
+    for scenario, payload in scenarios.items():
+        if not isinstance(payload, dict):
+            continue
+        cp = payload.get("change_point")
+        cp_idx = None
+        try:
+            cp_idx = int(cp)
+        except Exception:
+            cp_idx = None
+
+        for field, baseline in gap_fields.items():
+            series = _as_1d_float_array(payload.get(field))
+            if series is None:
+                continue
+            n = int(series.size)
+            pos_frac = float(np.mean(series > 0.0))
+            row = {
+                "experiment_name": run_name,
+                "scenario": str(scenario),
+                "baseline": baseline,
+                "gap_key": field,
+                "n_timepoints_or_trials": n,
+                "mean_gap": float(np.mean(series)),
+                "std_gap": float(np.std(series)),
+                "median_gap": float(np.median(series)),
+                "min_gap": float(np.min(series)),
+                "max_gap": float(np.max(series)),
+                "positive_fraction": pos_frac,
+            }
+            if cp_idx is not None and n > 1:
+                cp_clip = int(np.clip(cp_idx, 1, n - 1))
+                pre = series[:cp_clip]
+                post = series[cp_clip:]
+                row["pre_change_mean_gap"] = float(np.mean(pre))
+                row["post_change_mean_gap"] = float(np.mean(post))
+                row["post_minus_pre_gap"] = float(np.mean(post) - np.mean(pre))
+                row["change_point"] = cp_clip
+            rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def _plot_effective_behavior_heatmaps(df: pd.DataFrame, out_png: Path) -> None:
+    """Plot scenario x baseline heatmaps for mean NLL gap and positive-time fraction."""
+    if df.empty:
+        return
+    required = {"scenario", "baseline", "mean_gap", "positive_fraction"}
+    if not required.issubset(set(df.columns)):
+        return
+
+    mean_piv = df.pivot_table(
+        index="scenario",
+        columns="baseline",
+        values="mean_gap",
+        aggfunc="mean",
+    )
+    pos_piv = df.pivot_table(
+        index="scenario",
+        columns="baseline",
+        values="positive_fraction",
+        aggfunc="mean",
+    )
+
+    if mean_piv.empty or pos_piv.empty:
+        return
+
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+
+    sns.set_theme(style="whitegrid", context="paper")
+    fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.0), constrained_layout=True)
+
+    sns.heatmap(
+        mean_piv,
+        ax=axes[0],
+        cmap="RdYlGn",
+        center=0.0,
+        annot=True,
+        fmt=".2f",
+        cbar_kws={"label": "NLL gap (baseline - DVC)"},
+    )
+    axes[0].set_title("Mean held-out copula NLL gap")
+    axes[0].set_xlabel("Baseline")
+    axes[0].set_ylabel("Scenario")
+
+    sns.heatmap(
+        pos_piv,
+        ax=axes[1],
+        cmap="YlGnBu",
+        vmin=0.0,
+        vmax=1.0,
+        annot=True,
+        fmt=".2f",
+        cbar_kws={"label": "Fraction(gap > 0)"},
+    )
+    axes[1].set_title("Positive-gap fraction")
+    axes[1].set_xlabel("Baseline")
+    axes[1].set_ylabel("Scenario")
+
+    fig.savefig(out_png, dpi=300)
+    plt.close(fig)
+
+
 def _write_table(df: pd.DataFrame, csv_path: Path, tex_path: Path):
     df.to_csv(csv_path, index=False)
     tex = df.to_latex(
@@ -272,6 +414,7 @@ def main():
     entropy_details = []
     time_details = []
     sim_details = []
+    sim_effective_details = []
     summary_rows = []
 
     for result_json in result_jsons:
@@ -294,6 +437,16 @@ def main():
             detail_df, summary_df = _summarize_neurips_simulations(result)
             sim_details.append(detail_df)
             summary_rows.append(summary_df)
+            run_name = result.get("config", {}).get("name", "unknown")
+            eff_df = _extract_effective_behavior_rows(result, run_name=run_name)
+            if not eff_df.empty:
+                sim_effective_details.append(eff_df)
+                # Keep the figure with simulation plots so `prepare_draft_assets.py` auto-vendors it.
+                plots_dir = result_json.parent / "plots"
+                _plot_effective_behavior_heatmaps(
+                    eff_df,
+                    plots_dir / "effective_behavior_heatmap.png",
+                )
 
     if prob_details:
         prob_df = pd.concat(prob_details, ignore_index=True)
@@ -325,6 +478,29 @@ def main():
             sim_df,
             outdir / "neurips_simulation_detail.csv",
             outdir / "neurips_simulation_detail.tex",
+        )
+
+    if sim_effective_details:
+        eff_df = pd.concat(sim_effective_details, ignore_index=True)
+        _write_table(
+            eff_df,
+            outdir / "neurips_effective_behavior_detail.csv",
+            outdir / "neurips_effective_behavior_detail.tex",
+        )
+        eff_summary_df = (
+            eff_df.groupby(["baseline"], as_index=False)
+            .agg(
+                mean_gap=("mean_gap", "mean"),
+                mean_positive_fraction=("positive_fraction", "mean"),
+                scenarios_covered=("scenario", "nunique"),
+            )
+            .sort_values("mean_gap", ascending=False)
+            .reset_index(drop=True)
+        )
+        _write_table(
+            eff_summary_df,
+            outdir / "neurips_effective_behavior_summary.csv",
+            outdir / "neurips_effective_behavior_summary.tex",
         )
 
     if summary_rows:

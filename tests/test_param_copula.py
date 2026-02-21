@@ -42,6 +42,17 @@ def _generate_clayton_copula_data(alpha: float, n: int = 500, seed: int = 42):
     u2 = np.clip(u2, 1e-6, 1 - 1e-6)
     return torch.tensor(np.column_stack([u1, u2]), dtype=torch.float32)
 
+def _generate_gumbel_copula_data(theta: float, n: int = 500, seed: int = 42):
+    """Generate bivariate Gumbel copula data via inverse h-function sampling."""
+    rng = np.random.default_rng(seed)
+    u1 = rng.uniform(0.001, 0.999, n).astype(np.float32)
+    w = rng.uniform(0.001, 0.999, n).astype(np.float32)
+    uv = torch.tensor(np.column_stack([u1, w]), dtype=torch.float32)
+    cop = cop_par_obj("gumbel", float(theta))
+    u2 = copulainvccdf(cop, uv).detach().cpu().numpy().astype(np.float32)
+    u2 = np.clip(u2, 1e-6, 1.0 - 1e-6)
+    return torch.tensor(np.column_stack([u1, u2]), dtype=torch.float32)
+
 
 # ---------------------------------------------------------------------------
 # Gaussian copula fitting
@@ -210,6 +221,15 @@ class TestParametricFit:
         best = families[np.argmin(aic2[0])]
         # Any non-independence copula is acceptable for dependent data
         assert best != "ind", f"Expected a non-independence copula, got {best}"
+
+    def test_gumbel_selected_for_gumbel_data(self):
+        """Gumbel should be selected over Clayton on Gumbel data (same tail direction)."""
+        u = _generate_gumbel_copula_data(2.0, n=800, seed=123)
+        data = u.unsqueeze(-1).numpy()
+        families = ["clayton", "gumbel"]
+        aic2, _, _ = parametric_fit(data, families, n_cop=1)
+        best = families[int(np.argmin(aic2[0]))]
+        assert best == "gumbel"
 
     def test_independence_selected_for_independent_data(self):
         """Independence should be competitive for independent data."""

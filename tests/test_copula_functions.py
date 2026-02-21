@@ -69,9 +69,9 @@ class TestCopulaPDF:
     def test_pdf_integrates_to_one(self, copula):
         """PDF should integrate to approximately 1 over [0,1]^2."""
         # Student-t copulas have heavy tails and numerically problematic t.ppf;
-        # Frank and Gumbel PDF implementations produce extremely peaked values
-        # that make uniform-grid integration unreliable; skip them.
-        _skip_families = {"student", "frank", "gumbel"}
+        # Frank can be extremely peaked for moderate |theta|, which makes uniform-grid
+        # integration unreliable at test-time grid resolutions; skip it.
+        _skip_families = {"student", "frank"}
         if copula.family in _skip_families:
             pytest.skip(
                 f"{copula.family} copula PDF integration unreliable on uniform grid"
@@ -164,6 +164,10 @@ class TestCopulaInvCCDF:
 
     def test_clayton_roundtrip(self):
         self._roundtrip(cop_par_obj("clayton", 2.0), atol=0.5)
+
+    def test_gumbel_roundtrip(self):
+        # Uses bisection inversion; keep n modest to limit test runtime.
+        self._roundtrip(cop_par_obj("gumbel", 2.0), n=80, atol=0.08)
 
     def test_frank_roundtrip(self):
         self._roundtrip(cop_par_obj("frank", 3.0), atol=0.5)

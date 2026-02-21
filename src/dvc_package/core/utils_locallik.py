@@ -52,11 +52,16 @@ def dense_naive_batch(B: torch.Tensor,
     # c => difference array shape [N, M, 2, n_cop]
     c = grid_exp - data_exp
 
-    # bandwidth shapes => [2,n_cop], broadcast to [1,1,1,n_cop]
+    # Bandwidth shapes => [2,n_cop], broadcast to [1,1,n_cop] to match
+    # the (N,M,n_cop) layout produced by slicing `c[:, :, k, :]`.
+    #
+    # Note: using a 4D bandwidth tensor here would trigger an extra leading
+    # singleton dimension via broadcasting (PyTorch aligns shapes from the right),
+    # which breaks the intended reductions over the data dimension.
     if B.dim() == 1:
         B = B.view(2, 1)
-    b0 = B[0, :].view(1, 1, 1, n_cop)  # bw_x
-    b1 = B[1, :].view(1, 1, 1, n_cop)  # bw_y
+    b0 = B[0, :].view(1, 1, n_cop)  # bw_x
+    b1 = B[1, :].view(1, 1, n_cop)  # bw_y
 
     # exponent = exp( - ( delta_x^2 / (2*b0^2) + delta_y^2 / (2*b1^2) ) )
     val_x = (c[:, :, 0, :] ** 2) / (2.0 * b0 ** 2)  # shape [N,M,n_cop]
@@ -64,9 +69,9 @@ def dense_naive_batch(B: torch.Tensor,
     val_exp = torch.exp(-(val_x + val_y))
 
     # factor => 1/(2*pi*bw_x*bw_y*N)
-    const = 1.0 / (2.0 * math.pi) * (1.0 / (b0 * b1)) * (1.0 / float(N))
+    const = 1.0 / (2.0 * math.pi) * (1.0 / (b0 * b1)) * (1.0 / float(N))  # [1,1,n_cop]
     # broadcast => a => shape [N,M,n_cop]
-    a = val_exp * const.squeeze(2)
+    a = val_exp * const
 
     # partial sums along data dimension (axis=0)
     ker_grid1 = a.sum(dim=0)                             # shape [M,n_cop]

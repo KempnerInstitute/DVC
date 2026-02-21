@@ -25,10 +25,14 @@ import seaborn as sns
 from scipy.stats import norm, t as student_t
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
+from ..baselines.tvgl import hub_from_precision, tvgl_frobenius
 from ..core.objects import cop_par_obj, vine_obj_bin
 from ..core.vine_factory import create_vine
 from ..core.param_copula import copulaccdf, copulainvccdf, copulapdf, parametric_fit
+from ..core.utils_locallik import loclik_batch_eval
 from ..core.vine_model import fit_vine
 from ..optimization.structure import optimize_vine_structure
 
@@ -77,6 +81,15 @@ def _pseudo_obs_rank(x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
         ranks = np.argsort(np.argsort(col, kind="mergesort"), kind="mergesort").astype(np.float64) + 1.0
         u[:, j] = ranks / (n + 1.0)
     return np.clip(u, eps, 1.0 - eps).astype(np.float32)
+
+def _normal_scores_from_rank_pobs(x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+    """Convert data to normal scores via rank pseudo-observations.
+
+    This is a standard Gaussian-copula preprocessing step when marginals are unknown:
+      u_j = rank(x_j) / (n+1),  z_j = Phi^{-1}(u_j).
+    """
+    u = _pseudo_obs_rank(x, eps=eps).astype(np.float64)
+    return norm.ppf(u).astype(np.float64)
 
 
 def _fit_best_bivariate_copula(
@@ -240,15 +253,15 @@ def _mean_level0_edge_nll(vine: vine_obj_bin, x: np.ndarray) -> float:
 def _gaussian_copula_nll(x: np.ndarray, ridge: float = 1e-4) -> float:
     """Mean negative log copula density under Gaussian copula fit, in nats.
 
-    Assumes x has (approximately) standard normal marginals.
+    Uses rank pseudo-observations + normal scores (so it does not assume known marginals).
     """
-    x = np.asarray(x, dtype=np.float64)
-    n, d = x.shape
+    z = _normal_scores_from_rank_pobs(np.asarray(x, dtype=np.float64))
+    n, d = z.shape
     if n < 5:
         return float("nan")
 
-    # Correlation fit on z-scores (here z == x due to normal marginals).
-    R = np.corrcoef(x, rowvar=False)
+    # Correlation fit on normal scores derived from rank pseudo-observations.
+    R = np.corrcoef(z, rowvar=False)
     R = np.nan_to_num(R, nan=0.0, posinf=0.0, neginf=0.0)
     R = 0.5 * (R + R.T)
     np.fill_diagonal(R, 1.0)
@@ -267,19 +280,19 @@ def _gaussian_copula_nll(x: np.ndarray, ridge: float = 1e-4) -> float:
         return float("nan")
     invR = np.linalg.inv(R)
     A = invR - np.eye(d)
-    quad = np.einsum("ni,ij,nj->n", x, A, x)
+    quad = np.einsum("ni,ij,nj->n", z, A, z)
     log_c = -0.5 * logdet - 0.5 * quad
     return float(-np.mean(log_c))
 
 
 def _gaussian_copula_fit_corr(x_train: np.ndarray, ridge: float = 1e-4) -> np.ndarray:
     """Fit a stabilized correlation matrix for a Gaussian copula."""
-    x_train = np.asarray(x_train, dtype=np.float64)
-    n, d = x_train.shape
+    z_train = _normal_scores_from_rank_pobs(np.asarray(x_train, dtype=np.float64))
+    n, d = z_train.shape
     if n < 5:
         return np.eye(d, dtype=np.float64)
 
-    R = np.corrcoef(x_train, rowvar=False)
+    R = np.corrcoef(z_train, rowvar=False)
     R = np.nan_to_num(R, nan=0.0, posinf=0.0, neginf=0.0)
     R = 0.5 * (R + R.T)
     np.fill_diagonal(R, 1.0)
@@ -315,7 +328,76 @@ def _gaussian_copula_nll_given_corr(x: np.ndarray, R: np.ndarray) -> float:
 def _gaussian_copula_nll_fit_eval(x_train: np.ndarray, x_test: np.ndarray, ridge: float = 1e-4) -> float:
     """Fit Gaussian-copula correlation on train and evaluate copula NLL on test."""
     R = _gaussian_copula_fit_corr(x_train, ridge=ridge)
+    z_test = _normal_scores_from_rank_pobs(np.asarray(x_test, dtype=np.float64))
+    return _gaussian_copula_nll_given_corr(z_test, R)
+
+
+def _corr_from_cov(C: np.ndarray) -> np.ndarray:
+    C = np.asarray(C, dtype=np.float64)
+    C = 0.5 * (C + C.T)
+    dstd = np.sqrt(np.clip(np.diag(C), 1e-12, None))
+    R = C / np.outer(dstd, dstd)
+    R = np.nan_to_num(R, nan=0.0, posinf=0.0, neginf=0.0)
+    R = 0.5 * (R + R.T)
+    np.fill_diagonal(R, 1.0)
+    return R
+
+
+def _glasso_gaussian_copula_nll_fit_eval(
+    x_train: np.ndarray,
+    x_test: np.ndarray,
+    alpha: float = 0.02,
+) -> float:
+    """GraphicalLasso Gaussian-copula baseline: fit sparse covariance on train, evaluate copula NLL on test."""
+    from sklearn.covariance import GraphicalLasso
+
+    x_train = _normal_scores_from_rank_pobs(np.asarray(x_train, dtype=np.float64))
+    x_test = _normal_scores_from_rank_pobs(np.asarray(x_test, dtype=np.float64))
+    if x_train.shape[0] < 5 or x_test.shape[0] < 5:
+        return float("nan")
+    model = GraphicalLasso(alpha=float(alpha), max_iter=200)
+    model.fit(x_train)
+    R = _corr_from_cov(np.asarray(model.covariance_, dtype=np.float64))
     return _gaussian_copula_nll_given_corr(x_test, R)
+
+
+def _tvgl_gaussian_copula_nll_fit_eval(
+    x_train_by_time: List[np.ndarray],
+    x_test_by_time: List[np.ndarray],
+    alpha: float,
+    beta: float,
+    max_iter: int = 200,
+    step_size: float = 0.05,
+    eps: float = 1e-4,
+) -> List[float]:
+    """TVGL-style Gaussian-copula baseline across time.
+
+    Fits a precision-matrix sequence on train covariances, then evaluates per-time copula NLL on test.
+    """
+    covs = []
+    for xtr in x_train_by_time:
+        xtr = _normal_scores_from_rank_pobs(np.asarray(xtr, dtype=np.float64))
+        C = np.cov(xtr, rowvar=False)
+        C = np.nan_to_num(C, nan=0.0, posinf=0.0, neginf=0.0)
+        C = 0.5 * (C + C.T) + 1e-6 * np.eye(C.shape[0])
+        covs.append(C)
+
+    tvgl = tvgl_frobenius(
+        covs,
+        alpha=float(alpha),
+        beta=float(beta),
+        max_iter=int(max_iter),
+        step_size=float(step_size),
+        eps=float(eps),
+        verbose=False,
+    )
+    out = []
+    for P, xte in zip(tvgl.precision, x_test_by_time):
+        cov = np.linalg.inv(P)
+        R = _corr_from_cov(cov)
+        zte = _normal_scores_from_rank_pobs(np.asarray(xte, dtype=np.float64))
+        out.append(_gaussian_copula_nll_given_corr(zte, R))
+    return out
 
 
 def _estimate_hub_by_correlation(x: np.ndarray) -> int:
@@ -638,6 +720,225 @@ def _fit_truncated_cvine_level0(
     return vine
 
 
+class _TimeBandwidthMLP(nn.Module):
+    """Small per-edge time->bandwidth network for the KDE-flow baseline."""
+
+    def __init__(self, hidden_dim: int = 32, out_dim: int = 2):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(1, hidden_dim),
+            nn.Tanh(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.Tanh(),
+            nn.Linear(hidden_dim, out_dim),
+        )
+
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        if t.dim() == 1:
+            t = t.unsqueeze(-1)
+        return F.softplus(self.net(t)) + 1e-4
+
+
+def _stack_root_edge_pairs(x: np.ndarray, root: int = 0) -> np.ndarray:
+    """Return [N,2,E] array stacking pairs (root, j) for j != root."""
+    x = np.asarray(x, dtype=np.float32)
+    d = x.shape[1]
+    pairs = []
+    for j in range(d):
+        if j == root:
+            continue
+        pairs.append(x[:, [root, j]])
+    return np.stack(pairs, axis=2)  # [N,2,E]
+
+
+def _kde_flow_truncated_level0_nll_from_splits(
+    x_train_list: List[np.ndarray],
+    x_test_list: List[np.ndarray],
+    seed: int,
+    *,
+    root: int = 0,
+    val_fraction: float = 0.2,
+    n_epochs: int = 200,
+    lr: float = 1e-2,
+    hidden_dim: int = 32,
+    batch_time_steps: int = 8,
+    device: str = "auto",
+) -> Tuple[List[float], List[float], np.ndarray]:
+    """KDE-flow baseline: a time->bandwidth flow for a 1-truncated C-vine in normal space.
+
+    Each (root, j) edge is modeled by a local-likelihood KDE on (X_root, X_j), with a
+    learned bandwidth as a smooth function of time. The multivariate copula density is
+    approximated by a 1-truncated C-vine: sum of log copula densities over level-0 edges.
+
+    Notes
+    -----
+    - Assumes each marginal is approximately standard normal, so copula log-density can
+      be computed as log p(x_i, x_j) - log phi(x_i) - log phi(x_j).
+    - Uses a held-out validation split (within each time step's train set) to prevent
+      bandwidth collapse.
+    """
+    if len(x_train_list) != len(x_test_list):
+        raise ValueError("x_train_list and x_test_list must have the same length")
+    T = len(x_train_list)
+    if T < 2:
+        raise ValueError("Need at least 2 time steps for KDE-flow baseline")
+    d = int(np.asarray(x_train_list[0]).shape[1])
+    if d < 2:
+        raise ValueError("Need at least 2 variables for KDE-flow baseline")
+
+    # Time normalization to [0,1] for stable training.
+    t_idx = np.arange(T, dtype=np.float32)
+    t_norm = (t_idx - t_idx.min()) / (t_idx.max() - t_idx.min() + 1e-8)
+
+    if device == "auto":
+        device_t = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device_t = torch.device(device)
+
+    torch.manual_seed(seed)
+
+    n_edges = d - 1
+
+    # Within each time step's train set: fit + val.
+    val_fraction = float(val_fraction)
+    val_fraction = float(np.clip(val_fraction, 0.05, 0.5))
+
+    fit_pairs_t: List[torch.Tensor] = []
+    val_pairs_t: List[torch.Tensor] = []
+    test_pairs_t: List[torch.Tensor] = []
+    train_full_pairs_t: List[torch.Tensor] = []
+    for t in range(T):
+        tr = np.asarray(x_train_list[t], dtype=np.float32)
+        te = np.asarray(x_test_list[t], dtype=np.float32)
+        if tr.ndim != 2 or te.ndim != 2 or tr.shape[1] != d or te.shape[1] != d:
+            raise ValueError("All train/test arrays must have shape (N,d) with fixed d")
+        n_tr = tr.shape[0]
+        if n_tr < 20:
+            raise ValueError("Need at least ~20 training samples per time step for KDE-flow baseline")
+
+        rng_t = np.random.default_rng(int(seed + 10007 * t))
+        idx = rng_t.permutation(n_tr)
+        tr = tr[idx]
+        n_fit = max(int(round((1.0 - val_fraction) * n_tr)), 10)
+        n_fit = min(n_fit, n_tr - 5)
+        fit = tr[:n_fit]
+        val = tr[n_fit:]
+
+        fit_pairs_t.append(torch.tensor(_stack_root_edge_pairs(fit, root=root), dtype=torch.float32, device=device_t))
+        val_pairs_t.append(torch.tensor(_stack_root_edge_pairs(val, root=root), dtype=torch.float32, device=device_t))
+        test_pairs_t.append(torch.tensor(_stack_root_edge_pairs(te, root=root), dtype=torch.float32, device=device_t))
+        train_full_pairs_t.append(torch.tensor(_stack_root_edge_pairs(tr, root=root), dtype=torch.float32, device=device_t))
+
+    t_norm_t = torch.tensor(t_norm, dtype=torch.float32, device=device_t).unsqueeze(-1)  # [T,1]
+
+    flows = nn.ModuleList(
+        [_TimeBandwidthMLP(hidden_dim=hidden_dim, out_dim=2) for _ in range(n_edges)]
+    ).to(device_t)
+    opt = torch.optim.Adam(flows.parameters(), lr=lr)
+    normal = torch.distributions.Normal(0.0, 1.0)
+
+    def _predict_B(t_batch: torch.Tensor) -> torch.Tensor:
+        # returns [B,2,E]
+        bws = []
+        for flow in flows:
+            bws.append(flow(t_batch))  # [B,2]
+        return torch.stack(bws, dim=2)
+
+    def _nll_for_time(
+        data_fit: torch.Tensor,  # [Nfit,2,E]
+        data_eval: torch.Tensor,  # [Neval,2,E]
+        B: torch.Tensor,  # [2,E]
+    ) -> torch.Tensor:
+        # loclik expects [N,2,E] and [M,2,E]
+        ker = loclik_batch_eval(B, data_fit, data_eval, n_cop=n_edges, batch_size=1).clamp_min(1e-30)
+        log_joint = torch.log(ker)  # [M,E]
+        log_norm = normal.log_prob(data_eval[:, 0, :]) + normal.log_prob(data_eval[:, 1, :])
+        log_c = log_joint - log_norm
+        # mean over samples per edge, then sum edges => truncated vine log-density
+        return -(log_c.mean(dim=0).sum())
+
+    # Train on validation NLL to avoid bandwidth collapse on training data.
+    history = []
+    for ep in range(int(n_epochs)):
+        opt.zero_grad(set_to_none=True)
+        bsz = min(int(batch_time_steps), T)
+        rng_ep = np.random.default_rng(int(seed + 9973 * ep))
+        t_sel = rng_ep.choice(T, size=bsz, replace=False)
+        t_sel_t = torch.tensor(t_sel, dtype=torch.long, device=device_t)
+        t_batch = t_norm_t[t_sel_t]  # [B,1]
+        bws = _predict_B(t_batch)  # [B,2,E]
+
+        loss = torch.zeros((), dtype=torch.float32, device=device_t)
+        for bi, t_idx_i in enumerate(t_sel):
+            B = bws[bi]  # [2,E]
+            loss = loss + _nll_for_time(fit_pairs_t[t_idx_i], val_pairs_t[t_idx_i], B)
+
+        loss = loss / float(bsz)
+
+        # Mild regularization: discourage extreme bandwidths.
+        bw_mean = bws.mean()
+        bw_pen = 1e-3 * torch.relu(0.02 - bw_mean) + 1e-3 * torch.relu(bw_mean - 2.0)
+        loss = loss + bw_pen
+
+        loss.backward()
+        opt.step()
+        history.append(float(loss.detach().cpu()))
+
+    # Predict bandwidths over all time steps.
+    with torch.no_grad():
+        bws_all = _predict_B(t_norm_t).detach().cpu().numpy()  # [T,2,E]
+
+    # Evaluate per time on val/test, using full train as KDE data.
+    val_nll = []
+    test_nll = []
+    with torch.no_grad():
+        for t in range(T):
+            B = torch.tensor(bws_all[t], dtype=torch.float32, device=device_t)  # [2,E]
+            val_nll.append(float(_nll_for_time(train_full_pairs_t[t], val_pairs_t[t], B).detach().cpu()))
+            test_nll.append(float(_nll_for_time(train_full_pairs_t[t], test_pairs_t[t], B).detach().cpu()))
+
+    return test_nll, val_nll, bws_all
+
+
+def _kde_flow_truncated_level0_nll(
+    time_data: np.ndarray,
+    seed: int,
+    *,
+    root: int = 0,
+    val_fraction: float = 0.2,
+    n_epochs: int = 200,
+    lr: float = 1e-2,
+    hidden_dim: int = 32,
+    batch_time_steps: int = 8,
+    device: str = "auto",
+) -> Tuple[List[float], List[float], np.ndarray]:
+    """Convenience wrapper around `_kde_flow_truncated_level0_nll_from_splits` using an internal split."""
+    time_data = np.asarray(time_data, dtype=np.float32)
+    if time_data.ndim != 3:
+        raise ValueError(f"Expected time_data shape [T,N,d], got {time_data.shape}")
+    T, N, _d = time_data.shape
+    n_train = int(0.8 * N)
+    x_train_list: List[np.ndarray] = []
+    x_test_list: List[np.ndarray] = []
+    for t in range(T):
+        idx = np.random.default_rng(int(seed + 37 * t)).permutation(N)
+        x_t = time_data[t]
+        x_train_list.append(x_t[idx[:n_train]])
+        x_test_list.append(x_t[idx[n_train:]])
+    return _kde_flow_truncated_level0_nll_from_splits(
+        x_train_list,
+        x_test_list,
+        seed=seed,
+        root=root,
+        val_fraction=val_fraction,
+        n_epochs=n_epochs,
+        lr=lr,
+        hidden_dim=hidden_dim,
+        batch_time_steps=batch_time_steps,
+        device=device,
+    )
+
+
 def _plot_multiplicative_triplet(
     out_png: Path,
     x: np.ndarray,
@@ -739,6 +1040,33 @@ def _plot_dynamic_panel(
             linestyle="--",
             label="1-truncated C-vine",
         )
+    if "nll_gap_glasso" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_glasso"],
+            color="tab:green",
+            linewidth=1.3,
+            linestyle=":",
+            label="Graphical Lasso",
+        )
+    if "nll_gap_tvgl" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_tvgl"],
+            color="tab:red",
+            linewidth=1.3,
+            linestyle="-.",
+            label="TVGL (Frobenius)",
+        )
+    if "nll_gap_kde_flow" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_kde_flow"],
+            color="tab:orange",
+            linewidth=1.3,
+            linestyle="-",
+            label="KDE-flow (time BW)",
+        )
     ax4.axhline(0.0, color="gray", linewidth=1.0, linestyle="--")
     ax4.set_title("Held-out copula NLL gap (positive = DVC better)")
     ax4.set_xlabel("time")
@@ -763,6 +1091,7 @@ def _plot_hub_switch_panel(
     est_hub: List[int],
     corr_hub: Optional[List[int]],
     glasso_hub: Optional[List[int]],
+    tvgl_hub: Optional[List[int]],
     change_point: int,
     title: str,
 ) -> None:
@@ -775,6 +1104,8 @@ def _plot_hub_switch_panel(
         axes[0].plot(time, corr_hub, label="corr hub", linewidth=1.2, linestyle="--")
     if glasso_hub is not None:
         axes[0].plot(time, glasso_hub, label="glasso hub", linewidth=1.2, linestyle=":")
+    if tvgl_hub is not None:
+        axes[0].plot(time, tvgl_hub, label="tvgl hub", linewidth=1.2, linestyle="-.")
     axes[0].axvline(float(time[change_point]), color="crimson", linewidth=1.2)
     axes[0].set_title("Hub identity over time")
     axes[0].set_xlabel("time")
@@ -784,12 +1115,15 @@ def _plot_hub_switch_panel(
     acc = np.mean(np.asarray(true_hub) == np.asarray(est_hub))
     acc_corr = None if corr_hub is None else float(np.mean(np.asarray(true_hub) == np.asarray(corr_hub)))
     acc_glasso = None if glasso_hub is None else float(np.mean(np.asarray(true_hub) == np.asarray(glasso_hub)))
+    acc_tvgl = None if tvgl_hub is None else float(np.mean(np.asarray(true_hub) == np.asarray(tvgl_hub)))
     axes[1].axis("off")
     extra = ""
     if acc_corr is not None:
         extra += f"\nCorr hub accuracy: {acc_corr:.3f}"
     if acc_glasso is not None:
         extra += f"\nGlasso hub accuracy: {acc_glasso:.3f}"
+    if acc_tvgl is not None:
+        extra += f"\nTVGL hub accuracy: {acc_tvgl:.3f}"
     axes[1].text(
         0.0,
         0.8,
@@ -911,11 +1245,14 @@ def run_neurips_simulation_suite(
             dvc_nll = []
             gauss_nll = []
             trunc_nll = []
+            glasso_nll = []
             tail_emp = []
             tail_fit = []
             corr_mean = []
             tau_mean = []
             df_hat = []
+            x_train_list: List[np.ndarray] = []
+            x_test_list: List[np.ndarray] = []
 
             for t in range(time_data.shape[0]):
                 x_t = time_data[t]
@@ -931,6 +1268,9 @@ def run_neurips_simulation_suite(
                 gauss_nll.append(_gaussian_copula_nll_fit_eval(tr, te))
                 trunc_vine = _fit_truncated_cvine_level0(tr, families=families)
                 trunc_nll.append(_mean_copula_nll(trunc_vine, te))
+                glasso_nll.append(_glasso_gaussian_copula_nll_fit_eval(tr, te, alpha=0.02))
+                x_train_list.append(tr)
+                x_test_list.append(te)
 
                 # Second-order summaries: mean abs corr/tau for level-0 edges.
                 root = 0
@@ -968,6 +1308,28 @@ def run_neurips_simulation_suite(
                 tail_fit.append(float(np.mean(tails_fit)) if tails_fit else 0.0)
                 df_hat.append(float(np.mean(nus)) if nus else float("nan"))
 
+            tvgl_nll = _tvgl_gaussian_copula_nll_fit_eval(
+                x_train_list,
+                x_test_list,
+                alpha=0.02,
+                beta=1.0,
+                max_iter=200,
+                step_size=0.05,
+                eps=1e-4,
+            )
+            kde_flow_nll, kde_flow_val_nll, kde_flow_bandwidths = _kde_flow_truncated_level0_nll_from_splits(
+                x_train_list,
+                x_test_list,
+                seed=seed + 1701,
+                root=0,
+                val_fraction=0.2,
+                n_epochs=120,
+                lr=1e-2,
+                hidden_dim=32,
+                batch_time_steps=8,
+                device="auto",
+            )
+
             series = {
                 "corr_mean_abs": np.asarray(corr_mean, dtype=np.float32),
                 "tau_mean_abs": np.asarray(tau_mean, dtype=np.float32),
@@ -975,6 +1337,9 @@ def run_neurips_simulation_suite(
                 "tail_fit_upper": np.asarray(tail_fit, dtype=np.float32),
                 "nll_gap": np.asarray(gauss_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_truncated_level0": np.asarray(trunc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_glasso": np.asarray(glasso_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_tvgl": np.asarray(tvgl_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_kde_flow": np.asarray(kde_flow_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
             }
             out_png = plots_dir / "dynamic_tail_df_panel.png"
             _plot_dynamic_panel(
@@ -985,15 +1350,28 @@ def run_neurips_simulation_suite(
                 title="Dynamic tail dependence at stable second-order summaries (Student-t)",
             )
 
+            cp_hat = int(np.argmax(np.abs(np.diff(np.asarray(tail_emp, dtype=np.float64))))) + 1 if len(tail_emp) > 1 else None
+            cp_err = None if (cp is None or cp_hat is None) else int(abs(int(cp_hat) - int(cp)))
+
             results["scenarios"][name] = {
                 **cfg,
                 "change_point": cp,
+                "change_point_hat_tail_emp": cp_hat,
+                "change_point_abs_error_tail_emp": cp_err,
                 "nu_schedule": gen["nu_schedule"].tolist(),
                 "dvc_nll": dvc_nll,
                 "gaussian_nll": gauss_nll,
                 "nll_gap": (np.asarray(gauss_nll) - np.asarray(dvc_nll)).tolist(),
                 "truncated_level0_nll": trunc_nll,
                 "nll_gap_truncated_level0": (np.asarray(trunc_nll) - np.asarray(dvc_nll)).tolist(),
+                "glasso_gaussian_nll": glasso_nll,
+                "nll_gap_glasso": (np.asarray(glasso_nll) - np.asarray(dvc_nll)).tolist(),
+                "tvgl_gaussian_nll": tvgl_nll,
+                "nll_gap_tvgl": (np.asarray(tvgl_nll) - np.asarray(dvc_nll)).tolist(),
+                "kde_flow_truncated_level0_nll": kde_flow_nll,
+                "kde_flow_val_nll": kde_flow_val_nll,
+                "kde_flow_bandwidths": kde_flow_bandwidths.tolist(),
+                "nll_gap_kde_flow": (np.asarray(kde_flow_nll) - np.asarray(dvc_nll)).tolist(),
                 "corr_mean_abs": corr_mean,
                 "tau_mean_abs": tau_mean,
                 "tail_emp_upper_q95": tail_emp,
@@ -1018,12 +1396,15 @@ def run_neurips_simulation_suite(
             dvc_nll = []
             gauss_nll = []
             trunc_nll = []
+            glasso_nll = []
             tau_mean = []
             tail_u = []
             tail_l = []
             fam_codes = []
             fam_labels = ["ind", "gaussian", "clayton", "gumbel", "student", "frank"]
             fam_to_code = {k: i for i, k in enumerate(fam_labels)}
+            x_train_list: List[np.ndarray] = []
+            x_test_list: List[np.ndarray] = []
 
             for t in range(time_data.shape[0]):
                 x_t = time_data[t]
@@ -1038,6 +1419,9 @@ def run_neurips_simulation_suite(
                 gauss_nll.append(_gaussian_copula_nll_fit_eval(tr, te))
                 trunc_vine = _fit_truncated_cvine_level0(tr, families=families)
                 trunc_nll.append(_mean_copula_nll(trunc_vine, te))
+                glasso_nll.append(_glasso_gaussian_copula_nll_fit_eval(tr, te, alpha=0.02))
+                x_train_list.append(tr)
+                x_test_list.append(te)
 
                 # Track Kendall tau stability and tail asymmetry for level-0 edges.
                 edges0 = [(0, j) for j in range(1, cfg["n_variables"])]
@@ -1065,6 +1449,28 @@ def run_neurips_simulation_suite(
                         codes_t.append(fam_to_code.get(fam, 0))
                 fam_codes.append(codes_t)
 
+            tvgl_nll = _tvgl_gaussian_copula_nll_fit_eval(
+                x_train_list,
+                x_test_list,
+                alpha=0.02,
+                beta=1.0,
+                max_iter=200,
+                step_size=0.05,
+                eps=1e-4,
+            )
+            kde_flow_nll, kde_flow_val_nll, kde_flow_bandwidths = _kde_flow_truncated_level0_nll_from_splits(
+                x_train_list,
+                x_test_list,
+                seed=seed + 1709,
+                root=0,
+                val_fraction=0.2,
+                n_epochs=120,
+                lr=1e-2,
+                hidden_dim=32,
+                batch_time_steps=8,
+                device="auto",
+            )
+
             heat = np.asarray(fam_codes, dtype=np.int64).T if fam_codes else None
             series = {
                 "corr_tau_mean_abs": np.asarray(tau_mean, dtype=np.float32),
@@ -1072,6 +1478,9 @@ def run_neurips_simulation_suite(
                 "tail_lower_q05": np.asarray(tail_l, dtype=np.float32),
                 "nll_gap": np.asarray(gauss_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_truncated_level0": np.asarray(trunc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_glasso": np.asarray(glasso_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_tvgl": np.asarray(tvgl_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_kde_flow": np.asarray(kde_flow_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
             }
             out_png = plots_dir / "tail_switch_panel.png"
             _plot_dynamic_panel(
@@ -1084,15 +1493,29 @@ def run_neurips_simulation_suite(
                 family_labels=fam_labels,
             )
 
+            delta_tail = np.asarray(tail_u, dtype=np.float64) - np.asarray(tail_l, dtype=np.float64)
+            cp_hat = int(np.argmax(np.abs(np.diff(delta_tail)))) + 1 if len(delta_tail) > 1 else None
+            cp_err = None if cp_hat is None else int(abs(int(cp_hat) - int(cp)))
+
             results["scenarios"][name] = {
                 **cfg,
                 "change_point": cp,
+                "change_point_hat_tail_asym": cp_hat,
+                "change_point_abs_error_tail_asym": cp_err,
                 "family_schedule": gen["family_schedule"],
                 "dvc_nll": dvc_nll,
                 "gaussian_nll": gauss_nll,
                 "nll_gap": (np.asarray(gauss_nll) - np.asarray(dvc_nll)).tolist(),
                 "truncated_level0_nll": trunc_nll,
                 "nll_gap_truncated_level0": (np.asarray(trunc_nll) - np.asarray(dvc_nll)).tolist(),
+                "glasso_gaussian_nll": glasso_nll,
+                "nll_gap_glasso": (np.asarray(glasso_nll) - np.asarray(dvc_nll)).tolist(),
+                "tvgl_gaussian_nll": tvgl_nll,
+                "nll_gap_tvgl": (np.asarray(tvgl_nll) - np.asarray(dvc_nll)).tolist(),
+                "kde_flow_truncated_level0_nll": kde_flow_nll,
+                "kde_flow_val_nll": kde_flow_val_nll,
+                "kde_flow_bandwidths": kde_flow_bandwidths.tolist(),
+                "nll_gap_kde_flow": (np.asarray(kde_flow_nll) - np.asarray(dvc_nll)).tolist(),
                 "tau_mean_abs": tau_mean,
                 "tail_upper_q95": tail_u,
                 "tail_lower_q05": tail_l,
@@ -1119,33 +1542,74 @@ def run_neurips_simulation_suite(
             est_hubs: List[int] = []
             corr_hubs: List[int] = []
             glasso_hubs: List[int] = []
+            tvgl_hubs: List[int] = []
+
+            families = ["gaussian", "independence"]
+            dvc_nll: List[float] = []
+            gauss_nll: List[float] = []
+            trunc_nll: List[float] = []
+            glasso_nll: List[float] = []
+            x_train_list: List[np.ndarray] = []
+            x_test_list: List[np.ndarray] = []
+
             for t in range(time_data.shape[0]):
                 x_t = time_data[t]
+                n = x_t.shape[0]
+                n_train = int(0.8 * n)
+                idx = np.random.default_rng(seed + 101 * t).permutation(n)
+                tr = x_t[idx[:n_train]]
+                te = x_t[idx[n_train:]]
 
-                corr_hub = _estimate_hub_by_correlation(x_t)
+                # DVC: optimize structure + fit Gaussian/independence families, then evaluate NLL.
+                vine = _fit_parametric_vine(tr, families=families, optimize_structure=True, seed=seed + 101 * t)
+                dvc_nll.append(_mean_copula_nll(vine, te))
+
+                # Baselines: Gaussian copula, truncated vine, Graphical Lasso.
+                gauss_nll.append(_gaussian_copula_nll_fit_eval(tr, te))
+                order = getattr(vine, "variable_order", None) or list(range(cfg["n_variables"]))
+                trunc_vine = _fit_truncated_cvine_level0(tr, families=families, order=order)
+                trunc_nll.append(_mean_copula_nll(trunc_vine, te))
+                glasso_nll.append(_glasso_gaussian_copula_nll_fit_eval(tr, te, alpha=0.02))
+
+                # Hub estimates from different methods.
+                dvc_root = int(order[0]) if order else int(vine.ind_vine[0][0][0])
+                est_hubs.append(dvc_root)
+
+                corr_hub = _estimate_hub_by_correlation(tr)
                 corr_hubs.append(corr_hub)
                 try:
-                    glasso_hubs.append(_estimate_hub_by_glasso(x_t))
+                    glasso_hubs.append(_estimate_hub_by_glasso(tr))
                 except Exception:
                     glasso_hubs.append(corr_hub)
 
-                # Structure only (fast): optimize C-vine order on pseudo-observations.
-                opt = optimize_vine_structure(
-                    x_t,
-                    vine_type="c-vine",
-                    method="sequential",
-                    criterion="kendall_tau",
-                    max_iterations=1,
-                    verbose=False,
-                )
-                vine = opt.best_vine
-                order = getattr(vine, "variable_order", None)
-                if not order:
-                    # Fallback: infer root from first edge list.
-                    root = int(vine.ind_vine[0][0][0]) if vine.ind_vine and vine.ind_vine[0] else 0
-                else:
-                    root = int(order[0])
-                est_hubs.append(root)
+                x_train_list.append(tr)
+                x_test_list.append(te)
+
+            # TVGL baseline (fit across time).
+            covs = []
+            for xtr in x_train_list:
+                ztr = _normal_scores_from_rank_pobs(np.asarray(xtr, dtype=np.float64))
+                C = np.cov(ztr, rowvar=False)
+                C = np.nan_to_num(C, nan=0.0, posinf=0.0, neginf=0.0)
+                C = 0.5 * (C + C.T) + 1e-6 * np.eye(C.shape[0])
+                covs.append(C)
+
+            tvgl = tvgl_frobenius(
+                covs,
+                alpha=0.02,
+                beta=1.0,
+                max_iter=200,
+                step_size=0.05,
+                eps=1e-4,
+                verbose=False,
+            )
+            tvgl_nll: List[float] = []
+            for P, xte in zip(tvgl.precision, x_test_list):
+                cov = np.linalg.inv(P)
+                R = _corr_from_cov(cov)
+                zte = _normal_scores_from_rank_pobs(np.asarray(xte, dtype=np.float64))
+                tvgl_nll.append(_gaussian_copula_nll_given_corr(zte, R))
+                tvgl_hubs.append(hub_from_precision(P, edge_threshold=0.05))
 
             out_png = plots_dir / "hub_switch_panel.png"
             _plot_hub_switch_panel(
@@ -1155,6 +1619,7 @@ def run_neurips_simulation_suite(
                 est_hub=est_hubs,
                 corr_hub=corr_hubs,
                 glasso_hub=glasso_hubs,
+                tvgl_hub=tvgl_hubs,
                 change_point=cp,
                 title="Hub switching (C-vine root) via structure optimization",
             )
@@ -1162,9 +1627,32 @@ def run_neurips_simulation_suite(
             acc = float(np.mean(np.asarray(true_hubs) == np.asarray(est_hubs)))
             acc_corr = float(np.mean(np.asarray(true_hubs) == np.asarray(corr_hubs)))
             acc_glasso = float(np.mean(np.asarray(true_hubs) == np.asarray(glasso_hubs)))
+            acc_tvgl = float(np.mean(np.asarray(true_hubs) == np.asarray(tvgl_hubs)))
+
+            def _first_change(seq: List[int]) -> Optional[int]:
+                if not seq:
+                    return None
+                for k in range(1, len(seq)):
+                    if seq[k] != seq[k - 1]:
+                        return k
+                return None
+
+            cp_hat_dvc = _first_change(est_hubs)
+            cp_hat_corr = _first_change(corr_hubs)
+            cp_hat_glasso = _first_change(glasso_hubs)
+            cp_hat_tvgl = _first_change(tvgl_hubs)
+
             results["scenarios"][name] = {
                 **cfg,
                 "change_point": cp,
+                "change_point_hat_dvc": cp_hat_dvc,
+                "change_point_abs_error_dvc": None if cp_hat_dvc is None else int(abs(int(cp_hat_dvc) - int(cp))),
+                "change_point_hat_corr": cp_hat_corr,
+                "change_point_abs_error_corr": None if cp_hat_corr is None else int(abs(int(cp_hat_corr) - int(cp))),
+                "change_point_hat_glasso": cp_hat_glasso,
+                "change_point_abs_error_glasso": None if cp_hat_glasso is None else int(abs(int(cp_hat_glasso) - int(cp))),
+                "change_point_hat_tvgl": cp_hat_tvgl,
+                "change_point_abs_error_tvgl": None if cp_hat_tvgl is None else int(abs(int(cp_hat_tvgl) - int(cp))),
                 "true_hubs": true_hubs,
                 "estimated_hubs": est_hubs,
                 "root_recovery_accuracy": acc,
@@ -1172,6 +1660,17 @@ def run_neurips_simulation_suite(
                 "corr_hub_recovery_accuracy": acc_corr,
                 "glasso_hub_estimated_hubs": glasso_hubs,
                 "glasso_hub_recovery_accuracy": acc_glasso,
+                "tvgl_hub_estimated_hubs": tvgl_hubs,
+                "tvgl_hub_recovery_accuracy": acc_tvgl,
+                "dvc_nll": dvc_nll,
+                "gaussian_nll": gauss_nll,
+                "truncated_level0_nll": trunc_nll,
+                "glasso_gaussian_nll": glasso_nll,
+                "tvgl_gaussian_nll": tvgl_nll,
+                "nll_gap": (np.asarray(gauss_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_truncated_level0": (np.asarray(trunc_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_glasso": (np.asarray(glasso_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_tvgl": (np.asarray(tvgl_nll) - np.asarray(dvc_nll)).tolist(),
             }
             continue
 
@@ -1187,6 +1686,8 @@ def run_neurips_simulation_suite(
             row["corr_hub_recovery_accuracy"] = payload["corr_hub_recovery_accuracy"]
         if "glasso_hub_recovery_accuracy" in payload:
             row["glasso_hub_recovery_accuracy"] = payload["glasso_hub_recovery_accuracy"]
+        if "tvgl_hub_recovery_accuracy" in payload:
+            row["tvgl_hub_recovery_accuracy"] = payload["tvgl_hub_recovery_accuracy"]
         if "nll_gap" in payload:
             gap = np.asarray(payload["nll_gap"], dtype=np.float64)
             row["nll_gap_mean"] = float(np.nanmean(gap))
@@ -1195,6 +1696,30 @@ def run_neurips_simulation_suite(
             gap = np.asarray(payload["nll_gap_truncated_level0"], dtype=np.float64)
             row["nll_gap_truncated_level0_mean"] = float(np.nanmean(gap))
             row["nll_gap_truncated_level0_std"] = float(np.nanstd(gap))
+        if "nll_gap_glasso" in payload:
+            gap = np.asarray(payload["nll_gap_glasso"], dtype=np.float64)
+            row["nll_gap_glasso_mean"] = float(np.nanmean(gap))
+            row["nll_gap_glasso_std"] = float(np.nanstd(gap))
+        if "nll_gap_tvgl" in payload:
+            gap = np.asarray(payload["nll_gap_tvgl"], dtype=np.float64)
+            row["nll_gap_tvgl_mean"] = float(np.nanmean(gap))
+            row["nll_gap_tvgl_std"] = float(np.nanstd(gap))
+        if "nll_gap_kde_flow" in payload:
+            gap = np.asarray(payload["nll_gap_kde_flow"], dtype=np.float64)
+            row["nll_gap_kde_flow_mean"] = float(np.nanmean(gap))
+            row["nll_gap_kde_flow_std"] = float(np.nanstd(gap))
+
+        # Change-point localization diagnostics (optional per scenario).
+        for k in [
+            "change_point_abs_error_tail_emp",
+            "change_point_abs_error_tail_asym",
+            "change_point_abs_error_dvc",
+            "change_point_abs_error_corr",
+            "change_point_abs_error_glasso",
+            "change_point_abs_error_tvgl",
+        ]:
+            if k in payload:
+                row[k] = payload[k]
         summary_rows.append(row)
     results["summary_table"] = summary_rows
 

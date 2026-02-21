@@ -49,9 +49,8 @@ class TestDenseNaiveBatch:
     def test_output_shapes(self):
         """All five returned tensors should have correct shape.
 
-        Note: due to broadcasting in the kernel computation, the output shape
-        is (N, M, n_cop) rather than (M, n_cop). The leading N dimension
-        carries per-data-point contributions before final summation in kern_LL.
+        The intended output layout is (M, n_cop): one density-related value
+        per grid point and per copula.
         """
         n_cop = 1
         N, M_grid = 50, 20
@@ -60,8 +59,7 @@ class TestDenseNaiveBatch:
         B = _make_bandwidth(n_cop)
         k1, k2, k3, k4, k5 = dense_naive_batch(B, data, grid)
         for k in [k1, k2, k3, k4, k5]:
-            assert k.shape[-1] == n_cop
-            assert M_grid in k.shape
+            assert k.shape == (M_grid, n_cop)
 
     def test_ker_grid1_non_negative(self):
         """ker_grid1 (density estimate) should be non-negative."""
@@ -148,9 +146,7 @@ class TestKernLL:
 class TestLoclikBatchEval:
     """Test end-to-end local-likelihood evaluation.
 
-    Note: Due to internal broadcasting in dense_naive_batch, the output may
-    have an extra leading dimension (N) in addition to (M, n_cop). Tests
-    verify the last dimensions are correct and that values are finite.
+    Output layout should be (M, n_cop): one density per grid point and copula.
     """
 
     def test_output_shape(self):
@@ -161,9 +157,8 @@ class TestLoclikBatchEval:
         grid = torch.rand(M, 2, n_cop)
         B = _make_bandwidth(n_cop, 0.2)
         out = loclik_batch_eval(B, data, grid, n_cop, batch_size=2)
-        # Verify the output is finite and has the right trailing dimension
-        assert out.shape[-1] == n_cop
-        assert torch.isfinite(out).all() or True  # primary check is shape
+        assert out.shape == (M, n_cop)
+        assert torch.isfinite(out).all()
 
     def test_output_finite(self):
         """Output should be all finite."""
@@ -189,7 +184,7 @@ class TestLoclikBatchEval:
         out2 = loclik_batch_eval(B, data, grid, n_cop, batch_size=3)
         out3 = loclik_batch_eval(B, data, grid, n_cop, batch_size=6)
         # All batch sizes should produce finite values with the same shape
-        assert out1.shape == out2.shape or out1.numel() == out2.numel()
+        assert out1.shape == out2.shape == out3.shape
         assert torch.isfinite(out1).all()
         assert torch.isfinite(out2).all()
         assert torch.isfinite(out3).all()
@@ -202,7 +197,7 @@ class TestLoclikBatchEval:
         grid = torch.rand(M, 2, n_cop)
         B = _make_bandwidth(n_cop, 0.2)
         out = loclik_batch_eval(B, data, grid, n_cop, batch_size=2)
-        assert out.shape[-1] == n_cop
+        assert out.shape == (M, n_cop)
         assert torch.isfinite(out).all()
 
     def test_1d_bandwidth(self):
@@ -213,5 +208,5 @@ class TestLoclikBatchEval:
         grid = torch.rand(M, 2, n_cop)
         B = torch.tensor([0.2, 0.3])  # 1D
         out = loclik_batch_eval(B, data, grid, n_cop, batch_size=1)
-        assert out.shape[-1] == n_cop
+        assert out.shape == (M, n_cop)
         assert torch.isfinite(out).all()

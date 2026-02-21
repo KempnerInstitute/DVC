@@ -528,7 +528,8 @@ def fit_gumbel(u: torch.Tensor):
         u_clamped = torch.clamp(u, 1e-9, 1-1e-9)
         u1, u2 = u_clamped[:, 0], u_clamped[:, 1]
         
-        # Gumbel copula PDF computation
+        # Gumbel copula log-density computation.
+        # Use a stable log-form consistent with `copulapdf` below.
         log_u1 = torch.log(u1)
         log_u2 = torch.log(u2)
         
@@ -540,10 +541,22 @@ def fit_gumbel(u: torch.Tensor):
         sum_pow = torch.clamp(sum_pow, min=1e-15)
         sum_pow_1_theta = torch.pow(sum_pow, 1.0/theta)
         
-        # Log PDF formula for Gumbel
-        log_pdf = (torch.log(sum_pow_1_theta) + (theta - 1) * torch.log(-log_u1) 
-                  + (theta - 1) * torch.log(-log_u2) + torch.log(theta - 1 + sum_pow_1_theta)
-                  - sum_pow_1_theta - (2 - 1/theta) * torch.log(sum_pow))
+        # Density:
+        #   c(u,v) = exp(-s) * t^(2/theta - 2) * (-log u)^(theta-1) * (-log v)^(theta-1)
+        #            * (theta - 1 + s) / (u v),
+        # where t = (-log u)^theta + (-log v)^theta and s = t^(1/theta).
+        #
+        # Log-density (stable form):
+        #   log c = -s - (2 - 1/theta) log(t)
+        #           + (theta-1)[log(-log u)+log(-log v)] + log(theta-1+s) - log u - log v.
+        log_pdf = (
+            -(2.0 - 1.0 / theta) * torch.log(sum_pow)
+            + (theta - 1.0) * (torch.log(-log_u1) + torch.log(-log_u2))
+            + torch.log(theta - 1.0 + sum_pow_1_theta)
+            - sum_pow_1_theta
+            - log_u1
+            - log_u2
+        )
         
         # Handle potential NaN/Inf values
         log_pdf = torch.where(torch.isfinite(log_pdf), 
@@ -732,13 +745,13 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         z = normal_dist.icdf(uv_clamped)  # shape [N,2]
         z1 = z[:,0]
         z2 = z[:,1]
-        # pdf formula
-        logC = -0.5*math.log(one_m_r2)
-        num = z1*z1 - 2*r*z1*z2 + z2*z2
-        den = 2*one_m_r2
-        logpdf_part = -0.5*(num/den)
-        logpdf = logC + logpdf_part
-        return torch.exp(logpdf)
+        # Gaussian copula density:
+        #   c(u,v) = 1/sqrt(1-r^2) * exp((2 r z1 z2 - r^2(z1^2+z2^2)) / (2(1-r^2))).
+        denom = max(one_m_r2, 1e-12)
+        logc = -0.5 * math.log(denom)
+        quad = (2.0 * r * z1 * z2 - (r * r) * (z1 * z1 + z2 * z2)) / (2.0 * denom)
+        logc_t = torch.tensor(logc, dtype=uv_clamped.dtype, device=uv_clamped.device)
+        return torch.exp(torch.clamp(logc_t + quad, -30.0, 30.0))
 
     elif fam=='student':
         # param => (rho, df)
@@ -840,10 +853,19 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         
         sum_pow_1_theta = torch.pow(sum_pow, 1.0/theta)
         
-        # Gumbel copula PDF
-        pdf = (sum_pow_1_theta * torch.pow(-log_u1, theta - 1) * torch.pow(-log_u2, theta - 1) 
-               * (theta - 1 + sum_pow_1_theta) / (u1 * u2 * torch.pow(sum_pow, 2 - 1/theta)))
-        
+        # Gumbel copula density includes the copula value C(u,v)=exp(-s) factor.
+        C = torch.exp(-sum_pow_1_theta)
+        # Correct density (matches symbolic differentiation):
+        #   c(u,v) = exp(-s) * (-log u)^(theta-1) * (-log v)^(theta-1)
+        #            * (theta - 1 + s) / (u v * t^(2 - 1/theta)),
+        # with t = (-log u)^theta + (-log v)^theta and s = t^(1/theta).
+        pdf = (
+            C
+            * torch.pow(-log_u1, theta - 1.0)
+            * torch.pow(-log_u2, theta - 1.0)
+            * (theta - 1.0 + sum_pow_1_theta)
+            / (u1 * u2 * torch.pow(sum_pow, 2.0 - 1.0 / theta))
+        )
         return torch.clamp(pdf, 1e-15, 1e15)
 
     else:
@@ -1106,20 +1128,24 @@ def copulainvccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         return torch.tensor(v, dtype=uv.dtype, device=uv.device).clamp(1e-9, 1 - 1e-9)
 
     elif fam=='clayton':
-        alpha = float(param)
-        u1 = uv_clamped[:,0]
-        # second coordinate => we interpret the second is c, so we do F^-1( c | u1)
-        # There's a known formula for the conditional cdf => invert. 
-        # For clayton: F(u2|u1)= ( t^( -alpha/(1+ alpha) ) - u1^-alpha +1 )^(-1/alpha)
-        # We'll do partial. 
-        c2 = uv_clamped[:,1]
-        # a typical approach => u2= ( c2^( -alpha/(alpha+1)) - (u1^-alpha) +1 )^(-1/ alpha)
+        # Invert h(v|u) = d/du C(u,v).
+        #
+        # Clayton copula:
+        #   C(u,v) = (u^{-a} + v^{-a} - 1)^{-1/a},  a>0
+        # h(v|u) = u^{-a-1} (u^{-a} + v^{-a} - 1)^{-1/a - 1}
+        #
+        # Solving w = h(v|u) for v gives:
+        #   v = [ 1 + u^{-a} ( w^{-a/(1+a)} - 1 ) ]^{-1/a}
+        alpha = max(float(param), 1e-6)
+        u1 = uv_clamped[:, 0]
+        w = uv_clamped[:, 1]
+
         u1_m_alpha = torch.pow(u1, -alpha)
-        c2_pow = torch.pow(c2, -alpha/(1.0+ alpha))
-        val = c2_pow - u1_m_alpha +1.0
+        w_pow = torch.pow(w, -alpha / (1.0 + alpha))
+        val = 1.0 + u1_m_alpha * (w_pow - 1.0)
         val = torch.clamp(val, min=1e-14)
-        u2 = torch.pow(val, -1.0/ alpha)
-        return torch.clamp(u2, 0.0, 1.0)
+        u2 = torch.pow(val, -1.0 / alpha)
+        return torch.clamp(u2, 1e-9, 1 - 1e-9)
 
     elif fam=='claytonrot90':
         uv_flip = uv_clamped.clone()
@@ -1163,26 +1189,27 @@ def copulainvccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
 
     elif fam=='gumbel':
         theta = float(param)
-        theta = max(theta, 1.001)
-        
+        if theta <= 1.0 + 1e-6:
+            # Near-independence.
+            return uv_clamped[:, 1]
+
+        # No simple closed form for the inverse h-function; use bisection on v in (0,1)
+        # to solve copulaccdf([u, v]) = w.
         u1 = uv_clamped[:, 0]
-        c2 = uv_clamped[:, 1]
-        
-        # Gumbel copula conditional CDF inverse
-        log_u1 = torch.log(u1)
-        neg_log_u1_pow = torch.pow(-log_u1, theta)
-        
-        # Conditional CDF: h(u2|u1) = C(u1,u2) * [(-log u1)^(theta-1) + (-log u2)^(theta-1)]^(1-theta) / u1
-        # Inverse is complex, use approximation
-        log_c2 = torch.log(torch.clamp(c2, 1e-9, 1-1e-9))
-        
-        # Approximate inverse
-        term = -log_c2 - neg_log_u1_pow**(1.0/theta)
-        term = torch.clamp(term, 1e-15, 1e15)
-        
-        u2_approx = torch.exp(-torch.pow(torch.clamp(term, 1e-15), theta))
-        
-        return torch.clamp(u2_approx, 1e-9, 1-1e-9)
+        w = uv_clamped[:, 1]
+
+        lo = torch.full_like(w, 1e-9)
+        hi = torch.full_like(w, 1.0 - 1e-9)
+        for _ in range(40):
+            mid = 0.5 * (lo + hi)
+            uv_mid = torch.stack([u1, mid], dim=1)
+            h = copulaccdf(cop_p, uv_mid)
+            h = torch.nan_to_num(h, nan=0.5, posinf=1.0 - 1e-9, neginf=1e-9).clamp(1e-9, 1 - 1e-9)
+            lo = torch.where(h < w, mid, lo)
+            hi = torch.where(h >= w, mid, hi)
+
+        u2 = 0.5 * (lo + hi)
+        return torch.clamp(u2, 1e-9, 1 - 1e-9)
 
     else:
         # unknown => just return the second
