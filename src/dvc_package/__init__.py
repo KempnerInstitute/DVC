@@ -6,7 +6,7 @@ dependency estimation, and time-dependent entropy analysis using PyTorch.
 
 Key Features:
 - Multiple vine types: C-vine, D-vine, R-vine with structure optimization
-- Parametric copula families: Gaussian, Student-t, Clayton, Frank, Gumbel
+- Parametric copula families: Gaussian, Student-t, Clayton, Frank, Gumbel, Joe
 - Nonparametric local-likelihood copula estimation
 - Time-dependent dependency modeling using normalizing flows
 - Monte Carlo entropy and mutual information estimation

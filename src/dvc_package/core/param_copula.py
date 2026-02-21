@@ -594,6 +594,118 @@ def fit_gumbel(u: torch.Tensor):
 
 
 ################################################
+# JOE COPULA
+################################################
+
+def joe_kendalltau_to_theta(tau):
+    """
+    Approximate relationship between Kendall's tau and Joe copula parameter.
+
+    For the Joe copula with parameter theta >= 1:
+      tau = 1 + 4/theta^2 * integral_0^1 t*log(t)*(1-t)^{2(1-theta)/theta} dt.
+
+    No closed-form inversion exists; we use a Gumbel-like approximation
+    theta ~ 1/(1-tau) as a starting point for optimisation.
+    """
+    if tau <= 0.0:
+        return 1.0001
+    if tau >= 0.99:
+        tau = 0.99
+    theta = 1.0 / (1.0 - tau)
+    return max(theta, 1.0001)
+
+
+def fit_joe(u: torch.Tensor):
+    """
+    Fit a Joe copula using gradient-based optimization.
+
+    Joe copula CDF:
+        C(u,v) = 1 - [(1-u)^theta + (1-v)^theta - (1-u)^theta (1-v)^theta]^{1/theta}
+    where theta >= 1. theta=1 gives independence.
+
+    Density (log-form used for stability):
+        log c = (1/theta - 2) log S + (theta-1)[log(1-u) + log(1-v)]
+                + log(theta - 1 + S)
+    where S = (1-u)^theta + (1-v)^theta - (1-u)^theta (1-v)^theta.
+    """
+    device = u.device
+    dtype = u.dtype
+
+    u_np = u.cpu().numpy()
+    tau_kendall, _ = kendalltau(u_np[:, 0], u_np[:, 1])
+    theta_init_val = joe_kendalltau_to_theta(max(tau_kendall, 0.01))
+
+    theta_init = torch.tensor([theta_init_val], dtype=dtype, device=device, requires_grad=True)
+
+    lr = 0.05
+    conv_tol = 1e-3
+    max_iter = 200
+    beta1 = 0.9
+    beta2 = 0.999
+    eps = 1e-6
+
+    m = torch.zeros_like(theta_init)
+    v = torch.zeros_like(theta_init)
+    prev_err = torch.tensor(float('inf'), dtype=dtype, device=device)
+
+    for iter_num in range(max_iter):
+        if theta_init.grad is not None:
+            theta_init.grad.zero_()
+
+        theta = torch.clamp(theta_init, 1.001, 30.0)
+
+        uv_clamped = torch.clamp(u, 1e-9, 1 - 1e-9)
+        u1_bar = 1.0 - uv_clamped[:, 0]
+        u2_bar = 1.0 - uv_clamped[:, 1]
+
+        a = torch.pow(u1_bar, theta)
+        b = torch.pow(u2_bar, theta)
+        S = a + b - a * b
+        S = torch.clamp(S, min=1e-14)
+
+        log_pdf = (
+            (1.0 / theta - 2.0) * torch.log(S)
+            + (theta - 1.0) * (torch.log(u1_bar) + torch.log(u2_bar))
+            + torch.log(theta - 1.0 + S)
+        )
+
+        log_pdf = torch.where(
+            torch.isfinite(log_pdf),
+            log_pdf,
+            torch.tensor(-30.0, dtype=dtype, device=device),
+        )
+
+        err = -torch.sum(log_pdf)
+
+        if torch.abs(err - prev_err) < conv_tol:
+            break
+
+        err.backward()
+
+        grad = theta_init.grad
+        iter1 = float(iter_num + 1)
+
+        m = beta1 * m + (1 - beta1) * grad
+        v = beta2 * v + (1 - beta2) * grad ** 2
+
+        m_hat = m / (1 - beta1 ** iter1) + (1 - beta1) * grad / (1 - beta1 ** iter1)
+        v_hat = v / (1 - beta2 ** iter1)
+
+        with torch.no_grad():
+            theta_init -= lr * m_hat / (torch.sqrt(v_hat) + eps)
+
+        prev_err = err.clone()
+
+    theta_final = torch.clamp(theta_init, 1.001, 30.0).item()
+    ll_val = -err.item()
+
+    k = 1
+    aic = 2 * k - 2 * ll_val
+
+    return float(theta_final), ll_val, aic
+
+
+################################################
 # PARAMETRIC FIT WRAPPER
 ################################################
 
@@ -695,6 +807,11 @@ def parametric_fit(u: np.ndarray, families, n_cop: int):
                 fam_logp.append(ll_)
             elif fam=='gumbel':
                 theta, ll_, aic_ = fit_gumbel(data_i)
+                fam_aic.append(aic_)
+                fam_theta.append(theta)
+                fam_logp.append(ll_)
+            elif fam=='joe':
+                theta, ll_, aic_ = fit_joe(data_i)
                 fam_aic.append(aic_)
                 fam_theta.append(theta)
                 fam_logp.append(ll_)
@@ -868,6 +985,25 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         )
         return torch.clamp(pdf, 1e-15, 1e15)
 
+    elif fam=='joe':
+        theta = float(param)
+        theta = max(theta, 1.001)
+
+        u1, u2 = uv_clamped[:, 0], uv_clamped[:, 1]
+        u1_bar = 1.0 - u1
+        u2_bar = 1.0 - u2
+
+        a = torch.pow(u1_bar, theta)
+        b = torch.pow(u2_bar, theta)
+        S = torch.clamp(a + b - a * b, min=1e-14)
+
+        log_pdf = (
+            (1.0 / theta - 2.0) * torch.log(S)
+            + (theta - 1.0) * (torch.log(u1_bar) + torch.log(u2_bar))
+            + torch.log(theta - 1.0 + S)
+        )
+        return torch.exp(torch.clamp(log_pdf, -30.0, 30.0))
+
     else:
         # unknown
         return torch.zeros(uv.shape[0], device=uv.device)
@@ -1011,6 +1147,26 @@ def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         term1 = torch.pow(sum_pow, 1.0 / theta - 1.0)
         term2 = torch.pow(-log_u, theta - 1.0) / torch.clamp(u, min=1e-12)
         h_ = C * term1 * term2
+        return torch.clamp(h_, 1e-9, 1.0 - 1e-9)
+
+    elif fam=='joe':
+        # Joe copula h-function:
+        # h(v|u) = S^{1/theta - 1} * (1-u)^{theta-1} * (1 - (1-v)^theta)
+        # where S = (1-u)^theta + (1-v)^theta - (1-u)^theta (1-v)^theta.
+        theta = float(param)
+        if theta <= 1.0 + 1e-6:
+            return uv_clamped[:, 1]
+        theta = max(theta, 1.0 + 1e-6)
+
+        u_, v_ = uv_clamped[:, 0], uv_clamped[:, 1]
+        u_bar = 1.0 - u_
+        v_bar = 1.0 - v_
+
+        a = torch.pow(u_bar, theta)
+        b = torch.pow(v_bar, theta)
+        S = torch.clamp(a + b - a * b, min=1e-14)
+
+        h_ = torch.pow(S, 1.0 / theta - 1.0) * torch.pow(u_bar, theta - 1.0) * (1.0 - b)
         return torch.clamp(h_, 1e-9, 1.0 - 1e-9)
 
     else:
@@ -1195,6 +1351,28 @@ def copulainvccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
 
         # No simple closed form for the inverse h-function; use bisection on v in (0,1)
         # to solve copulaccdf([u, v]) = w.
+        u1 = uv_clamped[:, 0]
+        w = uv_clamped[:, 1]
+
+        lo = torch.full_like(w, 1e-9)
+        hi = torch.full_like(w, 1.0 - 1e-9)
+        for _ in range(40):
+            mid = 0.5 * (lo + hi)
+            uv_mid = torch.stack([u1, mid], dim=1)
+            h = copulaccdf(cop_p, uv_mid)
+            h = torch.nan_to_num(h, nan=0.5, posinf=1.0 - 1e-9, neginf=1e-9).clamp(1e-9, 1 - 1e-9)
+            lo = torch.where(h < w, mid, lo)
+            hi = torch.where(h >= w, mid, hi)
+
+        u2 = 0.5 * (lo + hi)
+        return torch.clamp(u2, 1e-9, 1 - 1e-9)
+
+    elif fam=='joe':
+        theta = float(param)
+        if theta <= 1.0 + 1e-6:
+            return uv_clamped[:, 1]
+
+        # No closed form; use bisection on v in (0,1) to solve h(v|u) = w.
         u1 = uv_clamped[:, 0]
         w = uv_clamped[:, 1]
 

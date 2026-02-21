@@ -413,7 +413,141 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict]=None):
 
         return out_x.cpu().numpy()
 
-    # Fallback for non C-vines: use Gaussian copula approximation.
+    # D-vine and R-vine sampling via generic inverse-h recursion.
+    # The vine structure is encoded in vine.ind_vine[level] = [[i,j], ...].
+    # We walk through the edges using the inverse Rosenblatt transform.
+    if vine.vine_family in ("d-vine", "r-vine"):
+        U_ = torch.full((nsamples, d, d), torch.nan, dtype=torch.float32, device=device)
+        w_all = torch.rand((nsamples, d), device=device).clamp(1e-6, 1 - 1e-6)
+
+        # For D-vine, the ordering is the path order from ind_vine.
+        # For R-vine, use the structure as-is.
+        # Determine variable order from tree-0 edges.
+        if vine.vine_family == "d-vine" and len(vine.ind_vine) > 0:
+            # D-vine: sequential path => extract ordering from level-0 edges
+            edges_0 = vine.ind_vine[0]
+            if edges_0:
+                seen = []
+                for e in edges_0:
+                    for node in e:
+                        if node not in seen:
+                            seen.append(node)
+                variable_order = seen
+            else:
+                variable_order = list(range(d))
+        else:
+            variable_order = list(range(d))
+
+        # Pad if not all variables covered
+        for v in range(d):
+            if v not in variable_order:
+                variable_order.append(v)
+
+        # First variable: just a uniform draw
+        first_var = variable_order[0]
+        U_[:, 0, first_var] = w_all[:, 0]
+        dist0 = _get_margin_dist(first_var)
+        out_x[:, first_var] = dist0.icdf(U_[:, 0, first_var]).clamp(-1e3, 1e3)
+
+        for pos in range(1, d):
+            target_var = variable_order[pos]
+            z = w_all[:, pos]
+
+            # Walk backward through tree levels using inverse h-functions.
+            for level in range(min(pos, len(vine.ind_vine)) - 1, -1, -1):
+                edges_now = vine.ind_vine[level] if level < len(vine.ind_vine) else []
+                cops_now = vine.copulas[level] if level < len(vine.copulas) else []
+
+                # Find the edge at this level involving target_var
+                edge_idx = None
+                cond_var = None
+                for e_idx, edge in enumerate(edges_now):
+                    if int(edge[1]) == target_var:
+                        edge_idx = e_idx
+                        cond_var = int(edge[0])
+                        break
+                    if int(edge[0]) == target_var:
+                        edge_idx = e_idx
+                        cond_var = int(edge[1])
+                        break
+
+                if edge_idx is None or edge_idx >= len(cops_now):
+                    continue
+
+                cobj = cops_now[edge_idx]
+                u_cond = U_[:, level, cond_var]
+                u_cond = torch.where(torch.isfinite(u_cond), u_cond, torch.tensor(0.5, device=device))
+
+                # Determine orientation: if target_var was edge[1], standard
+                # if target_var was edge[0], we need to swap
+                if int(edges_now[edge_idx][0]) == target_var:
+                    # Swap: invert h_{target|cond} => h_{0|1}
+                    uv = torch.stack([z, u_cond], dim=1)
+                else:
+                    uv = torch.stack([u_cond, z], dim=1)
+
+                try:
+                    z = copulainvccdf(cobj, uv).clamp(1e-6, 1 - 1e-6)
+                except Exception as e:
+                    logger.warning(
+                        "Inverse ccdf failed at level=%d, target=%d: %s", level, target_var, e
+                    )
+
+            U_[:, 0, target_var] = z
+            dist_t = _get_margin_dist(target_var)
+            out_x[:, target_var] = dist_t.icdf(z).clamp(-1e3, 1e3)
+
+            # Forward propagate h-values for future levels.
+            current = z
+            for level in range(min(pos, len(vine.ind_vine))):
+                edges_now = vine.ind_vine[level] if level < len(vine.ind_vine) else []
+                cops_now = vine.copulas[level] if level < len(vine.copulas) else []
+
+                edge_idx = None
+                cond_var = None
+                for e_idx, edge in enumerate(edges_now):
+                    if int(edge[1]) == target_var:
+                        edge_idx = e_idx
+                        cond_var = int(edge[0])
+                        break
+                    if int(edge[0]) == target_var:
+                        edge_idx = e_idx
+                        cond_var = int(edge[1])
+                        break
+
+                if edge_idx is None or edge_idx >= len(cops_now):
+                    U_[:, level + 1, target_var] = current
+                    continue
+
+                cobj = cops_now[edge_idx]
+                u_cond = U_[:, level, cond_var]
+                u_cond = torch.where(torch.isfinite(u_cond), u_cond, torch.tensor(0.5, device=device))
+                uv = torch.stack([u_cond, current], dim=1)
+                try:
+                    current = copulaccdf(cobj, uv).clamp(1e-6, 1 - 1e-6)
+                except Exception as e:
+                    logger.warning("Forward h failed at level=%d, target=%d: %s", level, target_var, e)
+                U_[:, level + 1, target_var] = current
+
+        # Numerical stability check
+        u_base = U_[:, 0, :]
+        bad_uniforms = (
+            torch.isnan(u_base).any()
+            or torch.isinf(u_base).any()
+            or ((u_base <= 1e-5) | (u_base >= 1 - 1e-5)).float().mean() > 0.05
+            or (u_base.std(dim=0) < 0.02).any()
+        )
+        if bool(bad_uniforms):
+            logger.warning(
+                "%s inverse-h sampling became numerically unstable; using Gaussian-copula fallback.",
+                vine.vine_family,
+            )
+            return _sample_gaussian_copula_fallback()
+
+        return out_x.cpu().numpy()
+
+    # Final fallback for unrecognised vine types.
+    logger.warning("Unknown vine family '%s'; using Gaussian-copula fallback.", vine.vine_family)
     return _sample_gaussian_copula_fallback()
 
 
