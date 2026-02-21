@@ -9,11 +9,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from typing import List, Tuple, Optional, Dict, Any, Union
+from typing import List, Tuple, Optional, Dict, Any, Union, Sequence
 import logging
 
 from ..core.objects import vine_obj_bin
 from ..core.info_estimation import vine_entropy, mutual_information
+from ..core.utils_locallik import loclik_batch_eval
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,8 @@ class TimeBandwidthFlow(nn.Module):
         self.n_edges = n_edges
         self.min_bandwidth = min_bandwidth
         self.max_bandwidth = max_bandwidth
+        self.register_buffer("_time_min", torch.tensor(0.0), persistent=False)
+        self.register_buffer("_time_max", torch.tensor(1.0), persistent=False)
         
         # Time embedding layer
         self.time_embedding = nn.Linear(1, time_embedding_dim)
@@ -119,8 +122,10 @@ class TimeBandwidthFlow(nn.Module):
         if time.dim() == 1:
             time = time.unsqueeze(-1)
         
-        # Normalize time to [-1, 1] range for better training stability
-        time_normalized = 2 * (time - time.min()) / (time.max() - time.min() + 1e-8) - 1
+        time = time.to(dtype=torch.float32)
+        denom = (self._time_max - self._time_min).clamp_min(1e-8)
+        t01 = ((time - self._time_min) / denom).clamp(0.0, 1.0)
+        time_normalized = 2.0 * t01 - 1.0
         
         # Time embedding
         time_emb = torch.tanh(self.time_embedding(time_normalized))
@@ -133,6 +138,15 @@ class TimeBandwidthFlow(nn.Module):
         bandwidths = self.min_bandwidth + (self.max_bandwidth - self.min_bandwidth) * bandwidths
         
         return bandwidths
+
+    def set_time_range(self, t_min: float, t_max: float) -> None:
+        """Set absolute time range used for stable normalization in forward()."""
+        t_lo = float(min(t_min, t_max))
+        t_hi = float(max(t_min, t_max))
+        if abs(t_hi - t_lo) < 1e-8:
+            t_hi = t_lo + 1.0
+        self._time_min = torch.tensor(t_lo, dtype=torch.float32, device=self._time_min.device)
+        self._time_max = torch.tensor(t_hi, dtype=torch.float32, device=self._time_max.device)
     
     def get_bandwidth_at_time(self, time: float) -> torch.Tensor:
         """Get bandwidth parameters for a specific time point."""
@@ -165,8 +179,8 @@ class TimeDependentVine(nn.Module):
         self.base_vine = base_vine
         self.device = torch.device(device)
         
-        # Count edges in vine structure
-        n_edges = self._count_vine_edges()
+        self.edge_index = self._get_level0_edges()
+        n_edges = max(len(self.edge_index), 1)
         
         # Create bandwidth flow if not provided
         if bandwidth_flow is None:
@@ -174,15 +188,95 @@ class TimeDependentVine(nn.Module):
         else:
             self.bandwidth_flow = bandwidth_flow
         
+        self._time_grid: Optional[torch.Tensor] = None
+        self._fit_pairs_by_time: List[torch.Tensor] = []
+        self._reference_ready = False
+        self._normal = torch.distributions.Normal(0.0, 1.0)
         self.to(self.device)
+
+    def _get_level0_edges(self) -> List[Tuple[int, int]]:
+        """Use level-0 vine edges (or default root-star edges) for KDE likelihood."""
+        if hasattr(self.base_vine, "ind_vine") and self.base_vine.ind_vine and self.base_vine.ind_vine[0]:
+            return [(int(i), int(j)) for (i, j) in self.base_vine.ind_vine[0]]
+        d = int(getattr(self.base_vine, "n_cop", 2))
+        if d < 2:
+            return [(0, 1)]
+        return [(0, j) for j in range(1, d)]
     
     def _count_vine_edges(self) -> int:
         """Count total number of edges in vine structure."""
-        n_edges = 0
-        if hasattr(self.base_vine, 'ind_vine') and self.base_vine.ind_vine:
-            for level_edges in self.base_vine.ind_vine:
-                n_edges += len(level_edges)
-        return max(n_edges, 1)
+        return max(len(self.edge_index), 1)
+
+    def _rank_normal_scores(self, x: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+        """Rank-normalize a matrix to approximately N(0,1) marginals."""
+        x = np.asarray(x, dtype=np.float64)
+        if x.ndim != 2:
+            raise ValueError(f"Expected 2D matrix, got {x.shape}")
+        n, d = x.shape
+        u = np.zeros((n, d), dtype=np.float64)
+        for j in range(d):
+            ranks = np.argsort(np.argsort(x[:, j], kind="mergesort"), kind="mergesort") + 1
+            u[:, j] = ranks / (n + 1.0)
+        u = np.clip(u, eps, 1.0 - eps)
+        z = np.sqrt(2.0) * torch.erfinv(torch.tensor(2.0 * u - 1.0, dtype=torch.float32))
+        return z.numpy()
+
+    def _pairs_from_matrix(self, x: np.ndarray) -> torch.Tensor:
+        """Stack level-0 edge pairs into tensor [N,2,E]."""
+        x = np.asarray(x, dtype=np.float32)
+        pairs = [x[:, [i, j]] for (i, j) in self.edge_index]
+        if not pairs:
+            pairs = [x[:, [0, 1]]]
+        arr = np.stack(pairs, axis=2)
+        return torch.tensor(arr, dtype=torch.float32, device=self.device)
+
+    def set_reference_data(
+        self,
+        data_by_time: Union[np.ndarray, Sequence[np.ndarray]],
+        time_points: Optional[Union[np.ndarray, Sequence[float], torch.Tensor]] = None,
+    ) -> None:
+        """Store per-time reference data used by local-likelihood copula evaluation."""
+        if isinstance(data_by_time, np.ndarray) and data_by_time.ndim == 3:
+            x_list = [np.asarray(data_by_time[t], dtype=np.float32) for t in range(data_by_time.shape[0])]
+        else:
+            x_list = [np.asarray(x, dtype=np.float32) for x in data_by_time]
+        if not x_list:
+            raise ValueError("data_by_time must be non-empty")
+
+        if time_points is None:
+            t = np.linspace(0.0, 1.0, len(x_list), dtype=np.float32)
+        else:
+            t = np.asarray(time_points, dtype=np.float32).reshape(-1)
+            if t.size != len(x_list):
+                raise ValueError("time_points length must match number of time slices")
+
+        self.bandwidth_flow.set_time_range(float(t.min()), float(t.max()))
+        self._time_grid = torch.tensor(t, dtype=torch.float32, device=self.device)
+        self._fit_pairs_by_time = [self._pairs_from_matrix(self._rank_normal_scores(x_t)) for x_t in x_list]
+        self._reference_ready = True
+
+    def _nearest_time_index(self, t: torch.Tensor) -> int:
+        if self._time_grid is None or self._time_grid.numel() == 0:
+            raise ValueError("Reference time grid is not initialized")
+        idx = int(torch.argmin(torch.abs(self._time_grid - t)).item())
+        return idx
+
+    def _edge_nll(
+        self,
+        fit_pairs: torch.Tensor,
+        eval_pairs: torch.Tensor,
+        bw_edge: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute per-sample truncated vine NLL from level-0 edge densities."""
+        if bw_edge.dim() != 1:
+            raise ValueError(f"Expected bw_edge shape [E], got {tuple(bw_edge.shape)}")
+        bw_edge = bw_edge.clamp(min=1e-4, max=5.0)
+        B = torch.stack([bw_edge, bw_edge], dim=0)  # [2,E], isotropic per edge
+        ker = loclik_batch_eval(B, fit_pairs, eval_pairs, n_cop=fit_pairs.shape[2], batch_size=1).clamp_min(1e-30)
+        log_joint = torch.log(ker)
+        log_norm = self._normal.log_prob(eval_pairs[:, 0, :]) + self._normal.log_prob(eval_pairs[:, 1, :])
+        log_c = log_joint - log_norm
+        return -log_c.sum(dim=1)
     
     def forward(self, x: torch.Tensor, time: torch.Tensor) -> torch.Tensor:
         """
@@ -200,39 +294,128 @@ class TimeDependentVine(nn.Module):
         torch.Tensor
             Negative log-likelihood values, shape (batch_size,)
         """
-        batch_size = x.shape[0]
-        
-        # Get time-dependent bandwidths
-        bandwidths = self.bandwidth_flow(time)  # Shape: (batch_size, n_edges)
-        
-        # Update vine bandwidths (this is a simplified approach)
-        # In practice, you'd need to properly integrate with the vine's copula objects
-        nll_values = torch.zeros(batch_size, device=self.device)
-        
-        try:
-            # Evaluate base vine PDF
-            if hasattr(self.base_vine, 'logpdf'):
-                log_probs = self.base_vine.logpdf(x)
-                nll_values = -log_probs
-            elif hasattr(self.base_vine, 'evaluation'):
-                p, _, _ = self.base_vine.evaluation(x.cpu().numpy())
-                if isinstance(p, torch.Tensor):
-                    log_probs = torch.log(p.clamp_min(1e-30))
-                else:
-                    log_probs = torch.log(torch.from_numpy(p).clamp_min(1e-30))
-                nll_values = -log_probs.to(self.device)
-            
-            # Apply bandwidth-dependent adjustments (simplified)
-            # This is where you'd integrate the time-dependent bandwidths
-            # with the actual copula computations
-            bandwidth_penalty = torch.mean(bandwidths, dim=1) * 0.1
-            nll_values += bandwidth_penalty
-            
-        except Exception as e:
-            logger.warning(f"Error in time-dependent vine forward pass: {e}")
-            nll_values = torch.full((batch_size,), 10.0, device=self.device)
-        
+        if isinstance(x, np.ndarray):
+            x = torch.tensor(x, dtype=torch.float32)
+        if isinstance(time, np.ndarray):
+            time = torch.tensor(time, dtype=torch.float32)
+
+        x = x.to(self.device, dtype=torch.float32)
+        time = time.to(self.device, dtype=torch.float32).reshape(-1)
+        if x.dim() != 2:
+            raise ValueError(f"Expected x shape [N,d], got {tuple(x.shape)}")
+        if time.shape[0] != x.shape[0]:
+            raise ValueError("time and x must have same batch size")
+
+        if not self._reference_ready:
+            # Backward-compatible fallback for legacy usage paths.
+            try:
+                if hasattr(self.base_vine, "logpdf"):
+                    log_probs = self.base_vine.logpdf(x).to(self.device)
+                    return -log_probs
+                if hasattr(self.base_vine, "evaluation"):
+                    p, _, _ = self.base_vine.evaluation(x.detach().cpu().numpy())
+                    if isinstance(p, torch.Tensor):
+                        return -torch.log(p.clamp_min(1e-30)).to(self.device)
+                    return -torch.log(torch.tensor(p, dtype=torch.float32, device=self.device).clamp_min(1e-30))
+            except Exception as exc:
+                logger.warning("TimeDependentVine fallback evaluation failed: %s", exc)
+            return torch.full((x.shape[0],), 10.0, device=self.device)
+
+        nll_values = torch.zeros(x.shape[0], dtype=torch.float32, device=self.device)
+        uniq_t = torch.unique(time)
+        for t_val in uniq_t:
+            sel = (time == t_val)
+            if not torch.any(sel):
+                continue
+            idx_ref = self._nearest_time_index(t_val)
+            fit_pairs = self._fit_pairs_by_time[idx_ref]
+            x_sel = x[sel].detach().cpu().numpy()
+            z_sel = self._rank_normal_scores(x_sel)
+            eval_pairs = self._pairs_from_matrix(z_sel)
+            bw = self.bandwidth_flow(t_val.view(1, 1)).squeeze(0)
+            nll_values[sel] = self._edge_nll(fit_pairs, eval_pairs, bw)
+
         return nll_values
+
+    def fit_bandwidth_flow(
+        self,
+        train_data_by_time: Union[np.ndarray, Sequence[np.ndarray]],
+        time_points: Optional[Union[np.ndarray, Sequence[float], torch.Tensor]] = None,
+        *,
+        val_fraction: float = 0.2,
+        n_epochs: int = 150,
+        lr: float = 1e-2,
+        batch_time_steps: int = 8,
+        seed: int = 0,
+    ) -> Dict[str, Any]:
+        """Train time->bandwidth flow by minimizing validation copula NLL."""
+        if isinstance(train_data_by_time, np.ndarray) and train_data_by_time.ndim == 3:
+            x_list = [np.asarray(train_data_by_time[t], dtype=np.float32) for t in range(train_data_by_time.shape[0])]
+        else:
+            x_list = [np.asarray(x, dtype=np.float32) for x in train_data_by_time]
+        if len(x_list) < 2:
+            raise ValueError("Need at least two time slices to train bandwidth flow")
+
+        if time_points is None:
+            t = np.linspace(0.0, 1.0, len(x_list), dtype=np.float32)
+        else:
+            t = np.asarray(time_points, dtype=np.float32).reshape(-1)
+            if t.size != len(x_list):
+                raise ValueError("time_points length must match number of time slices")
+
+        self.bandwidth_flow.set_time_range(float(t.min()), float(t.max()))
+        t_tensor = torch.tensor(t, dtype=torch.float32, device=self.device).unsqueeze(-1)
+
+        val_fraction = float(np.clip(val_fraction, 0.05, 0.5))
+        rng = np.random.default_rng(int(seed))
+        fit_pairs: List[torch.Tensor] = []
+        val_pairs: List[torch.Tensor] = []
+        full_pairs: List[torch.Tensor] = []
+        for x_t in x_list:
+            z_t = self._rank_normal_scores(x_t)
+            pairs = self._pairs_from_matrix(z_t)
+            n = pairs.shape[0]
+            if n < 20:
+                raise ValueError("Need at least ~20 samples per time slice")
+            perm = rng.permutation(n)
+            n_fit = max(int(round((1.0 - val_fraction) * n)), 10)
+            n_fit = min(n_fit, n - 5)
+            idx_fit = perm[:n_fit]
+            idx_val = perm[n_fit:]
+            fit_pairs.append(pairs[idx_fit])
+            val_pairs.append(pairs[idx_val])
+            full_pairs.append(pairs)
+
+        opt = torch.optim.Adam(self.bandwidth_flow.parameters(), lr=float(lr))
+        history: List[float] = []
+        T = len(x_list)
+        bsz = min(int(batch_time_steps), T)
+
+        for ep in range(int(n_epochs)):
+            opt.zero_grad(set_to_none=True)
+            rng_ep = np.random.default_rng(int(seed + 97 * ep))
+            t_sel = rng_ep.choice(T, size=bsz, replace=False)
+            loss = torch.zeros((), dtype=torch.float32, device=self.device)
+            for ti in t_sel:
+                bw = self.bandwidth_flow(t_tensor[ti:ti + 1]).squeeze(0)
+                loss = loss + self._edge_nll(fit_pairs[ti], val_pairs[ti], bw).mean()
+            loss = loss / float(bsz)
+
+            bw_all = self.bandwidth_flow(t_tensor)
+            bw_reg = 1e-3 * torch.mean((bw_all[1:] - bw_all[:-1]) ** 2) if bw_all.shape[0] > 1 else 0.0
+            loss = loss + bw_reg
+            loss.backward()
+            opt.step()
+            history.append(float(loss.detach().cpu()))
+
+        self._time_grid = torch.tensor(t, dtype=torch.float32, device=self.device)
+        self._fit_pairs_by_time = full_pairs
+        self._reference_ready = True
+        return {
+            "history": history,
+            "time_points": t.tolist(),
+            "n_edges": int(self._count_vine_edges()),
+        }
     
     def sample(self, n_samples: int, time_points: torch.Tensor) -> torch.Tensor:
         """
@@ -251,10 +434,7 @@ class TimeDependentVine(nn.Module):
             Generated samples, shape (n_samples, n_features)
         """
         with torch.no_grad():
-            # Get time-dependent bandwidths
-            bandwidths = self.bandwidth_flow(time_points)
-            
-            # Sample from base vine (simplified approach)
+            # Sampling path remains parametric (base vine); flow controls likelihood evaluation.
             try:
                 if hasattr(self.base_vine, 'sample'):
                     samples = self.base_vine.sample(n_samples)
@@ -263,9 +443,6 @@ class TimeDependentVine(nn.Module):
                     # Fallback: Gaussian samples
                     n_features = getattr(self.base_vine, 'n_cop', 2)
                     samples = torch.randn(n_samples, n_features, device=self.device)
-                
-                # Apply bandwidth-dependent transformations (placeholder)
-                # In practice, you'd use the bandwidths to modify the sampling process
                 
                 return samples
                 

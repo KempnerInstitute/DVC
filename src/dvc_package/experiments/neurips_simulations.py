@@ -28,6 +28,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from ..baselines.gaussian_state_space import gaussian_copula_state_space_nll_fit_eval
 from ..baselines.tvgl import hub_from_precision, tvgl_frobenius
 from ..core.objects import cop_par_obj, vine_obj_bin
 from ..core.vine_factory import create_vine
@@ -1058,6 +1059,15 @@ def _plot_dynamic_panel(
             linestyle="-.",
             label="TVGL (Frobenius)",
         )
+    if "nll_gap_state_space" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_state_space"],
+            color="tab:purple",
+            linewidth=1.3,
+            linestyle=(0, (3, 1, 1, 1)),
+            label="Gaussian SSM",
+        )
     if "nll_gap_kde_flow" in series:
         ax4.plot(
             time,
@@ -1317,6 +1327,10 @@ def run_neurips_simulation_suite(
                 step_size=0.05,
                 eps=1e-4,
             )
+            ssm_nll, ssm_fit = gaussian_copula_state_space_nll_fit_eval(
+                x_train_list,
+                x_test_list,
+            )
             kde_flow_nll, kde_flow_val_nll, kde_flow_bandwidths = _kde_flow_truncated_level0_nll_from_splits(
                 x_train_list,
                 x_test_list,
@@ -1339,6 +1353,7 @@ def run_neurips_simulation_suite(
                 "nll_gap_truncated_level0": np.asarray(trunc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_glasso": np.asarray(glasso_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_tvgl": np.asarray(tvgl_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_state_space": np.asarray(ssm_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_kde_flow": np.asarray(kde_flow_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
             }
             out_png = plots_dir / "dynamic_tail_df_panel.png"
@@ -1368,6 +1383,9 @@ def run_neurips_simulation_suite(
                 "nll_gap_glasso": (np.asarray(glasso_nll) - np.asarray(dvc_nll)).tolist(),
                 "tvgl_gaussian_nll": tvgl_nll,
                 "nll_gap_tvgl": (np.asarray(tvgl_nll) - np.asarray(dvc_nll)).tolist(),
+                "state_space_gaussian_nll": ssm_nll,
+                "nll_gap_state_space": (np.asarray(ssm_nll) - np.asarray(dvc_nll)).tolist(),
+                "state_space_process_variance": float(ssm_fit.process_variance),
                 "kde_flow_truncated_level0_nll": kde_flow_nll,
                 "kde_flow_val_nll": kde_flow_val_nll,
                 "kde_flow_bandwidths": kde_flow_bandwidths.tolist(),
@@ -1458,6 +1476,10 @@ def run_neurips_simulation_suite(
                 step_size=0.05,
                 eps=1e-4,
             )
+            ssm_nll, ssm_fit = gaussian_copula_state_space_nll_fit_eval(
+                x_train_list,
+                x_test_list,
+            )
             kde_flow_nll, kde_flow_val_nll, kde_flow_bandwidths = _kde_flow_truncated_level0_nll_from_splits(
                 x_train_list,
                 x_test_list,
@@ -1480,6 +1502,7 @@ def run_neurips_simulation_suite(
                 "nll_gap_truncated_level0": np.asarray(trunc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_glasso": np.asarray(glasso_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_tvgl": np.asarray(tvgl_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_state_space": np.asarray(ssm_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_kde_flow": np.asarray(kde_flow_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
             }
             out_png = plots_dir / "tail_switch_panel.png"
@@ -1512,6 +1535,9 @@ def run_neurips_simulation_suite(
                 "nll_gap_glasso": (np.asarray(glasso_nll) - np.asarray(dvc_nll)).tolist(),
                 "tvgl_gaussian_nll": tvgl_nll,
                 "nll_gap_tvgl": (np.asarray(tvgl_nll) - np.asarray(dvc_nll)).tolist(),
+                "state_space_gaussian_nll": ssm_nll,
+                "nll_gap_state_space": (np.asarray(ssm_nll) - np.asarray(dvc_nll)).tolist(),
+                "state_space_process_variance": float(ssm_fit.process_variance),
                 "kde_flow_truncated_level0_nll": kde_flow_nll,
                 "kde_flow_val_nll": kde_flow_val_nll,
                 "kde_flow_bandwidths": kde_flow_bandwidths.tolist(),
@@ -1610,6 +1636,10 @@ def run_neurips_simulation_suite(
                 zte = _normal_scores_from_rank_pobs(np.asarray(xte, dtype=np.float64))
                 tvgl_nll.append(_gaussian_copula_nll_given_corr(zte, R))
                 tvgl_hubs.append(hub_from_precision(P, edge_threshold=0.05))
+            ssm_nll, ssm_fit = gaussian_copula_state_space_nll_fit_eval(
+                x_train_list,
+                x_test_list,
+            )
 
             out_png = plots_dir / "hub_switch_panel.png"
             _plot_hub_switch_panel(
@@ -1667,10 +1697,13 @@ def run_neurips_simulation_suite(
                 "truncated_level0_nll": trunc_nll,
                 "glasso_gaussian_nll": glasso_nll,
                 "tvgl_gaussian_nll": tvgl_nll,
+                "state_space_gaussian_nll": ssm_nll,
                 "nll_gap": (np.asarray(gauss_nll) - np.asarray(dvc_nll)).tolist(),
                 "nll_gap_truncated_level0": (np.asarray(trunc_nll) - np.asarray(dvc_nll)).tolist(),
                 "nll_gap_glasso": (np.asarray(glasso_nll) - np.asarray(dvc_nll)).tolist(),
                 "nll_gap_tvgl": (np.asarray(tvgl_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_state_space": (np.asarray(ssm_nll) - np.asarray(dvc_nll)).tolist(),
+                "state_space_process_variance": float(ssm_fit.process_variance),
             }
             continue
 
@@ -1704,6 +1737,10 @@ def run_neurips_simulation_suite(
             gap = np.asarray(payload["nll_gap_tvgl"], dtype=np.float64)
             row["nll_gap_tvgl_mean"] = float(np.nanmean(gap))
             row["nll_gap_tvgl_std"] = float(np.nanstd(gap))
+        if "nll_gap_state_space" in payload:
+            gap = np.asarray(payload["nll_gap_state_space"], dtype=np.float64)
+            row["nll_gap_state_space_mean"] = float(np.nanmean(gap))
+            row["nll_gap_state_space_std"] = float(np.nanstd(gap))
         if "nll_gap_kde_flow" in payload:
             gap = np.asarray(payload["nll_gap_kde_flow"], dtype=np.float64)
             row["nll_gap_kde_flow_mean"] = float(np.nanmean(gap))

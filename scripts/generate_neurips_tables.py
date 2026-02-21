@@ -255,6 +255,7 @@ def _extract_effective_behavior_rows(
         "nll_gap_truncated_level0": "1-truncated C-vine",
         "nll_gap_glasso": "Graphical Lasso",
         "nll_gap_tvgl": "TVGL (Frobenius)",
+        "nll_gap_state_space": "Gaussian SSM",
         "nll_gap_kde_flow": "KDE-flow (time BW)",
     }
 
