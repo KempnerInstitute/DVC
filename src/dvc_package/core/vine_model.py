@@ -8,7 +8,7 @@ A parametric C-vine implementation that:
 3) Preserves correlations among all variables.
 
 Families handled: 'ind','gaussian','clayton' (extend as needed).
-No non-parametric code or binning is included here—param only.
+No non-parametric code or binning is included here (param only).
 """
 
 import torch

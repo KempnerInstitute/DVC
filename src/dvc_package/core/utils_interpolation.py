@@ -287,7 +287,7 @@ def inverse_cdf_row(rand_u: torch.Tensor,
 
     Returns
     -------
-    torch.Tensor  shape [N]  – sampled y values.
+    torch.Tensor  shape [N]  - sampled y values.
     """
     K = y_axis.numel()
     idx = torch.searchsorted(cdf_rows, rand_u.unsqueeze(1))  # [N,1]

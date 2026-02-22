@@ -276,7 +276,7 @@ def prepare_vine(vine_family, dim):
                 r_matrix[i, j] = c
                 c += 1
 
-        # Edge list – consecutive chain on level-0, shorter ranges after
+        # Edge list - consecutive chain on level-0, shorter ranges after
         ind_vine = []
         # level-0
         ind_vine.append([[j, j + 1] for j in range(dim - 1)])

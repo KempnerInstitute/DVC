@@ -76,7 +76,7 @@ def bandwidth_knn(data: torch.Tensor,
     For each copula edge we compute the average distance to its *k*-th
     nearest neighbour in the 2-D *x*-space and use that scalar for both
     dimensions.  The result has the same shape as `bandwidth_rule_of_thumb`
-    – namely `[2, n_cop]`.
+    - namely `[2, n_cop]`.
 
     A sub-sample of 1000 points is used if *N* is large to keep the
     pair-wise distance matrix reasonable.  The routine is deliberately kept
@@ -101,7 +101,7 @@ def bandwidth_knn(data: torch.Tensor,
 
     for i in range(n_cop):
         pts = data_use[:, :, i]                 # [N_eff,2]
-        # pairwise L2 distances – avoidance of huge memory via chunking is
+        # pairwise L2 distances - avoidance of huge memory via chunking is
         # not necessary for <=1k points.
         dists = torch.cdist(pts, pts, p=2.0)    # [N_eff,N_eff]
         dists, _ = torch.sort(dists, dim=1)     # ascending per row

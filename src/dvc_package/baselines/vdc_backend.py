@@ -117,7 +117,7 @@ class VDCBackend:
         self.model = self.model.to(device)
         self.model.eval()
 
-        # Fitted vine — populated after calling .fit()
+        # Fitted vine - populated after calling .fit()
         self._vine: Optional[VineCopulaModel] = None
 
     # -----------------------------------------------------------------
@@ -272,7 +272,7 @@ class VDCBackend:
     def save_vine(self, filepath: Union[str, Path]) -> None:
         """Save the fitted vine (not the diffusion model weights)."""
         if self._vine is None:
-            raise RuntimeError("Nothing to save — call .fit() first")
+            raise RuntimeError("Nothing to save - call .fit() first")
         self._vine.save(filepath)
 
     def load_vine(self, filepath: Union[str, Path]) -> None:
