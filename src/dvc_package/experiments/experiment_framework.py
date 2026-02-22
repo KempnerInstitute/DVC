@@ -29,8 +29,7 @@ from ..core.param_copula import parametric_fit
 from ..core.d_vine_fix import compute_correlation_matrix, compute_kendall_tau_matrix
 from ..core.vine_model import fit_vine
 from ..time.data import generate_synthetic_time_series, create_data_loader, preprocess_real_data
-from ..time.model import TimeDependentVineCopula
-from ..time.flows import TimeBandwidthFlow
+from ..time.models import create_time_dependent_vine
 from ..utils.utils_tensor import replace_nan_inf, handle_small_sample_size
 from .neurips_simulations import run_neurips_simulation_suite
 
@@ -792,58 +791,54 @@ class TimeDependentExperiment(BaseExperiment):
         n_time_steps, n_samples_per_time, n_variables = time_data.shape
         
         try:
-            # Create base vine (simplified - you may need to implement proper fitting)
+            # Create base vine and canonical time-conditioned model.
             base_vine = create_vine('c-vine', n_variables)
-            
-            # Create time-dependent model
             hidden_dim = time_config.get('hidden_dim', 64)
-            model = TimeDependentVineCopula(
-                vine=base_vine,
-                n_time_steps=n_time_steps,
-                hidden_dim=hidden_dim
+            model = create_time_dependent_vine(
+                base_vine=base_vine,
+                hidden_dims=[int(hidden_dim)],
+                device="cpu",
             )
 
-            # Initialize per-edge training pairs so likelihood-based evaluation is available.
-            # Shape convention: [N_total, 2, n_edges] where n_edges follows model.edge_index_map.
-            flat_data = torch.tensor(time_data.reshape(-1, n_variables), dtype=torch.float32)
-            max_likelihood_samples = int(time_config.get('likelihood_training_samples', 2000))
-            if flat_data.shape[0] > max_likelihood_samples:
-                idx = torch.randperm(flat_data.shape[0])[:max_likelihood_samples]
-                flat_data = flat_data[idx]
-            edge_pairs = []
-            for tr, edge_idx in model.edge_index_map:
-                edges = base_vine.ind_vine[tr] if tr < len(base_vine.ind_vine) else []
-                if edge_idx >= len(edges):
-                    continue
-                i, j = edges[edge_idx]
-                edge_pairs.append(flat_data[:, [i, j]])
-            if edge_pairs:
-                base_vine.data_x = torch.stack(edge_pairs, dim=2)
-            else:
-                base_vine.data_x = torch.zeros((flat_data.shape[0], 2, 0), dtype=torch.float32)
-            
-            # Test bandwidth prediction
-            time_norm = torch.linspace(0, 1, n_time_steps).unsqueeze(-1)
-            bandwidths = model.forward(time_norm)
-            
-            # Compute metrics
-            bandwidth_metrics = model.compute_bandwidth_evolution_metrics(
-                torch.tensor(time_indices, dtype=torch.float32)
+            fit_info = model.fit_bandwidth_flow(
+                train_data_by_time=time_data,
+                time_points=time_indices,
+                val_fraction=float(time_config.get('val_fraction', 0.2)),
+                n_epochs=int(time_config.get('n_epochs', 20)),
+                lr=float(time_config.get('learning_rate', 1e-2)),
+                batch_time_steps=int(time_config.get('batch_time_steps', min(8, n_time_steps))),
+                seed=int(self.config.seed if self.config.seed is not None else 0),
             )
-            
+
+            t_tensor = torch.tensor(time_indices, dtype=torch.float32)
+            bandwidths = model.get_bandwidths_over_time(t_tensor)  # [T, E]
+            bw_np = bandwidths.detach().cpu().numpy()
+
+            bandwidth_metrics: Dict[str, Any] = {}
+            n_edges = int(bw_np.shape[1]) if bw_np.ndim == 2 else 0
+            for edge_idx in range(n_edges):
+                vals = bw_np[:, edge_idx]
+                key = f"edge_{edge_idx}"
+                bandwidth_metrics[f"{key}_mean_bw"] = float(np.mean(vals))
+                bandwidth_metrics[f"{key}_std_bw"] = float(np.std(vals))
+                bandwidth_metrics[f"{key}_min_bw"] = float(np.min(vals))
+                bandwidth_metrics[f"{key}_max_bw"] = float(np.max(vals))
+                if vals.shape[0] > 1:
+                    bandwidth_metrics[f"{key}_temporal_variation"] = float(np.mean(np.abs(np.diff(vals))))
+
             results = {
                 'model_created': True,
-                'n_edges': len(model.edge_flows),
+                'n_edges': int(n_edges),
                 'hidden_dim': hidden_dim,
                 'bandwidth_shape': list(bandwidths.shape),
+                'fit_info': fit_info,
                 'bandwidth_statistics': {
                     'mean': float(bandwidths.mean().detach()),
                     'std': float(bandwidths.std().detach()),
                     'min': float(bandwidths.min().detach()),
                     'max': float(bandwidths.max().detach())
                 },
-                'bandwidth_metrics': {k: v.tolist() if isinstance(v, torch.Tensor) else v 
-                                    for k, v in bandwidth_metrics.items()}
+                'bandwidth_metrics': bandwidth_metrics,
             }
             
             # Store model for evaluation
@@ -867,56 +862,28 @@ class TimeDependentExperiment(BaseExperiment):
         
         model = self._trained_model
 
-        # If per-edge training data is unavailable, provide a stable bandwidth-only summary.
-        if getattr(model.vine, 'data_x', None) is None:
-            time_norm = torch.linspace(0, 1, len(time_indices)).unsqueeze(-1)
-            bandwidths = model.forward(time_norm)
-
-            if bandwidths.shape[0] > 1:
-                bw_diff = bandwidths[1:] - bandwidths[:-1]
-                temporal_variation = float(
-                    torch.mean(torch.norm(bw_diff.reshape(bw_diff.shape[0], -1), dim=1)).detach()
-                )
-            else:
-                temporal_variation = 0.0
-
-            return {
-                'evaluation_performed': True,
-                'losses': {
-                    'negative_log_likelihood': None,
-                    'entropy_based_loss': None
-                },
-                'bandwidth_analysis': {
-                    'temporal_variation': temporal_variation,
-                    'smoothness_score': float(1.0 / (1.0 + temporal_variation))
-                },
-                'model_complexity': {
-                    'n_parameters': sum(p.numel() for p in model.parameters()),
-                    'n_edges': len(model.edge_flows)
-                },
-                'note': 'Likelihood metrics skipped because vine.data_x is not initialized in this prototype path.'
-            }
-
         try:
             # Test forward pass on sample data
             sample_data = torch.tensor(time_data[0][:10], dtype=torch.float32)
-            sample_times = torch.linspace(0.0, 1.0, steps=10, dtype=torch.float32)
+            t0 = float(np.asarray(time_indices).reshape(-1)[0])
+            sample_times = torch.full((sample_data.shape[0],), t0, dtype=torch.float32)
             
             # Compute loss
             with torch.no_grad():
-                nll_loss = model.negative_log_likelihood(sample_data, sample_times)
-                entropy_loss = model.entropy_based_loss(sample_data, sample_times)
+                nll_vals = model(sample_data, sample_times)
+                nll_loss = torch.mean(nll_vals)
             
             # Bandwidth evolution analysis
-            time_norm = torch.linspace(0, 1, len(time_indices)).unsqueeze(-1)
-            bandwidths = model.forward(time_norm)
+            t_tensor = torch.tensor(time_indices, dtype=torch.float32)
+            bandwidths = model.get_bandwidths_over_time(t_tensor)
             
             # Compute temporal variation
-            if len(time_indices) > 1:
+            if bandwidths.shape[0] > 1:
                 bandwidth_diff = bandwidths[1:] - bandwidths[:-1]
                 temporal_variation = torch.mean(torch.norm(bandwidth_diff, dim=1))
             else:
                 temporal_variation = torch.tensor(0.0)
+            entropy_loss = nll_loss + 0.1 * temporal_variation
 
             results = {
                 'evaluation_performed': True,
@@ -930,15 +897,15 @@ class TimeDependentExperiment(BaseExperiment):
                 },
                 'model_complexity': {
                     'n_parameters': sum(p.numel() for p in model.parameters()),
-                    'n_edges': len(model.edge_flows)
+                    'n_edges': int(bandwidths.shape[1] if bandwidths.ndim == 2 else 0)
                 }
             }
             
         except Exception as e:
             self.logger.warning(f"Primary model evaluation failed, using fallback summary: {e}")
             try:
-                time_norm = torch.linspace(0, 1, len(time_indices)).unsqueeze(-1)
-                bandwidths = model.forward(time_norm)
+                t_tensor = torch.tensor(time_indices, dtype=torch.float32)
+                bandwidths = model.get_bandwidths_over_time(t_tensor)
 
                 if bandwidths.shape[0] > 1:
                     bw_diff = bandwidths[1:] - bandwidths[:-1]
@@ -960,7 +927,7 @@ class TimeDependentExperiment(BaseExperiment):
                     },
                     'model_complexity': {
                         'n_parameters': sum(p.numel() for p in model.parameters()),
-                        'n_edges': len(model.edge_flows)
+                        'n_edges': int(bandwidths.shape[1] if bandwidths.ndim == 2 else 0)
                     },
                     'note': f"Fallback evaluation used due to: {e}"
                 }
@@ -1007,20 +974,16 @@ class TimeDependentExperiment(BaseExperiment):
         if model_results.get('model_created', False) and hasattr(self, '_trained_model'):
             try:
                 model = self._trained_model
-                time_norm = torch.linspace(0, 1, n_time_steps).unsqueeze(-1)
-                bandwidths = model.forward(time_norm)
+                t_tensor = torch.tensor(time_indices, dtype=torch.float32)
+                bandwidths = model.get_bandwidths_over_time(t_tensor)
                 
                 plt.figure(figsize=(12, 6))
                 
-                # Plot bandwidth evolution for each edge and dimension
-                for edge_idx in range(min(3, len(model.edge_flows))):  # Plot first 3 edges
-                    for dim in range(2):  # Assuming 2D bandwidths
-                        if bandwidths.dim() == 3:
-                            bw_values = bandwidths[:, dim, edge_idx].detach().cpu().numpy()
-                        else:
-                            bw_values = bandwidths[:, edge_idx * 2 + dim].detach().cpu().numpy()
-                        plt.plot(time_indices, bw_values, 
-                               label=f'Edge {edge_idx}, Dim {dim}', linewidth=2)
+                # Plot bandwidth evolution for first few edges.
+                n_edges = int(bandwidths.shape[1]) if bandwidths.ndim == 2 else 0
+                for edge_idx in range(min(3, n_edges)):
+                    bw_values = bandwidths[:, edge_idx].detach().cpu().numpy()
+                    plt.plot(time_indices, bw_values, label=f'Edge {edge_idx}', linewidth=2)
                 
                 plt.xlabel('Time')
                 plt.ylabel('Bandwidth')

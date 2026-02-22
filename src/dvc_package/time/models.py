@@ -150,7 +150,7 @@ class TimeBandwidthFlow(nn.Module):
     
     def get_bandwidth_at_time(self, time: float) -> torch.Tensor:
         """Get bandwidth parameters for a specific time point."""
-        time_tensor = torch.tensor([[time]], dtype=torch.float32)
+        time_tensor = torch.tensor([[time]], dtype=torch.float32, device=self._time_min.device)
         with torch.no_grad():
             return self.forward(time_tensor).squeeze(0)
 
@@ -159,6 +159,11 @@ class TimeDependentVine(nn.Module):
     """
     Time-dependent vine copula that combines a base vine structure
     with time-varying bandwidth parameters.
+
+    Current implementation details:
+    - The local-likelihood path uses level-0 vine edges.
+    - Time conditioning is used for NLL evaluation through per-edge bandwidths.
+    - Sampling remains delegated to the fitted base vine.
     
     Parameters
     ----------
@@ -307,7 +312,7 @@ class TimeDependentVine(nn.Module):
             raise ValueError("time and x must have same batch size")
 
         if not self._reference_ready:
-            # Backward-compatible fallback for legacy usage paths.
+            # Fallback path when reference data has not been initialized.
             try:
                 if hasattr(self.base_vine, "logpdf"):
                     log_probs = self.base_vine.logpdf(x).to(self.device)
@@ -419,22 +424,31 @@ class TimeDependentVine(nn.Module):
     
     def sample(self, n_samples: int, time_points: torch.Tensor) -> torch.Tensor:
         """
-        Sample from time-dependent vine at specified time points.
-        
+        Sample from the model at specified time points.
+
         Parameters
         ----------
         n_samples : int
             Number of samples to generate
         time_points : torch.Tensor
-            Time points for sampling, shape (n_samples,)
+            Time points for sampling, shape (n_samples,).
+            Currently used for API consistency and validation. The sampling
+            path remains the fitted base vine and does not yet condition on
+            time-varying bandwidth predictions.
             
         Returns
         -------
         torch.Tensor
             Generated samples, shape (n_samples, n_features)
         """
+        if time_points is None:
+            raise ValueError("time_points must be provided with shape (n_samples,)")
+        t = torch.as_tensor(time_points, dtype=torch.float32, device=self.device).reshape(-1)
+        if int(t.numel()) != int(n_samples):
+            raise ValueError(f"time_points length ({int(t.numel())}) must equal n_samples ({int(n_samples)})")
+
         with torch.no_grad():
-            # Sampling path remains parametric (base vine); flow controls likelihood evaluation.
+            # Sampling path remains parametric (base vine). Flow is used in NLL evaluation.
             try:
                 if hasattr(self.base_vine, 'sample'):
                     samples = self.base_vine.sample(n_samples)
@@ -574,28 +588,58 @@ class DynamicEntropyEstimator(nn.Module):
     def _estimate_mi_from_samples(self, x_samples: torch.Tensor, 
                                 y_samples: torch.Tensor, 
                                 xy_samples: torch.Tensor) -> torch.Tensor:
-        """Estimate MI from samples using k-nearest neighbors or kernel density estimation."""
-        # This is a simplified placeholder
-        # In practice, you'd use proper MI estimation methods like:
-        # - k-nearest neighbors (KNN) estimator
-        # - Kernel density estimation
-        # - Neural mutual information estimation
-        
+        """Estimate MI from samples using a Gaussian plug-in estimator.
+
+        For multivariate continuous variables, this computes:
+            I(X;Y) = 0.5 * (log |Sigma_x| + log |Sigma_y| - log |Sigma_xy|)
+        with covariance regularization for numerical stability.
+        """
         try:
-            # Simple correlation-based approximation for Gaussian case
-            x_np = x_samples.cpu().numpy()
-            y_np = y_samples.cpu().numpy()
-            
-            if x_np.shape[1] == 1 and y_np.shape[1] == 1:
-                corr = np.corrcoef(x_np.flatten(), y_np.flatten())[0, 1]
-                if np.isfinite(corr) and abs(corr) < 0.999:
-                    mi = -0.5 * np.log(1 - corr**2)
-                    return torch.tensor(max(mi, 0.0))
-            
-            # Fallback: return small positive value
-            return torch.tensor(0.1)
-            
-        except:
+            x_np = np.asarray(x_samples.detach().cpu().numpy(), dtype=np.float64)
+            y_np = np.asarray(y_samples.detach().cpu().numpy(), dtype=np.float64)
+
+            if x_np.ndim == 1:
+                x_np = x_np[:, None]
+            if y_np.ndim == 1:
+                y_np = y_np[:, None]
+            if x_np.ndim != 2 or y_np.ndim != 2:
+                return torch.tensor(0.0)
+            if x_np.shape[0] != y_np.shape[0]:
+                return torch.tensor(0.0)
+            n = x_np.shape[0]
+            dx = x_np.shape[1]
+            dy = y_np.shape[1]
+            if n < max(dx + dy + 2, 8):
+                return torch.tensor(0.0)
+
+            # Standardize to reduce scale pathologies in covariance estimation.
+            z = np.concatenate([x_np, y_np], axis=1)
+            z = (z - z.mean(axis=0, keepdims=True)) / (z.std(axis=0, keepdims=True) + 1e-8)
+
+            cov = np.cov(z, rowvar=False)
+            if cov.ndim != 2:
+                return torch.tensor(0.0)
+
+            cov_x = cov[:dx, :dx]
+            cov_y = cov[dx:, dx:]
+            cov_xy = cov
+
+            ridge = 1e-6
+            cov_x = cov_x + ridge * np.eye(dx)
+            cov_y = cov_y + ridge * np.eye(dy)
+            cov_xy = cov_xy + ridge * np.eye(dx + dy)
+
+            sx, ldx = np.linalg.slogdet(cov_x)
+            sy, ldy = np.linalg.slogdet(cov_y)
+            sxy, ldxy = np.linalg.slogdet(cov_xy)
+            if sx <= 0 or sy <= 0 or sxy <= 0:
+                return torch.tensor(0.0)
+
+            mi = 0.5 * (ldx + ldy - ldxy)
+            if not np.isfinite(mi):
+                return torch.tensor(0.0)
+            return torch.tensor(float(max(mi, 0.0)))
+        except Exception:
             return torch.tensor(0.0)
     
     def compute_entropy_rate(self, time_points: torch.Tensor, 
@@ -608,7 +652,7 @@ class DynamicEntropyEstimator(nn.Module):
 
 
 def create_time_dependent_vine(base_vine: vine_obj_bin,
-                             hidden_dims: List[int] = [64, 32],
+                             hidden_dims: Optional[List[int]] = None,
                              time_embedding_dim: int = 16,
                              device: Union[str, torch.device] = 'cpu') -> TimeDependentVine:
     """
@@ -628,14 +672,16 @@ def create_time_dependent_vine(base_vine: vine_obj_bin,
     Returns
     -------
     TimeDependentVine
-        Time-dependent vine copula model
+        Time-dependent vine copula model using level-0 edge bandwidths
     """
-    # Count edges in vine
-    n_edges = 0
-    if hasattr(base_vine, 'ind_vine') and base_vine.ind_vine:
-        for level_edges in base_vine.ind_vine:
-            n_edges += len(level_edges)
-    n_edges = max(n_edges, 1)
+    if hidden_dims is None:
+        hidden_dims = [64, 32]
+
+    # Use level-0 edges, matching TimeDependentVine local-likelihood path.
+    if hasattr(base_vine, 'ind_vine') and base_vine.ind_vine and base_vine.ind_vine[0]:
+        n_edges = len(base_vine.ind_vine[0])
+    else:
+        n_edges = max(int(getattr(base_vine, "n_cop", 2)) - 1, 1)
     
     # Create bandwidth flow
     bandwidth_flow = TimeBandwidthFlow(

@@ -4,7 +4,7 @@ Tests for time-dependent vine copula modules.
 Tests:
 - TimeBandwidthFlow: forward shape, positivity
 - MLPEdgeFlow: forward shape, positivity
-- TimeDependentVineCopula: loss computation
+- Time-dependent experiment path: finite likelihood losses
 - TimeSeriesVineDataset: dataset iteration
 - Synthetic time series generation
 """
