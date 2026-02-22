@@ -13,7 +13,7 @@ from scipy.stats import norm, kendalltau
 
 from dvc_package.core.param_copula import (
     fit_gaussian, fit_student, fit_clayton, fit_frank, fit_gumbel,
-    fit_claytonrot90, parametric_fit,
+    fit_joe, fit_claytonrot90, parametric_fit,
     copulapdf, copulaccdf, copulainvccdf,
 )
 from dvc_package.core.objects import cop_par_obj
@@ -196,6 +196,81 @@ class TestFitGumbel:
 
 
 # ---------------------------------------------------------------------------
+# Joe copula fitting
+# ---------------------------------------------------------------------------
+
+def _generate_joe_copula_data(theta: float, n: int = 500, seed: int = 42):
+    """Generate bivariate Joe copula data via inverse h-function sampling."""
+    rng = np.random.default_rng(seed)
+    u1 = rng.uniform(0.001, 0.999, n).astype(np.float32)
+    w = rng.uniform(0.001, 0.999, n).astype(np.float32)
+    uv = torch.tensor(np.column_stack([u1, w]), dtype=torch.float32)
+    cop = cop_par_obj("joe", float(theta))
+    u2 = copulainvccdf(cop, uv).detach().cpu().numpy().astype(np.float32)
+    u2 = np.clip(u2, 1e-6, 1.0 - 1e-6)
+    return torch.tensor(np.column_stack([u1, u2]), dtype=torch.float32)
+
+
+class TestFitJoe:
+    """Test Joe copula fitting."""
+
+    def test_theta_greater_than_one(self):
+        """Joe theta must be >= 1."""
+        u = _generate_gaussian_copula_data(0.5, n=500)
+        theta_hat, ll, aic = fit_joe(u)
+        assert theta_hat >= 1.0
+
+    def test_returns_finite(self):
+        """Fit should return finite values."""
+        u = _generate_gaussian_copula_data(0.6, n=500)
+        theta_hat, ll, aic = fit_joe(u)
+        assert np.isfinite(theta_hat)
+        assert np.isfinite(aic)
+
+    def test_parameter_recovery(self):
+        """Fitted theta should be in a reasonable range for Joe-distributed data."""
+        u = _generate_joe_copula_data(3.0, n=1000)
+        theta_hat, ll, aic = fit_joe(u)
+        assert 1.5 < theta_hat < 6.0, f"theta_hat={theta_hat}, expected ~3.0"
+
+    def test_pdf_positive(self):
+        """Joe PDF should be positive for valid inputs."""
+        cop = cop_par_obj("joe", 2.5)
+        uv = torch.tensor([[0.3, 0.7], [0.5, 0.5], [0.8, 0.2]], dtype=torch.float32)
+        pdf = copulapdf(cop, uv)
+        assert (pdf > 0).all()
+
+    def test_h_function_range(self):
+        """Joe h-function should output values in (0, 1)."""
+        cop = cop_par_obj("joe", 2.5)
+        uv = torch.tensor([[0.3, 0.7], [0.5, 0.5], [0.1, 0.9]], dtype=torch.float32)
+        h = copulaccdf(cop, uv)
+        assert (h > 0).all() and (h < 1).all()
+
+    def test_inverse_h_roundtrip(self):
+        """h then h-inverse should be identity (within numerical tolerance)."""
+        cop = cop_par_obj("joe", 3.0)
+        uv = torch.tensor(
+            [[0.2, 0.8], [0.5, 0.5], [0.7, 0.3], [0.1, 0.9]],
+            dtype=torch.float32,
+        )
+        h_fwd = copulaccdf(cop, uv)
+        uv_rt = torch.stack([uv[:, 0], h_fwd], dim=1)
+        h_inv = copulainvccdf(cop, uv_rt)
+        assert torch.allclose(h_inv, uv[:, 1], atol=1e-4), (
+            f"Round-trip error: {(h_inv - uv[:, 1]).abs().max():.6f}"
+        )
+
+    def test_near_independence(self):
+        """Joe with theta near 1 should behave like independence."""
+        cop = cop_par_obj("joe", 1.001)
+        uv = torch.tensor([[0.3, 0.7], [0.5, 0.5]], dtype=torch.float32)
+        pdf = copulapdf(cop, uv)
+        # Near-independence: pdf should be close to 1
+        assert torch.allclose(pdf, torch.ones_like(pdf), atol=0.1)
+
+
+# ---------------------------------------------------------------------------
 # AIC-based model selection
 # ---------------------------------------------------------------------------
 
@@ -230,6 +305,25 @@ class TestParametricFit:
         aic2, _, _ = parametric_fit(data, families, n_cop=1)
         best = families[int(np.argmin(aic2[0]))]
         assert best == "gumbel"
+
+    def test_joe_in_family_set(self):
+        """Joe copula should be accepted in the family set without errors."""
+        u = _generate_gaussian_copula_data(0.5, n=300)
+        data = u.unsqueeze(-1).numpy()
+        families = ["ind", "gaussian", "joe"]
+        aic2, thetas, _ = parametric_fit(data, families, n_cop=1)
+        assert aic2.shape == (1, 3)
+        assert np.all(np.isfinite(aic2))
+
+    def test_joe_selected_for_joe_data(self):
+        """Joe or Gumbel should be preferred over Clayton for Joe data (upper-tail)."""
+        u = _generate_joe_copula_data(3.0, n=800, seed=99)
+        data = u.unsqueeze(-1).numpy()
+        families = ["clayton", "gumbel", "joe"]
+        aic2, _, _ = parametric_fit(data, families, n_cop=1)
+        best = families[int(np.argmin(aic2[0]))]
+        # Joe data has upper-tail dependence; Clayton (lower-tail) should lose
+        assert best in ("gumbel", "joe"), f"Expected gumbel or joe, got {best}"
 
     def test_independence_selected_for_independent_data(self):
         """Independence should be competitive for independent data."""

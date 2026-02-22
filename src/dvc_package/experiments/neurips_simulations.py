@@ -42,13 +42,14 @@ def _set_seaborn_style() -> None:
     sns.set_theme(style="whitegrid", context="paper")
     plt.rcParams.update(
         {
-            "figure.dpi": 120,
+            "font.family": "serif",
+            "figure.dpi": 150,
             "savefig.dpi": 300,
-            "axes.titlesize": 10,
-            "axes.labelsize": 9,
-            "legend.fontsize": 8,
-            "xtick.labelsize": 8,
-            "ytick.labelsize": 8,
+            "axes.titlesize": 12,
+            "axes.labelsize": 11,
+            "legend.fontsize": 9,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
         }
     )
 
@@ -947,29 +948,37 @@ def _plot_multiplicative_triplet(
 ) -> None:
     _set_seaborn_style()
     df = pd.DataFrame(x, columns=["X", "Y", "Z"])
-    fig, axes = plt.subplots(1, 3, figsize=(11.5, 3.2), sharex=False, sharey=False)
+    fig, axes = plt.subplots(
+        1, 3, figsize=(11.5, 3.2), sharex=False, sharey=False,
+        constrained_layout=True,
+    )
 
-    axes[0].scatter(df["Y"], df["Z"], s=4, alpha=0.35)
-    axes[0].set_title("All samples: Y vs Z")
-    axes[0].set_xlabel("Y")
-    axes[0].set_ylabel("Z")
+    axes[0].scatter(df["Y"], df["Z"], s=3, alpha=0.3, color="#1f77b4", edgecolors="none")
+    axes[0].set_title(r"All samples: $Y$ vs $Z$")
+    axes[0].set_xlabel(r"$Y$")
+    axes[0].set_ylabel(r"$Z$")
 
     mask_pos = df["X"] > 0
-    axes[1].scatter(df.loc[mask_pos, "Y"], df.loc[mask_pos, "Z"], s=4, alpha=0.35)
-    axes[1].set_title("Conditioned: X > 0")
-    axes[1].set_xlabel("Y")
-    axes[1].set_ylabel("Z")
+    axes[1].scatter(
+        df.loc[mask_pos, "Y"], df.loc[mask_pos, "Z"],
+        s=3, alpha=0.3, color="#d62728", edgecolors="none",
+    )
+    axes[1].set_title(r"Conditioned: $X > 0$")
+    axes[1].set_xlabel(r"$Y$")
+    axes[1].set_ylabel(r"$Z$")
 
     mask_neg = df["X"] < 0
-    axes[2].scatter(df.loc[mask_neg, "Y"], df.loc[mask_neg, "Z"], s=4, alpha=0.35)
-    axes[2].set_title("Conditioned: X < 0")
-    axes[2].set_xlabel("Y")
-    axes[2].set_ylabel("Z")
+    axes[2].scatter(
+        df.loc[mask_neg, "Y"], df.loc[mask_neg, "Z"],
+        s=3, alpha=0.3, color="#2ca02c", edgecolors="none",
+    )
+    axes[2].set_title(r"Conditioned: $X < 0$")
+    axes[2].set_xlabel(r"$Y$")
+    axes[2].set_ylabel(r"$Z$")
 
     fig.suptitle(title, y=1.02)
-    fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_png, bbox_inches="tight")
+    fig.savefig(out_png, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -983,7 +992,7 @@ def _plot_dynamic_panel(
     family_labels: Optional[List[str]] = None,
 ) -> None:
     _set_seaborn_style()
-    fig = plt.figure(figsize=(11.2, 6.6))
+    fig = plt.figure(figsize=(12, 9), constrained_layout=True)
     gs = fig.add_gridspec(2, 2, height_ratios=[1.0, 1.15])
 
     ax1 = fig.add_subplot(gs[0, 0])
@@ -991,24 +1000,41 @@ def _plot_dynamic_panel(
     ax3 = fig.add_subplot(gs[1, 0])
     ax4 = fig.add_subplot(gs[1, 1])
 
+    # Curated color palette: distinct colors that read well on white background.
+    _corr_colors = ["#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e", "#e6ab02"]
+
     # Panel 1: second-order summaries.
+    ci = 0
     for k, y in series.items():
         if not k.startswith("corr_"):
             continue
-        ax1.plot(time, y, label=k.replace("corr_", "").replace("_", " "))
+        ax1.plot(
+            time, y,
+            label=k.replace("corr_", "").replace("_", " "),
+            linewidth=2.0,
+            color=_corr_colors[ci % len(_corr_colors)],
+        )
+        ci += 1
     ax1.set_title("Pairwise summaries")
     ax1.set_xlabel("time")
     ax1.set_ylabel("mean statistic")
     ax1.legend(frameon=True)
 
     # Panel 2: tail dependence.
+    ci = 0
     for k, y in series.items():
         if not k.startswith("tail_"):
             continue
-        ax2.plot(time, y, label=k.replace("tail_", "").replace("_", " "))
+        ax2.plot(
+            time, y,
+            label=k.replace("tail_", "").replace("_", " "),
+            linewidth=2.0,
+            color=_corr_colors[ci % len(_corr_colors)],
+        )
+        ci += 1
     ax2.set_title("Tail dependence")
     ax2.set_xlabel("time")
-    ax2.set_ylabel("lambda")
+    ax2.set_ylabel(r"$\lambda$")
     ax2.legend(frameon=True)
 
     # Panel 3: family heatmap (optional).
@@ -1031,13 +1057,13 @@ def _plot_dynamic_panel(
         ax3.axis("off")
 
     # Panel 4: NLL gaps vs baselines (positive = DVC better).
-    ax4.plot(time, series["nll_gap"], color="black", linewidth=1.6, label="Gaussian copula")
+    ax4.plot(time, series["nll_gap"], color="black", linewidth=2.0, label="Gaussian copula")
     if "nll_gap_truncated_level0" in series:
         ax4.plot(
             time,
             series["nll_gap_truncated_level0"],
-            color="tab:blue",
-            linewidth=1.4,
+            color="#1f77b4",
+            linewidth=1.5,
             linestyle="--",
             label="1-truncated C-vine",
         )
@@ -1045,8 +1071,8 @@ def _plot_dynamic_panel(
         ax4.plot(
             time,
             series["nll_gap_glasso"],
-            color="tab:green",
-            linewidth=1.3,
+            color="#2ca02c",
+            linewidth=1.5,
             linestyle=":",
             label="Graphical Lasso",
         )
@@ -1054,8 +1080,8 @@ def _plot_dynamic_panel(
         ax4.plot(
             time,
             series["nll_gap_tvgl"],
-            color="tab:red",
-            linewidth=1.3,
+            color="#d62728",
+            linewidth=1.5,
             linestyle="-.",
             label="TVGL (Frobenius)",
         )
@@ -1063,8 +1089,8 @@ def _plot_dynamic_panel(
         ax4.plot(
             time,
             series["nll_gap_state_space"],
-            color="tab:purple",
-            linewidth=1.3,
+            color="#9467bd",
+            linewidth=1.5,
             linestyle=(0, (3, 1, 1, 1)),
             label="Gaussian SSM",
         )
@@ -1072,25 +1098,24 @@ def _plot_dynamic_panel(
         ax4.plot(
             time,
             series["nll_gap_kde_flow"],
-            color="tab:orange",
-            linewidth=1.3,
+            color="#ff7f0e",
+            linewidth=1.5,
             linestyle="-",
             label="KDE-flow (time BW)",
         )
     ax4.axhline(0.0, color="gray", linewidth=1.0, linestyle="--")
     ax4.set_title("Held-out copula NLL gap (positive = DVC better)")
     ax4.set_xlabel("time")
-    ax4.set_ylabel("NLL(baseline) - NLL(DVC)")
+    ax4.set_ylabel("NLL(baseline) $-$ NLL(DVC)")
     ax4.legend(frameon=True)
 
     if change_point is not None:
         for ax in (ax1, ax2, ax4):
-            ax.axvline(float(time[change_point]), color="crimson", linewidth=1.2, alpha=0.8)
+            ax.axvline(float(time[change_point]), color="red", linewidth=2, alpha=0.8)
 
     fig.suptitle(title, y=1.02)
-    fig.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_png, bbox_inches="tight")
+    fig.savefig(out_png, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -1104,47 +1129,91 @@ def _plot_hub_switch_panel(
     tvgl_hub: Optional[List[int]],
     change_point: int,
     title: str,
+    nll_gaps: Optional[Dict[str, np.ndarray]] = None,
 ) -> None:
     _set_seaborn_style()
-    fig, axes = plt.subplots(1, 2, figsize=(11.2, 3.4))
 
-    axes[0].plot(time, true_hub, label="true hub", linewidth=2.0)
-    axes[0].plot(time, est_hub, label="DVC (C-vine root)", linewidth=1.6)
-    if corr_hub is not None:
-        axes[0].plot(time, corr_hub, label="corr hub", linewidth=1.2, linestyle="--")
-    if glasso_hub is not None:
-        axes[0].plot(time, glasso_hub, label="glasso hub", linewidth=1.2, linestyle=":")
-    if tvgl_hub is not None:
-        axes[0].plot(time, tvgl_hub, label="tvgl hub", linewidth=1.2, linestyle="-.")
-    axes[0].axvline(float(time[change_point]), color="crimson", linewidth=1.2)
-    axes[0].set_title("Hub identity over time")
-    axes[0].set_xlabel("time")
-    axes[0].set_ylabel("hub index")
-    axes[0].legend(frameon=True)
-
-    acc = np.mean(np.asarray(true_hub) == np.asarray(est_hub))
-    acc_corr = None if corr_hub is None else float(np.mean(np.asarray(true_hub) == np.asarray(corr_hub)))
-    acc_glasso = None if glasso_hub is None else float(np.mean(np.asarray(true_hub) == np.asarray(glasso_hub)))
-    acc_tvgl = None if tvgl_hub is None else float(np.mean(np.asarray(true_hub) == np.asarray(tvgl_hub)))
-    axes[1].axis("off")
-    extra = ""
-    if acc_corr is not None:
-        extra += f"\nCorr hub accuracy: {acc_corr:.3f}"
-    if acc_glasso is not None:
-        extra += f"\nGlasso hub accuracy: {acc_glasso:.3f}"
-    if acc_tvgl is not None:
-        extra += f"\nTVGL hub accuracy: {acc_tvgl:.3f}"
-    axes[1].text(
-        0.0,
-        0.8,
-        f"DVC root accuracy: {acc:.3f}{extra}\nChange point: t={int(change_point)}",
-        fontsize=11,
+    n_rows = 2 if nll_gaps else 1
+    fig, axes = plt.subplots(
+        n_rows, 1, figsize=(11.2, 3.8 * n_rows),
+        constrained_layout=True,
     )
+    if n_rows == 1:
+        axes = [axes]
 
-    fig.suptitle(title, y=1.04)
-    fig.tight_layout()
+    # --- Top panel: hub identity over time ---
+    ax_hub = axes[0]
+    ax_hub.plot(
+        time, true_hub, label="true hub", linewidth=2.5,
+        color="black", marker="s", markersize=4, markevery=2,
+    )
+    ax_hub.plot(
+        time, est_hub, label="DVC (C-vine root)", linewidth=2.5,
+        color="#1f77b4", marker="o", markersize=4, markevery=2,
+    )
+    if corr_hub is not None:
+        ax_hub.plot(
+            time, corr_hub, label="corr hub", linewidth=2.0,
+            linestyle="--", color="#d62728", marker="^", markersize=3, markevery=3,
+        )
+    if glasso_hub is not None:
+        ax_hub.plot(
+            time, glasso_hub, label="glasso hub", linewidth=2.0,
+            linestyle=":", color="#2ca02c", marker="v", markersize=3, markevery=3,
+        )
+    if tvgl_hub is not None:
+        ax_hub.plot(
+            time, tvgl_hub, label="tvgl hub", linewidth=2.0,
+            linestyle="-.", color="#9467bd", marker="D", markersize=3, markevery=3,
+        )
+    ax_hub.axvline(float(time[change_point]), color="red", linewidth=2, alpha=0.8)
+    ax_hub.set_title("Hub identity over time")
+    ax_hub.set_xlabel("time")
+    ax_hub.set_ylabel("hub index")
+
+    # Add accuracy annotation.
+    acc = float(np.mean(np.asarray(true_hub) == np.asarray(est_hub)))
+    acc_parts = [f"DVC: {acc:.3f}"]
+    if corr_hub is not None:
+        acc_parts.append(f"Corr: {float(np.mean(np.asarray(true_hub) == np.asarray(corr_hub))):.3f}")
+    if glasso_hub is not None:
+        acc_parts.append(f"GLasso: {float(np.mean(np.asarray(true_hub) == np.asarray(glasso_hub))):.3f}")
+    if tvgl_hub is not None:
+        acc_parts.append(f"TVGL: {float(np.mean(np.asarray(true_hub) == np.asarray(tvgl_hub))):.3f}")
+    acc_text = "Accuracy  " + " | ".join(acc_parts)
+    ax_hub.annotate(
+        acc_text, xy=(0.02, 0.95), xycoords="axes fraction",
+        fontsize=9, verticalalignment="top",
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="wheat", alpha=0.5),
+    )
+    ax_hub.legend(frameon=True, loc="lower right")
+
+    # --- Bottom panel: NLL gap subplot (if data provided) ---
+    if nll_gaps and n_rows == 2:
+        ax_nll = axes[1]
+        _nll_styles = [
+            ("nll_gap", "Gaussian copula", "black", "-"),
+            ("nll_gap_truncated_level0", "1-truncated C-vine", "#1f77b4", "--"),
+            ("nll_gap_glasso", "Graphical Lasso", "#2ca02c", ":"),
+            ("nll_gap_tvgl", "TVGL (Frobenius)", "#d62728", "-."),
+            ("nll_gap_state_space", "Gaussian SSM", "#9467bd", (0, (3, 1, 1, 1))),
+        ]
+        for key, label, color, ls in _nll_styles:
+            if key in nll_gaps:
+                ax_nll.plot(
+                    time, nll_gaps[key], label=label,
+                    color=color, linewidth=2.0, linestyle=ls,
+                )
+        ax_nll.axhline(0.0, color="gray", linewidth=1.0, linestyle="--")
+        ax_nll.axvline(float(time[change_point]), color="red", linewidth=2, alpha=0.8)
+        ax_nll.set_title("Held-out copula NLL gap (positive = DVC better)")
+        ax_nll.set_xlabel("time")
+        ax_nll.set_ylabel("NLL(baseline) $-$ NLL(DVC)")
+        ax_nll.legend(frameon=True)
+
+    fig.suptitle(title, y=1.02)
     out_png.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_png, bbox_inches="tight")
+    fig.savefig(out_png, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -1185,7 +1254,7 @@ def run_neurips_simulation_suite(
             corr_yz_pos = float(np.corrcoef(x[x[:, 0] > 0, 1], x[x[:, 0] > 0, 2])[0, 1])
             corr_yz_neg = float(np.corrcoef(x[x[:, 0] < 0, 1], x[x[:, 0] < 0, 2])[0, 1])
 
-            families = ["independence", "gaussian", "student"]
+            families = ["independence", "gaussian", "student", "joe", "frank"]
             # Train/test split for likelihood-based comparisons.
             n = x.shape[0]
             n_train = int(0.8 * n)
@@ -1251,7 +1320,7 @@ def run_neurips_simulation_suite(
             time = gen["time_indices"]
             cp = gen["change_point"]
 
-            families = ["gaussian", "student", "independence"]
+            families = ["gaussian", "student", "clayton", "gumbel", "joe", "independence"]
             dvc_nll = []
             gauss_nll = []
             trunc_nll = []
@@ -1410,7 +1479,7 @@ def run_neurips_simulation_suite(
             time = gen["time_indices"]
             cp = int(gen["change_point"])
 
-            families = ["gaussian", "clayton", "gumbel", "independence"]
+            families = ["gaussian", "clayton", "gumbel", "joe", "independence"]
             dvc_nll = []
             gauss_nll = []
             trunc_nll = []
@@ -1419,7 +1488,7 @@ def run_neurips_simulation_suite(
             tail_u = []
             tail_l = []
             fam_codes = []
-            fam_labels = ["ind", "gaussian", "clayton", "gumbel", "student", "frank"]
+            fam_labels = ["ind", "gaussian", "clayton", "gumbel", "student", "frank", "joe"]
             fam_to_code = {k: i for i, k in enumerate(fam_labels)}
             x_train_list: List[np.ndarray] = []
             x_test_list: List[np.ndarray] = []
@@ -1641,6 +1710,15 @@ def run_neurips_simulation_suite(
                 x_test_list,
             )
 
+            _dvc_arr = np.asarray(dvc_nll)
+            hub_nll_gaps: Dict[str, np.ndarray] = {
+                "nll_gap": np.asarray(gauss_nll) - _dvc_arr,
+                "nll_gap_truncated_level0": np.asarray(trunc_nll) - _dvc_arr,
+                "nll_gap_glasso": np.asarray(glasso_nll) - _dvc_arr,
+                "nll_gap_tvgl": np.asarray(tvgl_nll) - _dvc_arr,
+                "nll_gap_state_space": np.asarray(ssm_nll) - _dvc_arr,
+            }
+
             out_png = plots_dir / "hub_switch_panel.png"
             _plot_hub_switch_panel(
                 out_png,
@@ -1652,6 +1730,7 @@ def run_neurips_simulation_suite(
                 tvgl_hub=tvgl_hubs,
                 change_point=cp,
                 title="Hub switching (C-vine root) via structure optimization",
+                nll_gaps=hub_nll_gaps,
             )
 
             acc = float(np.mean(np.asarray(true_hubs) == np.asarray(est_hubs)))
