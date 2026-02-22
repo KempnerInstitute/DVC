@@ -19,5 +19,5 @@ DVC provides a PyTorch-based vine copula codebase with:
   - `docs/research/overview.md`
   - `docs/research/metrics.md`
   - `docs/research/analysis_protocol.md`
+  - `docs/research/comparable_methods.md`
 - Runner how-to: `docs/howto/runner.md`
-

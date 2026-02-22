@@ -35,7 +35,7 @@ pip install -e .
 
 ```bash
 # Full unit test suite
-pytest -q
+python -m pytest -q
 
 # Optional environment verification
 python scripts/test_installation.py
@@ -123,6 +123,12 @@ This writes to:
 - Core unit tests pass under NumPy 2.x and current PyTorch.
 - Sampling-path regressions from `tests/test_vine_pipeline.py` are now covered by passing tests.
 - Time-dependent modeling APIs are available, but parts are still in active refinement and should be treated as research code.
+
+## Documentation Pointers
+
+- Docs index: `docs/index.md`
+- Time-dependent implementation status: `docs/user-guide/time-dependent.md`
+- Comparable methods and benchmark extensions: `docs/research/comparable_methods.md`
 
 ## Repository Layout
 

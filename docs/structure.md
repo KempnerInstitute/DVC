@@ -39,14 +39,13 @@ DVC/
 │   │
 │   ├── time/                    # Time-dependent modeling
 │   │   ├── __init__.py
-│   │   ├── model.py             # Time-dependent vine models
 │   │   ├── flows.py             # Normalizing flows
 │   │   ├── nf.py                # Flow utilities and bijectors
 │   │   ├── data.py              # Time-series data utilities
 │   │   ├── trainer.py           # Training utilities
 │   │   ├── eval.py              # Evaluation functions
 │   │   ├── metrics.py           # Time-dependent metrics
-│   │   └── models.py            # Additional model definitions
+│   │   └── models.py            # Canonical time-dependent vine models
 │   │
 │   ├── experiments/             # Experiment framework
 │   │   ├── __init__.py
@@ -132,10 +131,10 @@ The core package contains the main vine copula implementations:
 
 Time-dependent modeling using normalizing flows:
 
-- **`model.py`**: TimeDependentVineCopula main class
 - **`flows.py`**: Normalizing flow implementations
 - **`nf.py`**: Flow utilities and bijectors
 - **`data.py`**: Time-series data generation and preprocessing
+- **`models.py`**: Canonical `TimeDependentVine` APIs for fitting/evaluation
 
 ### Experiment Framework (`src/dvc_package/experiments/`)
 
@@ -200,7 +199,7 @@ from dvc_package.core.vine_factory import create_vine
 from dvc_package.core.param_copula import fit_gaussian
 
 # Time-dependent modeling
-from dvc_package.time.model import TimeDependentVineCopula
+from dvc_package.time.models import create_time_dependent_vine
 from dvc_package.time.data import generate_synthetic_time_series
 
 # Experiments
