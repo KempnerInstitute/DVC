@@ -27,11 +27,11 @@ import pandas as pd
 from ..core.vine_factory import create_vine, VineType
 from ..core.param_copula import parametric_fit
 from ..core.d_vine_fix import compute_correlation_matrix, compute_kendall_tau_matrix
+from ..core.vine_model import fit_vine
 from ..time.data import generate_synthetic_time_series, create_data_loader, preprocess_real_data
-from ..time.model import TimeDependentVineCopula
-from ..time.flows import TimeBandwidthFlow
+from ..time.models import create_time_dependent_vine
 from ..utils.utils_tensor import replace_nan_inf, handle_small_sample_size
-from .benchmarks import VineBenchmark
+from .neurips_simulations import run_neurips_simulation_suite
 
 logger = logging.getLogger("DVC.experiments")
 
@@ -262,13 +262,16 @@ class ProbabilityAnalysisExperiment(BaseExperiment):
                 par_dict = {'param_families': families}
                 bin_dict = {}
                 
-                # Note: You may need to implement the fit method properly
-                # vine.fit(data, gen_dict, npc_dict, par_dict, bin_dict)
+                fit_vine(vine, data, gen_dict, npc_dict, par_dict, bin_dict)
                 
-                # For now, just store the vine structure
                 results[vine_type] = {
+                    'fit_success': True,
                     'vine_structure': vine.ind_vine if hasattr(vine, 'ind_vine') else None,
-                    'r_matrix': vine.r_matrix.tolist() if hasattr(vine, 'r_matrix') else None,
+                    'r_matrix': (
+                        vine.r_matrix.tolist()
+                        if hasattr(vine, 'r_matrix') and vine.r_matrix is not None
+                        else None
+                    ),
                     'families': families,
                     'n_edges': sum(len(level) for level in vine.ind_vine) if hasattr(vine, 'ind_vine') else 0
                 }
@@ -291,7 +294,7 @@ class ProbabilityAnalysisExperiment(BaseExperiment):
                 
             except Exception as e:
                 self.logger.error(f"Failed to fit {vine_type}: {e}")
-                results[vine_type] = {'error': str(e)}
+                results[vine_type] = {'fit_success': False, 'error': str(e)}
         
         return results
     
@@ -788,39 +791,54 @@ class TimeDependentExperiment(BaseExperiment):
         n_time_steps, n_samples_per_time, n_variables = time_data.shape
         
         try:
-            # Create base vine (simplified - you may need to implement proper fitting)
+            # Create base vine and canonical time-conditioned model.
             base_vine = create_vine('c-vine', n_variables)
-            
-            # Create time-dependent model
             hidden_dim = time_config.get('hidden_dim', 64)
-            model = TimeDependentVineCopula(
-                vine=base_vine,
-                n_time_steps=n_time_steps,
-                hidden_dim=hidden_dim
+            model = create_time_dependent_vine(
+                base_vine=base_vine,
+                hidden_dims=[int(hidden_dim)],
+                device="cpu",
             )
-            
-            # Test bandwidth prediction
-            time_norm = torch.linspace(0, 1, n_time_steps).unsqueeze(-1)
-            bandwidths = model.forward(time_norm)
-            
-            # Compute metrics
-            bandwidth_metrics = model.compute_bandwidth_evolution_metrics(
-                torch.tensor(time_indices, dtype=torch.float32)
+
+            fit_info = model.fit_bandwidth_flow(
+                train_data_by_time=time_data,
+                time_points=time_indices,
+                val_fraction=float(time_config.get('val_fraction', 0.2)),
+                n_epochs=int(time_config.get('n_epochs', 20)),
+                lr=float(time_config.get('learning_rate', 1e-2)),
+                batch_time_steps=int(time_config.get('batch_time_steps', min(8, n_time_steps))),
+                seed=int(self.config.seed if self.config.seed is not None else 0),
             )
-            
+
+            t_tensor = torch.tensor(time_indices, dtype=torch.float32)
+            bandwidths = model.get_bandwidths_over_time(t_tensor)  # [T, E]
+            bw_np = bandwidths.detach().cpu().numpy()
+
+            bandwidth_metrics: Dict[str, Any] = {}
+            n_edges = int(bw_np.shape[1]) if bw_np.ndim == 2 else 0
+            for edge_idx in range(n_edges):
+                vals = bw_np[:, edge_idx]
+                key = f"edge_{edge_idx}"
+                bandwidth_metrics[f"{key}_mean_bw"] = float(np.mean(vals))
+                bandwidth_metrics[f"{key}_std_bw"] = float(np.std(vals))
+                bandwidth_metrics[f"{key}_min_bw"] = float(np.min(vals))
+                bandwidth_metrics[f"{key}_max_bw"] = float(np.max(vals))
+                if vals.shape[0] > 1:
+                    bandwidth_metrics[f"{key}_temporal_variation"] = float(np.mean(np.abs(np.diff(vals))))
+
             results = {
                 'model_created': True,
-                'n_edges': len(model.edge_flows),
+                'n_edges': int(n_edges),
                 'hidden_dim': hidden_dim,
                 'bandwidth_shape': list(bandwidths.shape),
+                'fit_info': fit_info,
                 'bandwidth_statistics': {
-                    'mean': float(bandwidths.mean()),
-                    'std': float(bandwidths.std()),
-                    'min': float(bandwidths.min()),
-                    'max': float(bandwidths.max())
+                    'mean': float(bandwidths.mean().detach()),
+                    'std': float(bandwidths.std().detach()),
+                    'min': float(bandwidths.min().detach()),
+                    'max': float(bandwidths.max().detach())
                 },
-                'bandwidth_metrics': {k: v.tolist() if isinstance(v, torch.Tensor) else v 
-                                    for k, v in bandwidth_metrics.items()}
+                'bandwidth_metrics': bandwidth_metrics,
             }
             
             # Store model for evaluation
@@ -842,28 +860,31 @@ class TimeDependentExperiment(BaseExperiment):
         if not model_results.get('model_created', False) or self._trained_model is None:
             return {'evaluation_performed': False, 'reason': 'No trained model available'}
         
+        model = self._trained_model
+
         try:
-            model = self._trained_model
-            
             # Test forward pass on sample data
             sample_data = torch.tensor(time_data[0][:10], dtype=torch.float32)
-            sample_times = torch.tensor([0.0] * 10, dtype=torch.float32)
+            t0 = float(np.asarray(time_indices).reshape(-1)[0])
+            sample_times = torch.full((sample_data.shape[0],), t0, dtype=torch.float32)
             
             # Compute loss
-            nll_loss = model.negative_log_likelihood(sample_data, sample_times)
-            entropy_loss = model.entropy_based_loss(sample_data, sample_times)
+            with torch.no_grad():
+                nll_vals = model(sample_data, sample_times)
+                nll_loss = torch.mean(nll_vals)
             
             # Bandwidth evolution analysis
-            time_norm = torch.linspace(0, 1, len(time_indices)).unsqueeze(-1)
-            bandwidths = model.forward(time_norm)
+            t_tensor = torch.tensor(time_indices, dtype=torch.float32)
+            bandwidths = model.get_bandwidths_over_time(t_tensor)
             
             # Compute temporal variation
-            if len(time_indices) > 1:
+            if bandwidths.shape[0] > 1:
                 bandwidth_diff = bandwidths[1:] - bandwidths[:-1]
                 temporal_variation = torch.mean(torch.norm(bandwidth_diff, dim=1))
             else:
                 temporal_variation = torch.tensor(0.0)
-            
+            entropy_loss = nll_loss + 0.1 * temporal_variation
+
             results = {
                 'evaluation_performed': True,
                 'losses': {
@@ -871,21 +892,50 @@ class TimeDependentExperiment(BaseExperiment):
                     'entropy_based_loss': float(entropy_loss)
                 },
                 'bandwidth_analysis': {
-                    'temporal_variation': float(temporal_variation),
-                    'smoothness_score': float(1.0 / (1.0 + temporal_variation))  # Higher is smoother
+                    'temporal_variation': float(temporal_variation.detach()),
+                    'smoothness_score': float((1.0 / (1.0 + temporal_variation)).detach())  # Higher is smoother
                 },
                 'model_complexity': {
                     'n_parameters': sum(p.numel() for p in model.parameters()),
-                    'n_edges': len(model.edge_flows)
+                    'n_edges': int(bandwidths.shape[1] if bandwidths.ndim == 2 else 0)
                 }
             }
             
         except Exception as e:
-            self.logger.error(f"Model evaluation failed: {e}")
-            results = {
-                'evaluation_performed': False,
-                'error': str(e)
-            }
+            self.logger.warning(f"Primary model evaluation failed, using fallback summary: {e}")
+            try:
+                t_tensor = torch.tensor(time_indices, dtype=torch.float32)
+                bandwidths = model.get_bandwidths_over_time(t_tensor)
+
+                if bandwidths.shape[0] > 1:
+                    bw_diff = bandwidths[1:] - bandwidths[:-1]
+                    temporal_variation = float(
+                        torch.mean(torch.norm(bw_diff.reshape(bw_diff.shape[0], -1), dim=1)).detach()
+                    )
+                else:
+                    temporal_variation = 0.0
+
+                results = {
+                    'evaluation_performed': True,
+                    'losses': {
+                        'negative_log_likelihood': None,
+                        'entropy_based_loss': None
+                    },
+                    'bandwidth_analysis': {
+                        'temporal_variation': temporal_variation,
+                        'smoothness_score': float(1.0 / (1.0 + temporal_variation))
+                    },
+                    'model_complexity': {
+                        'n_parameters': sum(p.numel() for p in model.parameters()),
+                        'n_edges': int(bandwidths.shape[1] if bandwidths.ndim == 2 else 0)
+                    },
+                    'note': f"Fallback evaluation used due to: {e}"
+                }
+            except Exception as e2:
+                results = {
+                    'evaluation_performed': False,
+                    'error': f"Primary: {e}; Fallback: {e2}"
+                }
         
         return results
     
@@ -924,17 +974,16 @@ class TimeDependentExperiment(BaseExperiment):
         if model_results.get('model_created', False) and hasattr(self, '_trained_model'):
             try:
                 model = self._trained_model
-                time_norm = torch.linspace(0, 1, n_time_steps).unsqueeze(-1)
-                bandwidths = model.forward(time_norm)
+                t_tensor = torch.tensor(time_indices, dtype=torch.float32)
+                bandwidths = model.get_bandwidths_over_time(t_tensor)
                 
                 plt.figure(figsize=(12, 6))
                 
-                # Plot bandwidth evolution for each edge and dimension
-                for edge_idx in range(min(3, len(model.edge_flows))):  # Plot first 3 edges
-                    for dim in range(2):  # Assuming 2D bandwidths
-                        bw_values = bandwidths[:, edge_idx * 2 + dim].detach().cpu().numpy()
-                        plt.plot(time_indices, bw_values, 
-                               label=f'Edge {edge_idx}, Dim {dim}', linewidth=2)
+                # Plot bandwidth evolution for first few edges.
+                n_edges = int(bandwidths.shape[1]) if bandwidths.ndim == 2 else 0
+                for edge_idx in range(min(3, n_edges)):
+                    bw_values = bandwidths[:, edge_idx].detach().cpu().numpy()
+                    plt.plot(time_indices, bw_values, label=f'Edge {edge_idx}', linewidth=2)
                 
                 plt.xlabel('Time')
                 plt.ylabel('Bandwidth')
@@ -967,6 +1016,43 @@ class TimeDependentExperiment(BaseExperiment):
         plt.close()
 
 
+class NeuripsSimulationsExperiment(BaseExperiment):
+    """NeurIPS-oriented synthetic simulation suite.
+
+    Generates paper-defining scenarios that stress-test higher-order and time-varying dependence:
+    - beyond pairwise (conditional dependence with near-zero pairwise correlation)
+    - dynamic tail dependence at stable second-order summaries
+    - matched Kendall-tau with switching tail asymmetry (Clayton ↔ Gumbel)
+    - hub/root switching recovered via structure optimization
+    """
+
+    def run(self) -> Dict[str, Any]:
+        self.logger.info(f"Running NeurIPS simulation suite: {self.config.name}")
+
+        scenarios = self.config.analysis_config.get("scenarios", [])
+        if not isinstance(scenarios, list) or not scenarios:
+            # Default suite if not specified in YAML.
+            scenarios = [
+                {"name": "multiplicative_triplet"},
+                {"name": "dynamic_tail_df"},
+                {"name": "tail_switch"},
+                {"name": "hub_switch"},
+            ]
+
+        results = run_neurips_simulation_suite(
+            output_dir=self.output_dir,
+            seed=int(self.config.seed or 0),
+            scenarios=scenarios,
+        )
+
+        # Add top-level metadata for consistency with other experiments.
+        results["timestamp"] = datetime.now().isoformat()
+        results["config"] = self.config.__dict__
+
+        self.save_results(results)
+        return results
+
+
 class ExperimentRunner:
     """Main class for running experiments from YAML configurations."""
     
@@ -991,6 +1077,8 @@ class ExperimentRunner:
             experiment = EntropyAnalysisExperiment(config)
         elif experiment_type == 'time_dependent':
             experiment = TimeDependentExperiment(config)
+        elif experiment_type == 'neurips_simulations':
+            experiment = NeuripsSimulationsExperiment(config)
         else:
             raise ValueError(f"Unknown experiment type: {experiment_type}")
         

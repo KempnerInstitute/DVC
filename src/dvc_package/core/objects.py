@@ -112,69 +112,46 @@ class vine_obj_bin:
     def evaluation(self, data) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Evaluate the fitted vine on data points.
-        
+
         Args:
             data: Input data, shape [N, d], can be numpy array or torch tensor
-            
+
         Returns:
             p: Joint PDF values
             p_copula: Copula PDF values
             log_marg: Log marginal values
         """
-        if not self.fitted:
-            raise ValueError("Vine must be fitted before evaluation")
-        
-        # Convert to tensor if needed
+        from .vine_model import evaluate_vine
         if isinstance(data, np.ndarray):
             data = torch.from_numpy(data).float()
-        
-        # Initialize arrays for results
-        N = data.shape[0]
-        d = data.shape[1]
-        
-        # Convert to uniform space [0,1]
-        data_u = torch.zeros_like(data)
-        for i in range(d):
-            col_data = data[:, i].cpu().numpy()
-            ranks = col_data.argsort().argsort() + 1
-            data_u[:, i] = torch.tensor(ranks / (N + 1.0))
-        
-        # Evaluate copula density
-        p_copula = torch.ones(N)
-        
-        # For each tree level
-        for level, level_copulas in enumerate(self.copulas):
-            edges = self.ind_vine[level]
-            
-            for edge_idx, (i, j) in enumerate(edges):
-                # Get copula for this edge
-                cop = level_copulas[edge_idx]
-                
-                # Get data for this edge
-                edge_data = torch.stack([data_u[:, i], data_u[:, j]], dim=1)
-                
-                # Evaluate copula PDF
-                if hasattr(cop, 'family'):  # Parametric copula
-                    from .param_copula import copulapdf
-                    pdf_vals = copulapdf(cop, edge_data)
-                else:  # Non-parametric copula
-                    # Simple approximation for now
-                    pdf_vals = torch.ones(N)
-                
-                p_copula *= pdf_vals
-        
-        # For margins, assume standard normal for simplicity
-        log_marg = torch.zeros(N)
-        p = p_copula  # Joint PDF is copula * margins
-        
-        return p, p_copula, log_marg
+        return evaluate_vine(self, data)
 
     def fit(self, x, gen_dict, npc_dict, par_dict, bin_dict):
+        """Fit the vine copula model to data."""
         from .vine_model import fit_vine
         self.binning = gen_dict.get('binning', False)
         self.param = gen_dict.get('param', False)
         self.fitted = gen_dict.get('fitted', False)
-        # dimension from data
         if hasattr(x, 'shape'):
             self.n_cop = x.shape[1]
         fit_vine(self, x, gen_dict, npc_dict, par_dict, bin_dict)
+
+    def sample(self, nsamples: int, cfg: Optional[dict] = None):
+        """Sample from the fitted vine copula model."""
+        from .vine_model import sample_vine
+        return sample_vine(self, nsamples, cfg)
+
+    def logpdf(self, points: torch.Tensor):
+        """Compute log-PDF of the vine copula at given points."""
+        from .vine_model import logpdf_vine
+        return logpdf_vine(self, points)
+
+    def pdf(self, points: torch.Tensor):
+        """Compute PDF of the vine copula at given points."""
+        from .vine_model import pdf_vine
+        return pdf_vine(self, points)
+
+    def cdf(self, points: torch.Tensor, nsim: int = 2000):
+        """Compute CDF of the vine copula at given points via Monte Carlo."""
+        from .vine_model import cdf_vine
+        return cdf_vine(self, points, nsim)

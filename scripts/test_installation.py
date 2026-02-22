@@ -39,7 +39,7 @@ def test_dvc_framework():
         ("dvc_package.core.vine_factory", "Vine Factory"),
         ("dvc_package.core.vine_model", "Vine Model"),
         ("dvc_package.time.flows", "Time Flows"),
-        ("dvc_package.time.model", "Time Model"),
+        ("dvc_package.time.models", "Time Models"),
         ("dvc_package.experiments.experiment_framework", "Experiment Framework"),
     ]
     

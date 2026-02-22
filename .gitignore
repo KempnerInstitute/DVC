@@ -48,6 +48,9 @@ archive/dvc_accuracy_results/
 archive/README.md
 
 
+# Drafts (separate repo)
+drafts/
+
 # DVC
 .dvc/
 .dvcignore

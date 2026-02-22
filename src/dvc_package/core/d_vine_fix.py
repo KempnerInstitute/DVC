@@ -25,7 +25,29 @@ def compute_correlation_matrix(data: np.ndarray) -> np.ndarray:
     Returns:
         Correlation matrix of shape (n_variables, n_variables)
     """
-    return np.corrcoef(data.T)
+    x = np.asarray(data, dtype=np.float64)
+    if x.ndim != 2:
+        raise ValueError(f"Expected 2D array for correlation computation, got shape={x.shape}")
+
+    n_samples, n_vars = x.shape
+    if n_vars == 0:
+        return np.zeros((0, 0), dtype=np.float64)
+    if n_samples <= 1:
+        return np.eye(n_vars, dtype=np.float64)
+
+    centered = x - np.mean(x, axis=0, keepdims=True)
+    std = np.std(centered, axis=0, ddof=0)
+    valid = std > 1e-12
+
+    z = np.zeros_like(centered, dtype=np.float64)
+    if np.any(valid):
+        z[:, valid] = centered[:, valid] / std[valid]
+
+    corr = (z.T @ z) / max(n_samples - 1, 1)
+    corr = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
+    corr = np.clip(corr, -1.0, 1.0)
+    np.fill_diagonal(corr, 1.0)
+    return corr
 
 
 def compute_kendall_tau_matrix(data: np.ndarray) -> np.ndarray:

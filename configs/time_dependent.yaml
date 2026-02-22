@@ -12,6 +12,7 @@ time_config:
   correlation_evolution: "sinusoidal"  # Options: sinusoidal, linear, piecewise, constant
   hidden_dim: 64
   noise_level: 0.1
+  likelihood_training_samples: 2000  # Subsample size for per-edge likelihood evaluation
 
 # Analysis configuration
 analysis_config:

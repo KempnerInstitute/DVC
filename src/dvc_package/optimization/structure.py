@@ -8,6 +8,7 @@ Implements various algorithms for optimizing vine copula structures:
 4. Hybrid approaches combining multiple methods
 """
 
+import math
 import numpy as np
 import torch
 from typing import List, Tuple, Optional, Dict, Any, Callable, Union
@@ -79,8 +80,6 @@ def optimize_vine_structure(
     """
     if verbose:
         logger.info(f"Starting vine structure optimization: {method} method, {criterion} criterion")
-    
-    d = data.shape[1]
     
     # Select optimization method
     if method == "sequential":
@@ -162,43 +161,37 @@ def _optimize_cvine_sequential(data: np.ndarray, data_u: np.ndarray,
                               criterion: str, verbose: bool) -> vine_obj_bin:
     """Optimize C-vine by selecting best root variable ordering."""
     d = data.shape[1]
-    
-    # Try different root orderings and select best
-    best_score = float('-inf') if criterion == 'entropy' else float('inf')
-    best_order = list(range(d))
-    
-    # For C-vine, we optimize the order of root variables
-    for root_order in _generate_variable_permutations(d, max_permutations=min(24, np.math.factorial(d))):
-        score = 0
-        
-        # Compute total dependence for this root ordering
-        for level in range(d - 1):
-            root = root_order[level]
-            for j in range(level + 1, d):
-                var = root_order[j]
-                
-                if criterion == "kendall_tau":
-                    tau, _ = kendalltau(data_u[:, root], data_u[:, var])
-                    score += abs(tau)
-                elif criterion == "entropy":
-                    # Simplified entropy approximation
-                    score += _pairwise_mutual_information(data_u[:, root], data_u[:, var])
-        
-        is_better = (score > best_score) if criterion == 'entropy' else (score > best_score)
-        if is_better:
-            best_score = score
-            best_order = root_order
-    
+
+    # Greedy ordering scales to moderate/high d and is deterministic enough for benchmarking.
+    dep = np.zeros((d, d), dtype=np.float64)
+    for i in range(d):
+        for j in range(i + 1, d):
+            if criterion == "kendall_tau":
+                tau, _ = kendalltau(data_u[:, i], data_u[:, j])
+                val = abs(tau) if np.isfinite(tau) else 0.0
+            elif criterion in {"entropy", "aic", "bic"}:
+                # Proxy: pairwise MI on pseudo-observations.
+                val = float(_pairwise_mutual_information(data_u[:, i], data_u[:, j]))
+            else:
+                tau, _ = kendalltau(data_u[:, i], data_u[:, j])
+                val = abs(tau) if np.isfinite(tau) else 0.0
+            dep[i, j] = dep[j, i] = val
+
+    remaining = list(range(d))
+    order: List[int] = []
+    while len(remaining) > 1:
+        scores = [float(dep[v, remaining].sum() - dep[v, v]) for v in remaining]
+        best_idx = int(np.argmax(scores))
+        best_var = int(remaining.pop(best_idx))
+        order.append(best_var)
+    order.extend(remaining)
+
     if verbose:
-        logger.info(f"Best C-vine root order: {best_order}, score: {best_score:.4f}")
-    
-    # Create optimized C-vine
+        logger.info(f"Greedy C-vine root order: {order}")
+
     vine = create_vine("c-vine", d)
-    
-    # Reorder variables in vine structure
-    vine.variable_order = best_order
-    _reorder_vine_structure(vine, best_order)
-    
+    vine.variable_order = order
+    _reorder_vine_structure(vine, order)
     return vine
 
 
@@ -324,7 +317,8 @@ def genetic_vine_optimization(
     else:
         raise ValueError(f"Genetic optimization not implemented for {vine_type}")
     
-    best_score = float('-inf')
+    lower_is_better = criterion in {"aic", "bic"}
+    best_score = float("inf") if lower_is_better else float("-inf")
     best_individual = None
     stagnation_count = 0
     
@@ -337,10 +331,11 @@ def genetic_vine_optimization(
             scores.append(score)
         
         # Track best individual
-        gen_best_idx = np.argmax(scores)
+        gen_best_idx = int(np.argmin(scores) if lower_is_better else np.argmax(scores))
         gen_best_score = scores[gen_best_idx]
         
-        if gen_best_score > best_score:
+        improved = gen_best_score < best_score if lower_is_better else gen_best_score > best_score
+        if improved:
             best_score = gen_best_score
             best_individual = population[gen_best_idx].copy()
             stagnation_count = 0
@@ -463,7 +458,13 @@ def hybrid_optimization(
         )
         
         # Choose better result
-        if genetic_result.best_score > seq_result.best_score:
+        lower_is_better = criterion in {"aic", "bic"}
+        genetic_better = (
+            genetic_result.best_score < seq_result.best_score
+            if lower_is_better else
+            genetic_result.best_score > seq_result.best_score
+        )
+        if genetic_better:
             best_result = genetic_result
         else:
             best_result = seq_result
@@ -476,7 +477,13 @@ def hybrid_optimization(
         
         # Compare entropy-based result
         entropy_score = _evaluate_vine_criterion(entropy_result.best_vine, data, criterion)
-        if entropy_score > best_result.best_score:
+        lower_is_better = criterion in {"aic", "bic"}
+        entropy_better = (
+            entropy_score < best_result.best_score
+            if lower_is_better else
+            entropy_score > best_result.best_score
+        )
+        if entropy_better:
             best_result.best_vine = entropy_result.best_vine
             best_result.best_score = entropy_score
     
@@ -502,8 +509,8 @@ def _evaluate_vine_criterion(vine: vine_obj_bin, data: np.ndarray, criterion: st
         else:
             # Fallback to simple correlation-based score
             return _compute_correlation_score(vine, data)
-    except:
-        return float('-inf')  # Return poor score if evaluation fails
+    except Exception:
+        return float("inf") if criterion in {"aic", "bic"} else float("-inf")
 
 
 def _compute_correlation_score(vine: vine_obj_bin, data: np.ndarray) -> float:
@@ -533,7 +540,7 @@ def _pairwise_mutual_information(x: np.ndarray, y: np.ndarray) -> float:
     try:
         from sklearn.feature_selection import mutual_info_regression
         return mutual_info_regression(x.reshape(-1, 1), y)[0]
-    except:
+    except Exception:
         # Fallback: use correlation as proxy
         corr = np.corrcoef(x, y)[0, 1]
         return -0.5 * np.log(1 - corr**2) if abs(corr) < 0.99 else 2.0
@@ -542,14 +549,20 @@ def _pairwise_mutual_information(x: np.ndarray, y: np.ndarray) -> float:
 def _generate_variable_permutations(d: int, max_permutations: int = 24) -> List[List[int]]:
     """Generate variable permutations for optimization."""
     import itertools
-    
-    all_perms = list(itertools.permutations(range(d)))
-    if len(all_perms) <= max_permutations:
-        return all_perms
-    else:
-        # Sample random permutations
-        indices = np.random.choice(len(all_perms), max_permutations, replace=False)
-        return [list(all_perms[i]) for i in indices]
+
+    total_perms = math.factorial(d)
+    if total_perms <= max_permutations:
+        return [list(p) for p in itertools.permutations(range(d))]
+
+    # Avoid materializing all permutations for moderate/large d.
+    seen = set()
+    out: List[List[int]] = []
+    while len(out) < max_permutations:
+        perm = tuple(np.random.permutation(d).tolist())
+        if perm not in seen:
+            seen.add(perm)
+            out.append(list(perm))
+    return out
 
 
 def _maximum_spanning_tree(weights: np.ndarray) -> List[Tuple[int, int]]:
@@ -622,8 +635,25 @@ def _path_from_mst(mst_edges: List[Tuple[int, int]], d: int) -> List[int]:
 
 def _reorder_vine_structure(vine: vine_obj_bin, new_order: List[int]):
     """Reorder vine structure according to new variable ordering."""
-    # This is a placeholder - implement based on your vine structure representation
-    pass
+    d = len(new_order)
+
+    if vine.vine_family == "c-vine":
+        reordered = []
+        for level in range(d - 1):
+            center = new_order[level]
+            edges_level = [[center, new_order[j]] for j in range(level + 1, d)]
+            reordered.append(edges_level)
+        vine.ind_vine = reordered
+        return
+
+    if vine.vine_family == "d-vine":
+        reordered = []
+        for level in range(d - 1):
+            remaining = new_order[level:]
+            edges_level = [[remaining[i], remaining[i + 1]] for i in range(len(remaining) - 1)]
+            reordered.append(edges_level)
+        vine.ind_vine = reordered
+        return
 
 
 def _evaluate_r_matrix_partial(r_matrix: np.ndarray, data_u: np.ndarray,

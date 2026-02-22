@@ -5,7 +5,10 @@ Test optimization functionality.
 import pytest
 import numpy as np
 import torch
-from dvc_package.optimization.structure import optimize_vine_structure
+from dvc_package.optimization.structure import (
+    optimize_vine_structure,
+    _reorder_vine_structure,
+)
 from dvc_package.optimization.criteria import (
     kendall_tau_criterion, entropy_criterion, aic_criterion
 )
@@ -277,6 +280,35 @@ class TestOptimizationRobustness:
         
         # Results should be similar (within numerical precision)
         assert abs(result1.best_score - result2.best_score) < 1e-10
+
+
+class TestOptimizationRegressions:
+    """Regression tests for previously broken optimization behavior."""
+
+    def test_reorder_cvine_structure_updates_edges(self):
+        """C-vine structure should be rebuilt according to the new order."""
+        vine = create_vine("c-vine", 4)
+        new_order = [2, 0, 3, 1]
+
+        _reorder_vine_structure(vine, new_order)
+
+        assert vine.ind_vine[0] == [[2, 0], [2, 3], [2, 1]]
+        assert vine.ind_vine[1] == [[0, 3], [0, 1]]
+        assert vine.ind_vine[2] == [[3, 1]]
+
+    def test_sequential_optimization_runs_for_five_dimensions(self):
+        """Sequential C-vine optimization should run in NumPy 2.x environments."""
+        data = np.random.randn(80, 5)
+        result = optimize_vine_structure(
+            data=data,
+            vine_type="c-vine",
+            method="sequential",
+            criterion="kendall_tau",
+            verbose=False,
+        )
+
+        assert result.best_vine is not None
+        assert np.isfinite(result.best_score)
 
 
 if __name__ == '__main__':

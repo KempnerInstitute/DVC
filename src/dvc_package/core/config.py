@@ -52,11 +52,11 @@ def load_config(path: Union[str, Path, None] = None) -> Dict[str, Any]:
 
     path = Path(path)
     if not path.is_file():
-        print(f"[DVC] Config file '{path}' not found – using defaults.")
+        print(f"[DVC] Config file '{path}' not found - using defaults.")
         return cfg
 
     if yaml is None:
-        print("[DVC] PyYAML not available – cannot read YAML configs. Using defaults.")
+        print("[DVC] PyYAML not available - cannot read YAML configs. Using defaults.")
         return cfg
 
     try:

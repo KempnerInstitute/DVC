@@ -20,7 +20,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from dvc_package.time.data import generate_synthetic_time_series, compute_time_varying_correlations
-from dvc_package.time.model import TimeDependentVineCopula
+from dvc_package.time.models import create_time_dependent_vine
 from dvc_package.core.vine_factory import create_vine
 
 
@@ -56,29 +56,29 @@ def test_time_dependent_modeling(time_data, time_indices):
         base_vine = create_vine('c-vine', n_variables)
         print(f"  Created base vine with {n_variables} variables")
         
-        # Create time-dependent model
-        time_model = TimeDependentVineCopula(
-            vine=base_vine,
-            n_time_steps=n_time_steps,
-            hidden_dim=32  # Smaller for example
+        # Create canonical time-dependent model and fit flow.
+        time_model = create_time_dependent_vine(base_vine, hidden_dims=[32], device="cpu")
+        fit_info = time_model.fit_bandwidth_flow(
+            train_data_by_time=time_data,
+            time_points=time_indices,
+            n_epochs=15,
+            batch_time_steps=min(8, n_time_steps),
+            seed=42,
         )
-        print(f"  Created time-dependent model with {len(time_model.edge_flows)} edge flows")
-        
-        # Test bandwidth prediction
-        time_norm = torch.linspace(0, 1, n_time_steps).unsqueeze(-1)
-        bandwidths = time_model.forward(time_norm)
-        print(f"  Bandwidth predictions shape: {bandwidths.shape}")
-        print(f"  Bandwidth range: [{bandwidths.min():.4f}, {bandwidths.max():.4f}]")
-        
-        # Test loss computation on small sample
+        print(f"  Created time-dependent model with {fit_info['n_edges']} level-0 edges")
+
+        # Test bandwidth prediction.
+        t_tensor = torch.tensor(time_indices, dtype=torch.float32)
+        bandwidths = time_model.get_bandwidths_over_time(t_tensor)
+        print(f"  Bandwidth predictions shape: {tuple(bandwidths.shape)}")
+        print(f"  Bandwidth range: [{float(bandwidths.min()):.4f}, {float(bandwidths.max()):.4f}]")
+
+        # Test NLL computation on a small sample.
         sample_data = torch.tensor(time_data[0][:10], dtype=torch.float32)
-        sample_times = torch.zeros(10)
-        
-        nll_loss = time_model.negative_log_likelihood(sample_data, sample_times)
-        entropy_loss = time_model.entropy_based_loss(sample_data, sample_times)
-        
+        sample_times = torch.full((10,), float(time_indices[0]), dtype=torch.float32)
+        nll_vals = time_model(sample_data, sample_times)
+        nll_loss = float(torch.mean(nll_vals))
         print(f"  Sample NLL loss: {nll_loss:.4f}")
-        print(f"  Sample entropy loss: {entropy_loss:.4f}")
         
         return time_model, bandwidths
         
@@ -124,11 +124,15 @@ def create_time_plots(time_data, time_indices, correlations, bandwidths=None):
     if bandwidths is not None:
         plt.figure(figsize=(12, 6))
         
-        # Plot first few bandwidth dimensions
-        n_dims_to_plot = min(4, bandwidths.shape[1])
+        # Plot first few edge bandwidth trajectories
+        n_dims_to_plot = min(4, int(bandwidths.shape[1]))
         for dim in range(n_dims_to_plot):
-            plt.plot(time_indices, bandwidths[:, dim].detach().cpu().numpy(), 
-                    label=f'Bandwidth Dim {dim}', linewidth=2)
+            plt.plot(
+                time_indices,
+                bandwidths[:, dim].detach().cpu().numpy(),
+                label=f'Edge {dim}',
+                linewidth=2,
+            )
         
         plt.xlabel('Time')
         plt.ylabel('Bandwidth')

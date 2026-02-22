@@ -8,7 +8,7 @@ A parametric C-vine implementation that:
 3) Preserves correlations among all variables.
 
 Families handled: 'ind','gaussian','clayton' (extend as needed).
-No non-parametric code or binning is included here—param only.
+No non-parametric code or binning is included here (param only).
 """
 
 import torch
@@ -80,8 +80,9 @@ def fit_vine(
 
     # margins => rank transform => store in vine.theta[:,0,i]
     for i in range(d):
-        sorted_col = torch.sort(x_torch[:, i])[0]
-        ranks = torch.searchsorted(sorted_col, x_torch[:, i]).float() + 1
+        values = x_torch[:, i].contiguous()
+        sorted_col = torch.sort(values)[0]
+        ranks = torch.searchsorted(sorted_col, values).float() + 1
         vine.theta[:, 0, i] = ranks / (N+1)
         # store in margin object
         if i < len(vine.margin):
@@ -106,7 +107,7 @@ def fit_vine(
 
     # Fit each level - generalized for C/D/R-vines
     for level in range(d-1):
-        print(f"Fitting level {level}/{d-1}...")
+        logger.info(f"Fitting level {level}/{d-1}...")
         vine_type = getattr(vine, 'vine_family', 'c-vine')
         logger.info(f"Using parametric fitting for {vine_type} level {level}")
 
@@ -119,8 +120,11 @@ def fit_vine(
             # This works for C-vine (where center logic was applied during structure creation),
             # D-vine (path structure), and R-vine (arbitrary valid structure)
 
-            ui = vine.theta[:, level, i]  # shape [N]
-            uj = vine.theta[:, level, j]  # shape [N]
+            ui = vine.theta[:, level, i]
+            uj = vine.theta[:, level, j]
+            # Keep uniforms in a valid finite range before pair-copula fitting/transform.
+            ui = torch.nan_to_num(ui, nan=0.5, posinf=1 - 1e-6, neginf=1e-6).clamp(1e-6, 1 - 1e-6)
+            uj = torch.nan_to_num(uj, nan=0.5, posinf=1 - 1e-6, neginf=1e-6).clamp(1e-6, 1 - 1e-6)
             # Stack => shape [N,2,1]
             data_pair = torch.stack([ui, uj], dim=1).unsqueeze(-1)
             
@@ -135,7 +139,13 @@ def fit_vine(
             if np.std(xvals)<1e-15 or np.std(yvals)<1e-15:
                 emp_corr = 0.0
             else:
-                c_ = np.corrcoef(xvals, yvals)[0,1]
+                x_centered = xvals - np.mean(xvals)
+                y_centered = yvals - np.mean(yvals)
+                sx = np.std(x_centered, ddof=0)
+                sy = np.std(y_centered, ddof=0)
+                c_ = 0.0
+                if sx > 1e-12 and sy > 1e-12:
+                    c_ = float(np.mean((x_centered / sx) * (y_centered / sy)))
                 if not np.isfinite(c_):
                     c_ = 0.0
                 emp_corr = abs(c_)
@@ -160,6 +170,7 @@ def fit_vine(
                 try:
                     # partial transform => hVal = F_j|i ( uj | ui )
                     hval = copulaccdf(cobj, uv).clamp(1e-6, 1-1e-6)
+                    hval = torch.where(torch.isfinite(hval), hval, uj)
                     vine.theta[:, level+1, j] = hval
                 except Exception as e:
                     logger.error(f"Error partial transform (level={level},edge=({i},{j})): {str(e)}")
@@ -218,7 +229,8 @@ def evaluate_vine(vine: vine_obj_bin, points: torch.Tensor):
                 try:
                     hval = copulaccdf(cobj, uv).clamp(1e-6,1-1e-6)
                     u_[:, level+1, j] = hval
-                except:
+                except Exception as e:
+                    logger.warning(f"Partial transform failed at level={level}, edge=({i},{j}): {e}")
                     u_[:, level+1, j] = uj
 
     log_p = log_marg + log_cop
@@ -236,76 +248,307 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict]=None):
       4) move on to level=1 => center=1 => sample the leftover variables
       ...
     """
-    logger.info("Using simple C-vine parametric sampling")
+    logger.info("Sampling from vine copula")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     d = vine.n_cop
     out_x = torch.zeros((nsamples, d), dtype=torch.float32, device=device)
-    # We'll maintain a big array U => shape [nsamples, d, d]
-    U_ = torch.zeros((nsamples, d, d), dtype=torch.float32, device=device)
 
-    # sample variable 0 from margin
-    if d>0:
-        if vine.margin and vine.margin[0].dist=='norm' and hasattr(vine.margin[0],'theta'):
-            loc0, scale0 = vine.margin[0].theta
-            dist0 = torch.distributions.Normal(loc0, scale0)
+    def _get_margin_dist(var_idx: int):
+        if (
+            vine.margin
+            and var_idx < len(vine.margin)
+            and hasattr(vine.margin[var_idx], "dist")
+        ):
+            mar = vine.margin[var_idx]
+            if mar.dist == "norm" and hasattr(mar, "theta") and mar.theta is not None:
+                loc, scale = mar.theta
+                return torch.distributions.Normal(float(loc), float(scale))
+            if mar.dist == "uniform" and hasattr(mar, "theta") and mar.theta is not None:
+                low, high = mar.theta
+                return torch.distributions.Uniform(float(low), float(high))
+        return torch.distributions.Normal(0.0, 1.0)
+
+    def _sample_gaussian_copula_fallback() -> np.ndarray:
+        """Robust fallback sampler using a Gaussian copula fit to stored margins."""
+        data_cols = []
+        for j in range(d):
+            if vine.margin and j < len(vine.margin) and getattr(vine.margin[j], "ker", None) is not None:
+                data_cols.append(np.asarray(vine.margin[j].ker).reshape(-1))
+            else:
+                data_cols.append(np.random.randn(max(nsamples, 128)))
+        train_data = np.column_stack(data_cols)
+
+        centered = train_data - np.mean(train_data, axis=0, keepdims=True)
+        std = np.std(centered, axis=0, ddof=0)
+        valid = std > 1e-12
+        z = np.zeros_like(centered, dtype=np.float64)
+        if np.any(valid):
+            z[:, valid] = centered[:, valid] / std[valid]
+        corr = (z.T @ z) / max(train_data.shape[0] - 1, 1)
+        corr = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
+        corr = np.clip(corr, -1.0, 1.0)
+        corr = 0.5 * (corr + corr.T)
+        np.fill_diagonal(corr, 1.0)
+
+        # Project to PSD-ish matrix with diagonal 1 for stable MVN sampling.
+        eigvals, eigvecs = np.linalg.eigh(corr)
+        eigvals = np.clip(eigvals, 1e-6, None)
+        corr_psd = eigvecs @ np.diag(eigvals) @ eigvecs.T
+        dstd = np.sqrt(np.clip(np.diag(corr_psd), 1e-12, None))
+        corr_psd = corr_psd / np.outer(dstd, dstd)
+        np.fill_diagonal(corr_psd, 1.0)
+
+        z = np.random.multivariate_normal(np.zeros(d), corr_psd, size=nsamples).astype(np.float32)
+        z_t = torch.from_numpy(z).to(device=device, dtype=torch.float32)
+        u_t = torch.distributions.Normal(0.0, 1.0).cdf(z_t).clamp(1e-6, 1 - 1e-6)
+
+        x_t = torch.zeros_like(u_t)
+        for j in range(d):
+            distj = _get_margin_dist(j)
+            x_t[:, j] = distj.icdf(u_t[:, j]).clamp(-1e3, 1e3)
+        return x_t.cpu().numpy()
+
+    # Use recursive inverse-h sampling for canonical C-vines.
+    if vine.vine_family == "c-vine":
+        U_ = torch.full((nsamples, d, d), torch.nan, dtype=torch.float32, device=device)
+
+        # Infer C-vine ordering from structure (roots per level + remaining variable).
+        root_order = []
+        for level in range(max(d - 1, 0)):
+            edges_now = vine.ind_vine[level] if level < len(vine.ind_vine) else []
+            if edges_now:
+                root_order.append(int(edges_now[0][0]))
+        if len(root_order) != d - 1:
+            root_order = list(range(d - 1))
+        remaining = [v for v in range(d) if v not in root_order]
+        variable_order = root_order + (remaining[:1] if remaining else [d - 1])
+
+        # Draw base uniforms used for recursive inverse-h composition.
+        w_all = torch.rand((nsamples, d), device=device).clamp(1e-6, 1 - 1e-6)
+
+        # First/root variable.
+        root_var = variable_order[0]
+        U_[:, 0, root_var] = w_all[:, 0]
+        dist_root = _get_margin_dist(root_var)
+        out_x[:, root_var] = dist_root.icdf(U_[:, 0, root_var]).clamp(-1e3, 1e3)
+
+        # Sample remaining variables in C-vine order using backward inverse-h recursion.
+        for pos in range(1, d):
+            target_var = variable_order[pos]
+            z = w_all[:, pos]
+
+            # Walk backward through tree levels: deepest conditional to level 0.
+            for level in range(pos - 1, -1, -1):
+                root = variable_order[level]
+                edges_now = vine.ind_vine[level] if level < len(vine.ind_vine) else []
+                cops_now = vine.copulas[level] if level < len(vine.copulas) else []
+
+                edge_idx = None
+                for e_idx, edge in enumerate(edges_now):
+                    if int(edge[0]) == root and int(edge[1]) == target_var:
+                        edge_idx = e_idx
+                        break
+
+                if edge_idx is None or edge_idx >= len(cops_now):
+                    continue
+
+                cobj = cops_now[edge_idx]
+                u_cond = U_[:, level, root]
+                uv = torch.stack([u_cond, z], dim=1)
+                try:
+                    z = copulainvccdf(cobj, uv).clamp(1e-6, 1 - 1e-6)
+                except Exception as e:
+                    logger.warning(
+                        f"Inverse ccdf failed at level={level}, edge=({root},{target_var}): {e}"
+                    )
+                    z = z.clamp(1e-6, 1 - 1e-6)
+
+            # Base-space uniform for target variable.
+            U_[:, 0, target_var] = z
+            dist_target = _get_margin_dist(target_var)
+            out_x[:, target_var] = dist_target.icdf(z).clamp(-1e3, 1e3)
+
+            # Forward propagate h-values for future conditioning levels.
+            current = z
+            for level in range(0, pos):
+                root = variable_order[level]
+                edges_now = vine.ind_vine[level] if level < len(vine.ind_vine) else []
+                cops_now = vine.copulas[level] if level < len(vine.copulas) else []
+
+                edge_idx = None
+                for e_idx, edge in enumerate(edges_now):
+                    if int(edge[0]) == root and int(edge[1]) == target_var:
+                        edge_idx = e_idx
+                        break
+
+                if edge_idx is None or edge_idx >= len(cops_now):
+                    U_[:, level + 1, target_var] = current
+                    continue
+
+                cobj = cops_now[edge_idx]
+                u_cond = U_[:, level, root]
+                uv = torch.stack([u_cond, current], dim=1)
+                try:
+                    current = copulaccdf(cobj, uv).clamp(1e-6, 1 - 1e-6)
+                except Exception as e:
+                    logger.warning(
+                        f"Forward h failed at level={level}, edge=({root},{target_var}): {e}"
+                    )
+                    current = current.clamp(1e-6, 1 - 1e-6)
+                U_[:, level + 1, target_var] = current
+
+        # Guard against inverse-h numerical collapse: fallback to Gaussian copula.
+        u_base = U_[:, 0, :]
+        bad_uniforms = (
+            torch.isnan(u_base).any()
+            or torch.isinf(u_base).any()
+            or ((u_base <= 1e-5) | (u_base >= 1 - 1e-5)).float().mean() > 0.05
+            or (u_base.std(dim=0) < 0.02).any()
+        )
+        if bool(bad_uniforms):
+            logger.warning(
+                "C-vine inverse-h sampling became numerically unstable; using Gaussian-copula fallback."
+            )
+            return _sample_gaussian_copula_fallback()
+
+        return out_x.cpu().numpy()
+
+    # D-vine and R-vine sampling via generic inverse-h recursion.
+    # The vine structure is encoded in vine.ind_vine[level] = [[i,j], ...].
+    # We walk through the edges using the inverse Rosenblatt transform.
+    if vine.vine_family in ("d-vine", "r-vine"):
+        U_ = torch.full((nsamples, d, d), torch.nan, dtype=torch.float32, device=device)
+        w_all = torch.rand((nsamples, d), device=device).clamp(1e-6, 1 - 1e-6)
+
+        # For D-vine, the ordering is the path order from ind_vine.
+        # For R-vine, use the structure as-is.
+        # Determine variable order from tree-0 edges.
+        if vine.vine_family == "d-vine" and len(vine.ind_vine) > 0:
+            # D-vine: sequential path => extract ordering from level-0 edges
+            edges_0 = vine.ind_vine[0]
+            if edges_0:
+                seen = []
+                for e in edges_0:
+                    for node in e:
+                        if node not in seen:
+                            seen.append(node)
+                variable_order = seen
+            else:
+                variable_order = list(range(d))
         else:
-            dist0 = torch.distributions.Normal(0.,1.)
-        x0 = dist0.sample((nsamples,))
-        out_x[:,0] = x0
-        u0 = dist0.cdf(x0).clamp(1e-6, 1-1e-6)
-        U_[:,0,0] = u0
+            variable_order = list(range(d))
 
-    # for each level in [0..d-2] - generalized for all vine types
-    for level in range(d-1):
-        edges_now = vine.ind_vine[level] if level<len(vine.ind_vine) else []
-        cops_now = vine.copulas[level] if level<len(vine.copulas) else []
-        
-        for e_idx, edge in enumerate(edges_now):
-            if e_idx>=len(cops_now):
-                continue
-            cobj = cops_now[e_idx]
-            i, j = edge
-            
-            # Get the conditioning variable (first in edge) and target variable (second in edge)
-            # This works for all vine types since the edge structure encodes the dependencies
-            u_conditioning = U_[:, level, i]  # shape [nsamples]
-            
-            # Check if target variable j has already been sampled at this level
-            # If not, we need to sample it
-            if level == 0 or not torch.any(torch.isfinite(U_[:, level, j])):
-                # step 1) random uniform => w
-                w = torch.rand(nsamples, device=device).clamp(1e-6,1-1e-6)
-                uv = torch.stack([u_conditioning, w], dim=1)
-                
-                # invert => u_j
-                try:
-                    u_j = copulainvccdf(cobj, uv)
-                    u_j = torch.clamp(u_j, 1e-6,1-1e-6)
-                except:
-                    # fallback => just w
-                    u_j = w
-                U_[:, level, j] = u_j
-                
-                # convert to x_j via margin (only for level 0, i.e., original variables)
-                if level == 0:
-                    if vine.margin and len(vine.margin)>j and vine.margin[j].dist=='norm' and hasattr(vine.margin[j],'theta'):
-                        locj, scalej = vine.margin[j].theta
-                        distj = torch.distributions.Normal(locj, scalej)
-                    else:
-                        distj = torch.distributions.Normal(0.,1.)
-                    xj = distj.icdf(u_j).clamp(-1e3,1e3)
-                    out_x[:, j] = xj
+        # Pad if not all variables covered
+        for v in range(d):
+            if v not in variable_order:
+                variable_order.append(v)
 
-            # partial transform => next level
-            if level<(d-1):
-                uv2 = torch.stack([u_conditioning, U_[:, level, j]], dim=1)
+        # First variable: just a uniform draw
+        first_var = variable_order[0]
+        U_[:, 0, first_var] = w_all[:, 0]
+        dist0 = _get_margin_dist(first_var)
+        out_x[:, first_var] = dist0.icdf(U_[:, 0, first_var]).clamp(-1e3, 1e3)
+
+        for pos in range(1, d):
+            target_var = variable_order[pos]
+            z = w_all[:, pos]
+
+            # Walk backward through tree levels using inverse h-functions.
+            for level in range(min(pos, len(vine.ind_vine)) - 1, -1, -1):
+                edges_now = vine.ind_vine[level] if level < len(vine.ind_vine) else []
+                cops_now = vine.copulas[level] if level < len(vine.copulas) else []
+
+                # Find the edge at this level involving target_var
+                edge_idx = None
+                cond_var = None
+                for e_idx, edge in enumerate(edges_now):
+                    if int(edge[1]) == target_var:
+                        edge_idx = e_idx
+                        cond_var = int(edge[0])
+                        break
+                    if int(edge[0]) == target_var:
+                        edge_idx = e_idx
+                        cond_var = int(edge[1])
+                        break
+
+                if edge_idx is None or edge_idx >= len(cops_now):
+                    continue
+
+                cobj = cops_now[edge_idx]
+                u_cond = U_[:, level, cond_var]
+                u_cond = torch.where(torch.isfinite(u_cond), u_cond, torch.tensor(0.5, device=device))
+
+                # Determine orientation: if target_var was edge[1], standard
+                # if target_var was edge[0], we need to swap
+                if int(edges_now[edge_idx][0]) == target_var:
+                    # Swap: invert h_{target|cond} => h_{0|1}
+                    uv = torch.stack([z, u_cond], dim=1)
+                else:
+                    uv = torch.stack([u_cond, z], dim=1)
+
                 try:
-                    h_val = copulaccdf(cobj, uv2).clamp(1e-6,1-1e-6)
-                    U_[:, level+1, j] = h_val
-                except:
-                    U_[:, level+1, j] = u_j
-    
-    return out_x.cpu().numpy()
+                    z = copulainvccdf(cobj, uv).clamp(1e-6, 1 - 1e-6)
+                except Exception as e:
+                    logger.warning(
+                        "Inverse ccdf failed at level=%d, target=%d: %s", level, target_var, e
+                    )
+
+            U_[:, 0, target_var] = z
+            dist_t = _get_margin_dist(target_var)
+            out_x[:, target_var] = dist_t.icdf(z).clamp(-1e3, 1e3)
+
+            # Forward propagate h-values for future levels.
+            current = z
+            for level in range(min(pos, len(vine.ind_vine))):
+                edges_now = vine.ind_vine[level] if level < len(vine.ind_vine) else []
+                cops_now = vine.copulas[level] if level < len(vine.copulas) else []
+
+                edge_idx = None
+                cond_var = None
+                for e_idx, edge in enumerate(edges_now):
+                    if int(edge[1]) == target_var:
+                        edge_idx = e_idx
+                        cond_var = int(edge[0])
+                        break
+                    if int(edge[0]) == target_var:
+                        edge_idx = e_idx
+                        cond_var = int(edge[1])
+                        break
+
+                if edge_idx is None or edge_idx >= len(cops_now):
+                    U_[:, level + 1, target_var] = current
+                    continue
+
+                cobj = cops_now[edge_idx]
+                u_cond = U_[:, level, cond_var]
+                u_cond = torch.where(torch.isfinite(u_cond), u_cond, torch.tensor(0.5, device=device))
+                uv = torch.stack([u_cond, current], dim=1)
+                try:
+                    current = copulaccdf(cobj, uv).clamp(1e-6, 1 - 1e-6)
+                except Exception as e:
+                    logger.warning("Forward h failed at level=%d, target=%d: %s", level, target_var, e)
+                U_[:, level + 1, target_var] = current
+
+        # Numerical stability check
+        u_base = U_[:, 0, :]
+        bad_uniforms = (
+            torch.isnan(u_base).any()
+            or torch.isinf(u_base).any()
+            or ((u_base <= 1e-5) | (u_base >= 1 - 1e-5)).float().mean() > 0.05
+            or (u_base.std(dim=0) < 0.02).any()
+        )
+        if bool(bad_uniforms):
+            logger.warning(
+                "%s inverse-h sampling became numerically unstable; using Gaussian-copula fallback.",
+                vine.vine_family,
+            )
+            return _sample_gaussian_copula_fallback()
+
+        return out_x.cpu().numpy()
+
+    # Final fallback for unrecognised vine types.
+    logger.warning("Unknown vine family '%s'; using Gaussian-copula fallback.", vine.vine_family)
+    return _sample_gaussian_copula_fallback()
 
 
 def logpdf_vine(vine: vine_obj_bin, points: torch.Tensor):
@@ -333,17 +576,3 @@ def cdf_vine(vine: vine_obj_bin, points: torch.Tensor, nsim=2000):
         mask = (samps_t <= row).all(dim=1)
         out.append(mask.float().mean())
     return torch.stack(out, dim=0)
-
-
-def _attach_methods():
-    vine_obj_bin.fit = fit_vine
-    vine_obj_bin.evaluation = evaluate_vine
-    vine_obj_bin.sample = sample_vine
-    vine_obj_bin.logpdf = logpdf_vine
-    vine_obj_bin.pdf = pdf_vine
-    vine_obj_bin.cdf = cdf_vine
-
-try:
-    _attach_methods()
-except:
-    pass

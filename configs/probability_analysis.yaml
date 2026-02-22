@@ -24,6 +24,7 @@ vine_config:
     - "clayton"
     - "frank"
     - "gumbel"
+    - "joe"
 
 # Analysis configuration
 analysis_config:
