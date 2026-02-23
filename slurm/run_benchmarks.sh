@@ -28,14 +28,14 @@ export PYTHONPATH=src:${PYTHONPATH:-}
 echo "Python: ${PYTHON}"
 ${PYTHON} --version
 
-# ---- Step 1: Run generate_neurips_tables.py --run (executes all 4 configs) ----
+# ---- Step 1: Run generate_benchmark_tables.py --run (executes all 4 configs) ----
 echo ""
 echo "=========================================="
-echo "[Step 1/2] Running generate_neurips_tables.py --run"
+echo "[Step 1/2] Running generate_benchmark_tables.py --run"
 echo "Started at $(date)"
 echo "=========================================="
 
-${PYTHON} scripts/generate_neurips_tables.py --run
+${PYTHON} scripts/generate_benchmark_tables.py --run
 
 echo "[Step 1/2] Completed at $(date)"
 

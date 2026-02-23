@@ -31,7 +31,7 @@ from ..core.vine_model import fit_vine
 from ..time.data import generate_synthetic_time_series, create_data_loader, preprocess_real_data
 from ..time.models import create_time_dependent_vine
 from ..utils.utils_tensor import replace_nan_inf, handle_small_sample_size
-from .neurips_simulations import run_neurips_simulation_suite
+from .simulation_benchmarks import run_simulation_benchmark_suite
 
 logger = logging.getLogger("DVC.experiments")
 
@@ -1016,10 +1016,10 @@ class TimeDependentExperiment(BaseExperiment):
         plt.close()
 
 
-class NeuripsSimulationsExperiment(BaseExperiment):
-    """NeurIPS-oriented synthetic simulation suite.
+class SimulationBenchmarksExperiment(BaseExperiment):
+    """Synthetic simulation benchmark suite.
 
-    Generates paper-defining scenarios that stress-test higher-order and time-varying dependence:
+    Generates scenarios that stress-test higher-order and time-varying dependence:
     - beyond pairwise (conditional dependence with near-zero pairwise correlation)
     - dynamic tail dependence at stable second-order summaries
     - matched Kendall-tau with switching tail asymmetry (Clayton ↔ Gumbel)
@@ -1027,7 +1027,7 @@ class NeuripsSimulationsExperiment(BaseExperiment):
     """
 
     def run(self) -> Dict[str, Any]:
-        self.logger.info(f"Running NeurIPS simulation suite: {self.config.name}")
+        self.logger.info(f"Running simulation benchmark suite: {self.config.name}")
 
         scenarios = self.config.analysis_config.get("scenarios", [])
         if not isinstance(scenarios, list) or not scenarios:
@@ -1039,7 +1039,7 @@ class NeuripsSimulationsExperiment(BaseExperiment):
                 {"name": "hub_switch"},
             ]
 
-        results = run_neurips_simulation_suite(
+        results = run_simulation_benchmark_suite(
             output_dir=self.output_dir,
             seed=int(self.config.seed or 0),
             scenarios=scenarios,
@@ -1077,8 +1077,8 @@ class ExperimentRunner:
             experiment = EntropyAnalysisExperiment(config)
         elif experiment_type == 'time_dependent':
             experiment = TimeDependentExperiment(config)
-        elif experiment_type == 'neurips_simulations':
-            experiment = NeuripsSimulationsExperiment(config)
+        elif experiment_type == 'simulation_benchmarks':
+            experiment = SimulationBenchmarksExperiment(config)
         else:
             raise ValueError(f"Unknown experiment type: {experiment_type}")
         

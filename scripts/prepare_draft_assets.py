@@ -3,7 +3,7 @@
 Generate and vendor paper assets into drafts/ for standalone Overleaf builds.
 
 This script can:
-1) run the benchmark configs (via generate_neurips_tables.py --run)
+1) run the benchmark configs (via generate_benchmark_tables.py --run)
 2) copy tables/figures/result-json assets under drafts/
 3) optionally compile the LaTeX draft
 """
@@ -24,10 +24,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RESULTS_ROOT = PROJECT_ROOT / "results"
 DRAFTS_ROOT = PROJECT_ROOT / "drafts"
 
-TABLES_SRC = RESULTS_ROOT / "neurips_tables"
-TABLES_DST = DRAFTS_ROOT / "tables" / "neurips_tables"
+TABLES_SRC = RESULTS_ROOT / "benchmark_tables"
+TABLES_DST = DRAFTS_ROOT / "tables" / "benchmark_tables"
 
-FIGURES_DST = DRAFTS_ROOT / "figures" / "neurips_results"
+FIGURES_DST = DRAFTS_ROOT / "figures" / "benchmark_results"
 ARTIFACTS_DST = DRAFTS_ROOT / "artifacts" / "results"
 MANIFEST_PATH = DRAFTS_ROOT / "assets_manifest.json"
 
@@ -118,7 +118,7 @@ def main() -> None:
 
     if args.run:
         _run(
-            [sys.executable, "scripts/generate_neurips_tables.py", "--run"],
+            [sys.executable, "scripts/generate_benchmark_tables.py", "--run"],
             cwd=PROJECT_ROOT,
         )
 

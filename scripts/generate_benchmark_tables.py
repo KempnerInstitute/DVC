@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Run DVC experiment configs and generate NeurIPS-ready result tables.
+Run DVC experiment configs and generate result tables.
 
 This script can:
 1) execute one or more YAML configs via ExperimentRunner
@@ -187,7 +187,7 @@ def _summarize_time_dependent(result: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.
     return detail_df, summary_df
 
 
-def _summarize_neurips_simulations(result: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def _summarize_simulation_benchmarks(result: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.DataFrame]:
     run_name = result.get("config", {}).get("name", "unknown")
     rows = result.get("summary_table", [])
 
@@ -212,7 +212,7 @@ def _summarize_neurips_simulations(result: Dict[str, Any]) -> Tuple[pd.DataFrame
         [
             {
                 "experiment_name": run_name,
-                "experiment_type": "neurips_simulations",
+                "experiment_type": "simulation_benchmarks",
                 "n_scenarios": n_scenarios,
                 "mean_nll_gap_mean": mean_gap,
                 "mean_root_recovery_accuracy": root_acc,
@@ -374,7 +374,7 @@ def _write_table(df: pd.DataFrame, csv_path: Path, tex_path: Path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate NeurIPS result tables from DVC configs/results.")
+    parser = argparse.ArgumentParser(description="Generate result tables from DVC configs/results.")
     parser.add_argument(
         "--configs",
         nargs="*",
@@ -382,7 +382,7 @@ def main():
             "configs/probability_analysis.yaml",
             "configs/entropy_analysis.yaml",
             "configs/time_dependent.yaml",
-            "configs/neurips_simulations.yaml",
+            "configs/simulation_benchmarks.yaml",
         ],
         help="YAML configs to include.",
     )
@@ -393,7 +393,7 @@ def main():
     )
     parser.add_argument(
         "--outdir",
-        default="results/neurips_tables",
+        default="results/benchmark_tables",
         help="Output directory for tables.",
     )
     args = parser.parse_args()
@@ -434,8 +434,8 @@ def main():
             detail_df, summary_df = _summarize_time_dependent(result)
             time_details.append(detail_df)
             summary_rows.append(summary_df)
-        elif experiment_type == "neurips_simulations":
-            detail_df, summary_df = _summarize_neurips_simulations(result)
+        elif experiment_type == "simulation_benchmarks":
+            detail_df, summary_df = _summarize_simulation_benchmarks(result)
             sim_details.append(detail_df)
             summary_rows.append(summary_df)
             run_name = result.get("config", {}).get("name", "unknown")
@@ -477,16 +477,16 @@ def main():
         sim_df = pd.concat(sim_details, ignore_index=True)
         _write_table(
             sim_df,
-            outdir / "neurips_simulation_detail.csv",
-            outdir / "neurips_simulation_detail.tex",
+            outdir / "simulation_benchmark_detail.csv",
+            outdir / "simulation_benchmark_detail.tex",
         )
 
     if sim_effective_details:
         eff_df = pd.concat(sim_effective_details, ignore_index=True)
         _write_table(
             eff_df,
-            outdir / "neurips_effective_behavior_detail.csv",
-            outdir / "neurips_effective_behavior_detail.tex",
+            outdir / "effective_behavior_detail.csv",
+            outdir / "effective_behavior_detail.tex",
         )
         eff_summary_df = (
             eff_df.groupby(["baseline"], as_index=False)
@@ -500,8 +500,8 @@ def main():
         )
         _write_table(
             eff_summary_df,
-            outdir / "neurips_effective_behavior_summary.csv",
-            outdir / "neurips_effective_behavior_summary.tex",
+            outdir / "effective_behavior_summary.csv",
+            outdir / "effective_behavior_summary.tex",
         )
 
     if summary_rows:
@@ -512,7 +512,7 @@ def main():
             outdir / "master_summary.tex",
         )
 
-    print(f"Wrote NeurIPS tables to: {outdir}")
+    print(f"Wrote benchmark tables to: {outdir}")
 
 
 if __name__ == "__main__":

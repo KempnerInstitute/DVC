@@ -88,20 +88,20 @@ python scripts/run_experiment.py --create-examples
 python scripts/run_experiment.py configs/probability_analysis.yaml
 ```
 
-## Generate NeurIPS Tables
+## Generate Benchmark Tables
 
 Run benchmark configs and generate CSV/LaTeX tables for the paper:
 
 ```bash
-python scripts/generate_neurips_tables.py --run
+python scripts/generate_benchmark_tables.py --run
 ```
 
-Outputs are written under `results/neurips_tables/`:
+Outputs are written under `results/benchmark_tables/`:
 - `master_summary.csv` / `.tex`
 - `probability_vine_detail.csv` / `.tex`
 - `entropy_method_detail.csv` / `.tex`
 - `time_pair_detail.csv` / `.tex`
-- `neurips_simulation_detail.csv` / `.tex` (from `configs/neurips_simulations.yaml`)
+- `simulation_benchmark_detail.csv` / `.tex` (from `configs/simulation_benchmarks.yaml`)
 
 ## Prepare Standalone Draft Assets
 
@@ -113,8 +113,8 @@ python scripts/prepare_draft_assets.py --run --compile
 ```
 
 This writes to:
-- `drafts/tables/neurips_tables/`
-- `drafts/figures/neurips_results/`
+- `drafts/tables/benchmark_tables/`
+- `drafts/figures/benchmark_results/`
 - `drafts/artifacts/results/`
 - `drafts/assets_manifest.json`
 

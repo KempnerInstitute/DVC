@@ -55,10 +55,10 @@ under the configured `output_dir`.
 To run the standard benchmark configs and export paper-ready tables:
 
 ```bash
-python scripts/generate_neurips_tables.py --run
+python scripts/generate_benchmark_tables.py --run
 ```
 
-This creates CSV and LaTeX tables in `results/neurips_tables/`.
+This creates CSV and LaTeX tables in `results/benchmark_tables/`.
 
 ## Standalone Draft Asset Sync
 
@@ -69,8 +69,8 @@ python scripts/prepare_draft_assets.py --run --compile
 ```
 
 This command vendors:
-- tables to `drafts/tables/neurips_tables/`
-- figures to `drafts/figures/neurips_results/`
+- tables to `drafts/tables/benchmark_tables/`
+- figures to `drafts/figures/benchmark_results/`
 - result JSONs to `drafts/artifacts/results/`
 - an asset manifest to `drafts/assets_manifest.json`
 

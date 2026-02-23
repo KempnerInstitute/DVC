@@ -1,11 +1,11 @@
-# NeurIPS 2026 Simulation Suite (Paper-Defining Synthetic Experiments)
-name: "neurips_simulations"
+# Simulation Benchmark Suite (Synthetic Experiments)
+name: "simulation_benchmarks"
 description: "Synthetic simulations highlighting higher-order and time-varying dependence beyond correlation"
-output_dir: "results/neurips_simulations"
+output_dir: "results/simulation_benchmarks"
 seed: 2026
 
 analysis_config:
-  experiment_type: "neurips_simulations"
+  experiment_type: "simulation_benchmarks"
   scenarios:
     - name: "multiplicative_triplet"
       n_samples: 6000
@@ -33,6 +33,14 @@ analysis_config:
       hub_a: 0
       hub_b: 1
       rho_hub: 0.7
+
+    - name: "agent_interaction_episodes"
+      n_time_steps: 28
+      n_samples_per_time: 300
+      n_agents: 6
+      rho_pairwise: 0.7
+      rho_higher: 0.5
+      nu_higher: 3.0
 
 plot_config:
   create_plots: true

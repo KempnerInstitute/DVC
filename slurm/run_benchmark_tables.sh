@@ -1,18 +1,18 @@
 #!/bin/bash
-#SBATCH --job-name=dvc_neurips_tables
+#SBATCH --job-name=dvc_benchmark_tables
 #SBATCH --partition=kempner
 #SBATCH --account=kempner_dev
 #SBATCH --time=06:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
-#SBATCH --output=/n/holylabs/kempner_dev/Users/hsafaai/Code/DVC/logs/dvc_neurips_tables_%j.out
-#SBATCH --error=/n/holylabs/kempner_dev/Users/hsafaai/Code/DVC/logs/dvc_neurips_tables_%j.err
+#SBATCH --output=/n/holylabs/kempner_dev/Users/hsafaai/Code/DVC/logs/dvc_benchmark_tables_%j.out
+#SBATCH --error=/n/holylabs/kempner_dev/Users/hsafaai/Code/DVC/logs/dvc_benchmark_tables_%j.err
 
 set -euo pipefail
 
 echo "=========================================="
-echo "DVC NeurIPS Table Generation"
+echo "DVC Benchmark Table Generation"
 echo "Job started at $(date)"
 echo "Running on host: $(hostname)"
 echo "Job ID: $SLURM_JOB_ID"
@@ -33,7 +33,7 @@ CONFIGS=(
     "configs/probability_analysis.yaml"
     "configs/entropy_analysis.yaml"
     "configs/time_dependent.yaml"
-    "configs/neurips_simulations.yaml"
+    "configs/simulation_benchmarks.yaml"
 )
 
 TOTAL=${#CONFIGS[@]}
@@ -50,7 +50,7 @@ for i in "${!CONFIGS[@]}"; do
     echo "Started at $(date)"
     echo "=========================================="
 
-    if ${PYTHON} scripts/generate_neurips_tables.py --run --configs "${CONFIG}"; then
+    if ${PYTHON} scripts/generate_benchmark_tables.py --run --configs "${CONFIG}"; then
         echo "[${STEP}/${TOTAL}] SUCCEEDED: ${CONFIG}"
         SUCCEEDED=$(( SUCCEEDED + 1 ))
     else
