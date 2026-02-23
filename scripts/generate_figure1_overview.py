@@ -487,7 +487,7 @@ def main():
     # ---- Save ----
     out_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "drafts", "figures", "neurips_results",
+        "drafts", "figures", "benchmark_results",
     )
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "figure1_vine_overview.png")

@@ -1,5 +1,5 @@
 """
-NeurIPS 2026 simulation suite for Dynamic Vine Copulas (DVC).
+Simulation benchmark suite for Dynamic Vine Copulas (DVC).
 
 This module provides:
 - synthetic generators designed to isolate higher-order and non-Gaussian dependence
@@ -652,6 +652,159 @@ def generate_hub_switch(
     }
 
 
+def generate_agent_interaction_episodes(
+    n_time_steps: int,
+    n_samples_per_time: int,
+    n_agents: int,
+    rho_pairwise: float,
+    rho_higher: float,
+    nu_higher: float,
+    seed: int,
+) -> Dict[str, Any]:
+    """Generate time series with episodic interaction bursts among agents.
+
+    Background state is independence.  Four interaction episodes are embedded:
+    1. Pairwise (agents 0,1) — Gaussian copula
+    2. Higher-order (agents 2,3,4) — Student-t + Clayton 2-level C-vine
+    3. Mixed (agents 0,1 pairwise + agents 3,4,5 higher-order)
+
+    The key demonstration: a 1-truncated vine suffices for pairwise episodes,
+    but higher-order episodes require the full vine (deeper tree levels).
+    """
+    rng = np.random.default_rng(seed)
+    time_idx = np.arange(n_time_steps, dtype=np.float32)
+
+    # ----- episode schedule -------------------------------------------------
+    # label codes: 0=independence, 1=pairwise, 2=higher_order, 3=mixed
+    episode_labels = np.zeros(n_time_steps, dtype=np.int32)
+    episode_agents: List[List[int]] = [[] for _ in range(n_time_steps)]
+    episode_schedule: List[Dict[str, Any]] = []
+
+    # Derive episode boundaries from n_time_steps (proportional to T=28 design)
+    # The schedule divides the time axis into 5 segments:
+    # [0, b1) indep | [b1, b2) pairwise | [b2, b3) indep | [b3, b4) higher | [b4, b5) indep | [b5, T) mixed
+    frac = np.array([5, 5, 4, 6, 3, 5], dtype=np.float64)
+    frac = frac / frac.sum()
+    cum = np.round(np.cumsum(frac) * n_time_steps).astype(int)
+    cum[-1] = n_time_steps  # ensure last boundary == T
+    b = np.concatenate([[0], cum])  # boundaries: b[0], b[1], ..., b[6]
+
+    for t in range(b[1], b[2]):
+        episode_labels[t] = 1
+        episode_agents[t] = [0, 1]
+    for t in range(b[3], b[4]):
+        episode_labels[t] = 2
+        episode_agents[t] = [2, 3, 4]
+    for t in range(b[5], b[6]):
+        episode_labels[t] = 3
+        episode_agents[t] = [0, 1, 3, 4, 5]
+
+    episode_schedule = [
+        {"t_start": int(b[1]), "t_end": int(b[2]), "type": "pairwise", "agents": [0, 1]},
+        {"t_start": int(b[3]), "t_end": int(b[4]), "type": "higher_order", "agents": [2, 3, 4]},
+        {"t_start": int(b[5]), "t_end": int(b[6]), "type": "mixed",
+         "agents_pairwise": [0, 1], "agents_higher": [3, 4, 5]},
+    ]
+
+    # ----- data generation ---------------------------------------------------
+    eps = 1e-6
+    data = np.zeros((n_time_steps, n_samples_per_time, n_agents), dtype=np.float32)
+
+    for t in range(n_time_steps):
+        # Start with all-independent standard normals.
+        data[t] = rng.standard_normal((n_samples_per_time, n_agents)).astype(np.float32)
+
+        label = int(episode_labels[t])
+
+        if label == 0:
+            # Independence — already done.
+            pass
+
+        elif label == 1:
+            # Pairwise interaction: agents 0, 1 via Gaussian copula.
+            data[t] = _embed_pairwise(
+                data[t], agents=[0, 1], rho=rho_pairwise, rng=rng, eps=eps,
+            )
+
+        elif label == 2:
+            # Higher-order interaction: agents 2,3,4 via 2-level C-vine.
+            data[t] = _embed_higher_order_vine(
+                data[t], agents=[2, 3, 4],
+                rho=rho_higher, nu=nu_higher, rng=rng, eps=eps,
+            )
+
+        elif label == 3:
+            # Mixed: pairwise (0,1) + higher-order (3,4,5) on disjoint subsets.
+            data[t] = _embed_pairwise(
+                data[t], agents=[0, 1], rho=rho_pairwise, rng=rng, eps=eps,
+            )
+            data[t] = _embed_higher_order_vine(
+                data[t], agents=[3, 4, 5],
+                rho=rho_higher, nu=nu_higher, rng=rng, eps=eps,
+            )
+
+        # Small jitter for numerical stability.
+        data[t] += 1e-3 * rng.standard_normal(data[t].shape).astype(np.float32)
+
+    return {
+        "time_data": data,
+        "time_indices": time_idx,
+        "episode_labels": episode_labels,
+        "episode_agents": episode_agents,
+        "episode_schedule": episode_schedule,
+    }
+
+
+def _embed_pairwise(
+    x: np.ndarray,
+    agents: List[int],
+    rho: float,
+    rng: np.random.Generator,
+    eps: float,
+) -> np.ndarray:
+    """Replace columns for *agents* (len 2) with Gaussian-copula-correlated samples."""
+    n = x.shape[0]
+    i, j = agents[0], agents[1]
+    u_i = rng.uniform(eps, 1.0 - eps, size=n).astype(np.float32)
+    w = rng.uniform(eps, 1.0 - eps, size=n).astype(np.float32)
+    cobj = cop_par_obj("gaussian", float(rho))
+    uv = torch.tensor(np.stack([u_i, w], axis=1), dtype=torch.float32)
+    u_j = copulainvccdf(cobj, uv).detach().cpu().numpy().astype(np.float32)
+    u_j = np.clip(u_j, eps, 1.0 - eps)
+    x[:, i] = norm.ppf(u_i).astype(np.float32)
+    x[:, j] = norm.ppf(u_j).astype(np.float32)
+    return x
+
+
+def _embed_higher_order_vine(
+    x: np.ndarray,
+    agents: List[int],
+    rho: float,
+    nu: float,
+    rng: np.random.Generator,
+    eps: float,
+) -> np.ndarray:
+    """Replace columns for *agents* (len 3) with samples from a 2-level C-vine.
+
+    Level 0: Student-t copula (rho, nu) — creates tail dependence.
+    Level 1: Clayton copula (theta=2.0) — genuine conditional/higher-order dependence
+    not captured by any pairwise-only model.
+    """
+    d_sub = len(agents)
+    order = list(range(d_sub))
+    # level 0 = Student-t, levels 1+ = Clayton
+    level_fams = ["student"] + ["clayton"] * (d_sub - 2)
+    level_thetas: List[Any] = [(float(rho), float(nu))] + [2.0] * (d_sub - 2)
+    vine = _make_levelwise_cvine(
+        d_sub, order=order, level_families=level_fams, level_thetas=level_thetas,
+    )
+    samples = vine.sample(x.shape[0])
+    # The vine.sample() returns standard-normal-marginal data.
+    for local_idx, global_idx in enumerate(agents):
+        x[:, global_idx] = samples[:, local_idx]
+    return x
+
+
 def _fit_parametric_vine(
     x_train: np.ndarray,
     families: List[str],
@@ -1217,13 +1370,203 @@ def _plot_hub_switch_panel(
     plt.close(fig)
 
 
+def _plot_agent_interaction_episodes_panel(
+    out_png: Path,
+    time: np.ndarray,
+    episode_labels: np.ndarray,
+    episode_schedule: List[Dict[str, Any]],
+    nll_gaps: Dict[str, np.ndarray],
+    tc_pairwise: np.ndarray,
+    tc_higher_order: np.ndarray,
+    corr_matrices: np.ndarray,
+    n_agents: int,
+    title: str,
+    method_detections: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> None:
+    """Publication-quality 4x2 panel for agent interaction episodes scenario."""
+    _set_seaborn_style()
+    from matplotlib.patches import Patch
+
+    has_det = method_detections is not None and len(method_detections) > 0
+    n_rows = 4 if has_det else 3
+    fig = plt.figure(figsize=(14, 3.5 * n_rows), constrained_layout=True)
+    gs = fig.add_gridspec(n_rows, 2, height_ratios=[0.6, 1.0, 1.0] + ([1.0] if has_det else []))
+
+    ax_timeline = fig.add_subplot(gs[0, :])  # span both columns
+    ax_nll = fig.add_subplot(gs[1, 0])
+    ax_tc = fig.add_subplot(gs[1, 1])
+    ax_trunc_gap = fig.add_subplot(gs[2, 0])
+    ax_corr = fig.add_subplot(gs[2, 1])
+    if has_det:
+        ax_f1 = fig.add_subplot(gs[3, 0])
+        ax_det_timeline = fig.add_subplot(gs[3, 1])
+
+    # Color scheme for episode types.
+    _ep_colors = {0: "#cccccc", 1: "#1f77b4", 2: "#d62728", 3: "#9467bd"}
+    _ep_names = {0: "Independence", 1: "Pairwise", 2: "Higher-order", 3: "Mixed"}
+
+    # ----- Panel A: Ground-truth episode timeline -----
+    for t_idx in range(len(time)):
+        label = int(episode_labels[t_idx])
+        ax_timeline.axvspan(
+            float(time[t_idx]) - 0.5, float(time[t_idx]) + 0.5,
+            alpha=0.5, color=_ep_colors[label],
+        )
+    legend_patches = [
+        Patch(facecolor=_ep_colors[k], alpha=0.5, label=_ep_names[k])
+        for k in sorted(_ep_colors.keys())
+    ]
+    ax_timeline.legend(handles=legend_patches, frameon=True, loc="upper right", fontsize=8)
+    for ep in episode_schedule:
+        t_mid = (ep["t_start"] + ep["t_end"]) / 2.0
+        if ep["type"] == "mixed":
+            agents_str = f"P:{ep['agents_pairwise']}\nH:{ep['agents_higher']}"
+        else:
+            agents_str = str(ep["agents"])
+        ax_timeline.text(
+            t_mid, 0.5, agents_str, ha="center", va="center",
+            fontsize=7, transform=ax_timeline.get_xaxis_transform(),
+        )
+    ax_timeline.set_xlim(float(time[0]) - 0.5, float(time[-1]) + 0.5)
+    ax_timeline.set_yticks([])
+    ax_timeline.set_xlabel("time step")
+    ax_timeline.set_title("(A) Ground truth: interaction episodes")
+
+    # ----- Panel B: NLL gap vs baselines -----
+    _nll_styles = [
+        ("nll_gap", "Gaussian copula", "black", "-"),
+        ("nll_gap_glasso", "Graphical Lasso", "#2ca02c", ":"),
+        ("nll_gap_tvgl", "TVGL (Frobenius)", "#d62728", "-."),
+        ("nll_gap_state_space", "Gaussian SSM", "#9467bd", (0, (3, 1, 1, 1))),
+    ]
+    for key, label, color, ls in _nll_styles:
+        if key in nll_gaps:
+            ax_nll.plot(time, nll_gaps[key], label=label, color=color, linewidth=2.0, linestyle=ls)
+    ax_nll.axhline(0.0, color="gray", linewidth=1.0, linestyle="--")
+    for ep in episode_schedule:
+        c = _ep_colors.get({"pairwise": 1, "higher_order": 2, "mixed": 3}[ep["type"]], "#ccc")
+        ax_nll.axvspan(ep["t_start"] - 0.5, ep["t_end"] - 0.5, alpha=0.12, color=c)
+    ax_nll.set_title("(B) NLL gap vs. baselines (positive = DVC better)")
+    ax_nll.set_xlabel("time step")
+    ax_nll.set_ylabel("NLL(baseline) $-$ NLL(DVC)")
+    ax_nll.legend(frameon=True, fontsize=8)
+
+    # ----- Panel C: TC decomposition (stacked area) -----
+    tc_p = np.clip(tc_pairwise, 0, None)
+    tc_h = np.clip(tc_higher_order, 0, None)
+    ax_tc.fill_between(time, 0, tc_p, alpha=0.5, color="#1f77b4", label=r"$\mathrm{TC}_{\mathrm{pair}}$")
+    ax_tc.fill_between(time, tc_p, tc_p + tc_h, alpha=0.5, color="#d62728", label=r"$\mathrm{TC}_{\mathrm{higher}}$")
+    ax_tc.plot(time, tc_p + tc_h, color="black", linewidth=1.0, alpha=0.5)
+    for ep in episode_schedule:
+        c = _ep_colors.get({"pairwise": 1, "higher_order": 2, "mixed": 3}[ep["type"]], "#ccc")
+        ax_tc.axvspan(ep["t_start"] - 0.5, ep["t_end"] - 0.5, alpha=0.08, color=c)
+    ax_tc.set_title(r"(C) Total correlation decomposition")
+    ax_tc.set_xlabel("time step")
+    ax_tc.set_ylabel("TC (nats)")
+    ax_tc.legend(frameon=True, fontsize=8)
+
+    # ----- Panel D: DVC vs 1-truncated vine gap (higher-order indicator) -----
+    if "nll_gap_truncated_level0" in nll_gaps:
+        ax_trunc_gap.bar(
+            time, nll_gaps["nll_gap_truncated_level0"],
+            width=0.8, color="#d62728", alpha=0.6, label="Full vine $-$ 1-truncated",
+        )
+    ax_trunc_gap.axhline(0.0, color="gray", linewidth=1.0, linestyle="--")
+    for ep in episode_schedule:
+        c = _ep_colors.get({"pairwise": 1, "higher_order": 2, "mixed": 3}[ep["type"]], "#ccc")
+        ax_trunc_gap.axvspan(ep["t_start"] - 0.5, ep["t_end"] - 0.5, alpha=0.12, color=c)
+    ax_trunc_gap.set_title(r"(D) Higher-order signal: NLL(1-trunc) $-$ NLL(DVC)")
+    ax_trunc_gap.set_xlabel("time step")
+    ax_trunc_gap.set_ylabel("NLL gap (nats)")
+    ax_trunc_gap.legend(frameon=True, fontsize=8)
+
+    # ----- Panel E: Pairwise correlation heatmap -----
+    pair_labels_list: List[str] = []
+    pair_corrs_list: List[np.ndarray] = []
+    for i in range(n_agents):
+        for j in range(i + 1, n_agents):
+            pair_labels_list.append(f"{i}-{j}")
+            pair_corrs_list.append(np.array([np.abs(corr_matrices[t, i, j]) for t in range(len(time))]))
+    pair_mat = np.stack(pair_corrs_list, axis=0)
+    sns.heatmap(
+        pair_mat,
+        ax=ax_corr,
+        cmap="YlOrRd",
+        vmin=0.0,
+        vmax=0.7,
+        cbar_kws={"label": r"$|\rho|$"},
+        xticklabels=5,
+        yticklabels=pair_labels_list,
+    )
+    ax_corr.set_title("(E) Pairwise absolute correlation")
+    ax_corr.set_xlabel("time step")
+    ax_corr.set_ylabel("agent pair")
+
+    # ----- Panels F & G: Detection comparison (if method_detections provided) -----
+    if has_det:
+        # Panel F: F1 score comparison (horizontal bar chart).
+        method_names = list(method_detections.keys())
+        f1_scores = [method_detections[m]["f1"] for m in method_names]
+        prec_scores = [method_detections[m]["precision"] for m in method_names]
+        rec_scores = [method_detections[m]["recall"] for m in method_names]
+
+        y_pos = np.arange(len(method_names))
+        bar_h = 0.25
+        ax_f1.barh(y_pos - bar_h, prec_scores, bar_h, label="Precision", color="#1f77b4", alpha=0.7)
+        ax_f1.barh(y_pos, rec_scores, bar_h, label="Recall", color="#ff7f0e", alpha=0.7)
+        ax_f1.barh(y_pos + bar_h, f1_scores, bar_h, label="F1", color="#2ca02c", alpha=0.7)
+        ax_f1.set_yticks(y_pos)
+        ax_f1.set_yticklabels(method_names, fontsize=8)
+        ax_f1.set_xlim(0, 1.05)
+        ax_f1.set_xlabel("Score")
+        ax_f1.set_title("(F) Episode detection: binary (interaction vs independence)")
+        ax_f1.legend(frameon=True, fontsize=8, loc="lower right")
+        # Add F1 value annotations.
+        for i, v in enumerate(f1_scores):
+            ax_f1.text(v + 0.01, i + bar_h, f"{v:.2f}", va="center", fontsize=7)
+
+        # Panel G: Per-method detection timeline (raster).
+        det_matrix = []
+        det_names = []
+        for m in method_names:
+            det_matrix.append(method_detections[m]["detected"])
+            det_names.append(m)
+        det_arr = np.array(det_matrix, dtype=np.float32)  # (n_methods, T)
+        # Show detected (1) vs not (0) as colored cells.
+        cmap_det = sns.color_palette(["#f0f0f0", "#2ca02c"], as_cmap=True)
+        sns.heatmap(
+            det_arr,
+            ax=ax_det_timeline,
+            cmap=cmap_det,
+            vmin=0, vmax=1,
+            cbar=False,
+            xticklabels=5,
+            yticklabels=det_names,
+            linewidths=0.3, linecolor="white",
+        )
+        # Overlay ground truth as top row border.
+        gt_binary = (episode_labels > 0).astype(np.float32)
+        for t_idx in range(len(time)):
+            if gt_binary[t_idx] > 0:
+                ax_det_timeline.axvspan(t_idx, t_idx + 1, ymin=1.0, ymax=1.05,
+                                        color="#d62728", clip_on=False)
+        ax_det_timeline.set_title("(G) Detection timeline (green = interaction detected)")
+        ax_det_timeline.set_xlabel("time step")
+        ax_det_timeline.tick_params(axis='y', labelsize=7)
+
+    fig.suptitle(title, y=1.02, fontsize=13)
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
 @dataclass(frozen=True)
 class ScenarioResult:
     name: str
     payload: Dict[str, Any]
 
 
-def run_neurips_simulation_suite(
+def run_simulation_benchmark_suite(
     output_dir: Path,
     seed: int,
     scenarios: List[Dict[str, Any]],
@@ -1234,7 +1577,7 @@ def run_neurips_simulation_suite(
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     results: Dict[str, Any] = {
-        "experiment_type": "neurips_simulations",
+        "experiment_type": "simulation_benchmarks",
         "seed": int(seed),
         "scenarios": {},
     }
@@ -1786,7 +2129,222 @@ def run_neurips_simulation_suite(
             }
             continue
 
-        raise ValueError(f"Unknown NeurIPS simulation scenario: {name}")
+        if name == "agent_interaction_episodes":
+            cfg = {
+                "n_time_steps": int(sc.get("n_time_steps", 28)),
+                "n_samples_per_time": int(sc.get("n_samples_per_time", 300)),
+                "n_agents": int(sc.get("n_agents", 6)),
+                "rho_pairwise": float(sc.get("rho_pairwise", 0.7)),
+                "rho_higher": float(sc.get("rho_higher", 0.5)),
+                "nu_higher": float(sc.get("nu_higher", 3.0)),
+            }
+            gen = generate_agent_interaction_episodes(seed=seed, **cfg)
+            time_data = gen["time_data"]
+            time = gen["time_indices"]
+            ep_labels = gen["episode_labels"]
+            ep_agents = gen["episode_agents"]
+            ep_schedule = gen["episode_schedule"]
+
+            families = ["gaussian", "student", "clayton", "gumbel", "joe", "independence"]
+
+            dvc_nll: List[float] = []
+            gauss_nll: List[float] = []
+            trunc_nll: List[float] = []
+            glasso_nll: List[float] = []
+            corr_matrices: List[np.ndarray] = []
+            x_train_list: List[np.ndarray] = []
+            x_test_list: List[np.ndarray] = []
+
+            for t in range(time_data.shape[0]):
+                x_t = time_data[t]
+                n = x_t.shape[0]
+                n_train = int(0.8 * n)
+                idx = np.random.default_rng(seed + 13 * t).permutation(n)
+                tr = x_t[idx[:n_train]]
+                te = x_t[idx[n_train:]]
+
+                vine = _fit_parametric_vine(tr, families=families, optimize_structure=False, seed=seed + 13 * t)
+                dvc_nll.append(_mean_copula_nll(vine, te))
+                gauss_nll.append(_gaussian_copula_nll_fit_eval(tr, te))
+                trunc_vine = _fit_truncated_cvine_level0(tr, families=families)
+                trunc_nll.append(_mean_copula_nll(trunc_vine, te))
+                glasso_nll.append(_glasso_gaussian_copula_nll_fit_eval(tr, te, alpha=0.02))
+
+                R = np.corrcoef(te, rowvar=False)
+                corr_matrices.append(R)
+
+                x_train_list.append(tr)
+                x_test_list.append(te)
+
+            # Cross-time baselines: TVGL.
+            covs = []
+            for xtr in x_train_list:
+                ztr = _normal_scores_from_rank_pobs(np.asarray(xtr, dtype=np.float64))
+                C = np.cov(ztr, rowvar=False)
+                C = np.nan_to_num(C, nan=0.0, posinf=0.0, neginf=0.0)
+                C = 0.5 * (C + C.T) + 1e-6 * np.eye(C.shape[0])
+                covs.append(C)
+
+            tvgl = tvgl_frobenius(
+                covs,
+                alpha=0.02,
+                beta=1.0,
+                max_iter=200,
+                step_size=0.05,
+                eps=1e-4,
+                verbose=False,
+            )
+            tvgl_nll: List[float] = []
+            for P, xte in zip(tvgl.precision, x_test_list):
+                cov = np.linalg.inv(P)
+                R = _corr_from_cov(cov)
+                zte = _normal_scores_from_rank_pobs(np.asarray(xte, dtype=np.float64))
+                tvgl_nll.append(_gaussian_copula_nll_given_corr(zte, R))
+
+            # Cross-time baselines: Gaussian state-space.
+            ssm_nll, ssm_fit = gaussian_copula_state_space_nll_fit_eval(
+                x_train_list,
+                x_test_list,
+            )
+
+            # NLL gaps.
+            _dvc_arr = np.asarray(dvc_nll)
+            ep_nll_gaps: Dict[str, np.ndarray] = {
+                "nll_gap": np.asarray(gauss_nll) - _dvc_arr,
+                "nll_gap_truncated_level0": np.asarray(trunc_nll) - _dvc_arr,
+                "nll_gap_glasso": np.asarray(glasso_nll) - _dvc_arr,
+                "nll_gap_tvgl": np.asarray(tvgl_nll) - _dvc_arr,
+                "nll_gap_state_space": np.asarray(ssm_nll) - _dvc_arr,
+            }
+
+            # TC decomposition: pairwise contribution from 1-truncated vine,
+            # higher-order residual from full vine minus truncated.
+            tc_pairwise = np.asarray(gauss_nll) - np.asarray(trunc_nll)
+            tc_higher_order = np.asarray(trunc_nll) - _dvc_arr
+
+            # --- Episode detection across all methods ---
+            # For each method, compute per-time NLL and detect episodes via
+            # thresholding the NLL drop relative to a simple independence baseline.
+            # DVC uniquely can also distinguish pairwise from higher-order via
+            # the truncated-vine gap.
+
+            # Independence-baseline NLL: fit a Gaussian copula with identity
+            # correlation (= sum of marginal NLLs, i.e. 0 for standard normals).
+            # Since data is Gaussianized, the independence NLL ≈ 0.
+            # We use each method's own NLL trajectory and detect departures.
+            indep_mask = ep_labels == 0
+
+            def _detect_episodes_binary(nll_trajectory: np.ndarray) -> np.ndarray:
+                """Detect non-independence episodes from an NLL trajectory.
+
+                Lower NLL = better fit = more dependence detected.
+                Returns binary array: 0=independence, 1=interaction detected.
+                """
+                arr = np.asarray(nll_trajectory, dtype=np.float64)
+                if np.any(indep_mask):
+                    indep_vals = arr[indep_mask]
+                    # Interaction detected when NLL drops substantially below
+                    # the independence-period level (more negative = better fit).
+                    thresh = float(np.mean(indep_vals) - 2.0 * max(np.std(indep_vals), 0.01))
+                else:
+                    thresh = float(np.median(arr))
+                return (arr < thresh).astype(np.int32)
+
+            # Binary detection (0=indep, 1=any interaction) for each method.
+            gt_binary = (ep_labels > 0).astype(np.int32)
+            method_detections: Dict[str, Dict[str, Any]] = {}
+
+            for mname, nll_arr in [
+                ("DVC", dvc_nll),
+                ("Gaussian copula", gauss_nll),
+                ("1-truncated C-vine", trunc_nll),
+                ("Graphical Lasso", glasso_nll),
+                ("TVGL", tvgl_nll),
+                ("Gaussian SSM", ssm_nll),
+            ]:
+                det = _detect_episodes_binary(np.asarray(nll_arr))
+                acc_bin = float(np.mean(det == gt_binary))
+                # Precision/recall for interaction class.
+                tp = int(np.sum((det == 1) & (gt_binary == 1)))
+                fp = int(np.sum((det == 1) & (gt_binary == 0)))
+                fn = int(np.sum((det == 0) & (gt_binary == 1)))
+                prec = tp / max(tp + fp, 1)
+                rec = tp / max(tp + fn, 1)
+                f1 = 2 * prec * rec / max(prec + rec, 1e-12)
+                method_detections[mname] = {
+                    "detected": det.tolist(),
+                    "accuracy": acc_bin,
+                    "precision": prec,
+                    "recall": rec,
+                    "f1": f1,
+                }
+
+            # DVC 3-class detection (independence / pairwise / higher-order).
+            if np.any(indep_mask):
+                indep_gap = ep_nll_gaps["nll_gap"][indep_mask]
+                thresh_nll = float(np.mean(indep_gap) + 2.0 * max(np.std(indep_gap), 0.01))
+                indep_trunc = tc_higher_order[indep_mask]
+                thresh_higher = float(np.mean(indep_trunc) + 2.0 * max(np.std(indep_trunc), 0.005))
+            else:
+                thresh_nll = 0.02
+                thresh_higher = 0.01
+
+            detected = np.zeros(len(time), dtype=np.int32)
+            for t_idx in range(len(time)):
+                if ep_nll_gaps["nll_gap"][t_idx] < thresh_nll:
+                    detected[t_idx] = 0  # independence
+                elif tc_higher_order[t_idx] < thresh_higher:
+                    detected[t_idx] = 1  # pairwise
+                else:
+                    detected[t_idx] = 2  # higher-order (or mixed)
+
+            # Map mixed (label=3) to higher-order (2) for accuracy comparison.
+            gt_collapsed = np.where(ep_labels == 3, 2, ep_labels)
+            ep_detect_acc = float(np.mean(detected == gt_collapsed))
+
+            # Plot.
+            corr_mat_arr = np.stack(corr_matrices, axis=0)  # (T, d, d)
+            out_png = plots_dir / "agent_interaction_episodes_panel.png"
+            _plot_agent_interaction_episodes_panel(
+                out_png,
+                time=time,
+                episode_labels=ep_labels,
+                episode_schedule=ep_schedule,
+                nll_gaps=ep_nll_gaps,
+                tc_pairwise=tc_pairwise,
+                tc_higher_order=tc_higher_order,
+                corr_matrices=corr_mat_arr,
+                n_agents=cfg["n_agents"],
+                method_detections=method_detections,
+                title="Agent interaction episodes: pairwise vs higher-order detection",
+            )
+
+            results["scenarios"][name] = {
+                **cfg,
+                "episode_schedule": ep_schedule,
+                "episode_labels": ep_labels.tolist(),
+                "episode_detection_accuracy": ep_detect_acc,
+                "method_detection_metrics": method_detections,
+                "detection_threshold_nll": thresh_nll,
+                "detection_threshold_higher": thresh_higher,
+                "tc_pairwise": tc_pairwise.tolist(),
+                "tc_higher_order": tc_higher_order.tolist(),
+                "dvc_nll": dvc_nll,
+                "gaussian_nll": gauss_nll,
+                "truncated_level0_nll": trunc_nll,
+                "glasso_gaussian_nll": glasso_nll,
+                "tvgl_gaussian_nll": tvgl_nll,
+                "state_space_gaussian_nll": ssm_nll,
+                "nll_gap": (np.asarray(gauss_nll) - _dvc_arr).tolist(),
+                "nll_gap_truncated_level0": (np.asarray(trunc_nll) - _dvc_arr).tolist(),
+                "nll_gap_glasso": (np.asarray(glasso_nll) - _dvc_arr).tolist(),
+                "nll_gap_tvgl": (np.asarray(tvgl_nll) - _dvc_arr).tolist(),
+                "nll_gap_state_space": (np.asarray(ssm_nll) - _dvc_arr).tolist(),
+                "state_space_process_variance": float(ssm_fit.process_variance),
+            }
+            continue
+
+        raise ValueError(f"Unknown simulation benchmark scenario: {name}")
 
     # Minimal master summary for table export.
     summary_rows = []
