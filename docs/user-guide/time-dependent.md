@@ -75,4 +75,4 @@ corrs = compute_time_varying_correlations(data)
 ## Notes
 
 - The time-dependent components are research-stage and best used with controlled synthetic benchmarks first.
-- For paper-grade claims, prefer reporting metrics from reproducible scripts/configs in `configs/` and `scripts/run_experiment.py`.
+- For paper-grade claims, prefer reporting metrics from reproducible paper assets in `drafts/configs/`, `drafts/scripts/`, and `scripts/run_experiment.py`.

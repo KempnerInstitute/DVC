@@ -78,11 +78,7 @@ DVC/
 │   ├── test_installation.py     # Installation verification
 │   └── install_package.sh       # Package installation script
 │
-├── configs/                     # Experiment configurations
-│   ├── probability_analysis.yaml
-│   ├── entropy_analysis.yaml
-│   ├── time_dependent.yaml
-│   └── comprehensive_comparison.yaml
+├── configs/                     # User-created/general experiment configurations
 │
 ├── tests/                       # Unit tests
 │   ├── __init__.py
@@ -158,14 +154,10 @@ Utility scripts for running experiments and testing:
 - **`run_experiment.py`**: Main experiment runner CLI
 - **`test_installation.py`**: Environment verification
 
-### Configurations (`configs/`)
+### Configurations (`configs/` and `drafts/configs/`)
 
-YAML configuration files for experiments:
-
-- **`probability_analysis.yaml`**: Probability distribution analysis
-- **`entropy_analysis.yaml`**: Entropy and information estimation
-- **`time_dependent.yaml`**: Time-dependent vine modeling
-- **`comprehensive_comparison.yaml`**: Large-scale comparison study
+- **`configs/`**: User-created/general experiment configs
+- **`drafts/configs/`**: Paper benchmark configs and reproductions
 
 ## Usage Patterns
 
@@ -173,7 +165,7 @@ YAML configuration files for experiments:
 
 1. **Environment Setup**: `./setup_environment.sh`
 2. **Run Examples**: `python examples/basic_vine_example.py`
-3. **Run Experiments**: `python scripts/run_experiment.py configs/probability_analysis.yaml`
+3. **Run Experiments**: `python scripts/run_experiment.py drafts/configs/probability_analysis.yaml`
 
 ### Development Workflow
 
@@ -184,7 +176,7 @@ YAML configuration files for experiments:
 
 ### Research Workflow
 
-1. **Create Config**: Copy and modify YAML files in `configs/`
+1. **Create Config**: Copy and modify YAML files in `configs/` for general use, or in `drafts/configs/` for paper reproductions
 2. **Run Experiments**: Use `scripts/run_experiment.py`
 3. **Analyze Results**: Check output in `results/` directory
 4. **Compare Methods**: Use comprehensive comparison configs
@@ -221,3 +213,8 @@ import json
 import matplotlib.pyplot as plt
 import seaborn as sns
 ```
+├── drafts/                      # Paper-specific assets and orchestration
+│   ├── scripts/                 # Paper-only analysis/table/figure scripts
+│   ├── configs/                 # Paper benchmark configs
+│   └── slurm/                   # Paper-oriented Slurm helpers
+│

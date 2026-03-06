@@ -84,8 +84,8 @@ python examples/time_dependent_example.py
 python scripts/run_experiment.py --list-examples
 python scripts/run_experiment.py --create-examples
 
-# Run one config
-python scripts/run_experiment.py configs/probability_analysis.yaml
+# Run one paper config
+python scripts/run_experiment.py drafts/configs/probability_analysis.yaml
 ```
 
 ## Generate Benchmark Tables
@@ -93,7 +93,7 @@ python scripts/run_experiment.py configs/probability_analysis.yaml
 Run benchmark configs and generate CSV/LaTeX tables for the paper:
 
 ```bash
-python scripts/generate_benchmark_tables.py --run
+python drafts/scripts/generate_benchmark_tables.py --run
 ```
 
 Outputs are written under `results/benchmark_tables/`:
@@ -101,7 +101,7 @@ Outputs are written under `results/benchmark_tables/`:
 - `probability_vine_detail.csv` / `.tex`
 - `entropy_method_detail.csv` / `.tex`
 - `time_pair_detail.csv` / `.tex`
-- `simulation_benchmark_detail.csv` / `.tex` (from `configs/simulation_benchmarks.yaml`)
+- `simulation_benchmark_detail.csv` / `.tex` (from `drafts/configs/simulation_benchmarks.yaml`)
 
 ## Prepare Standalone Draft Assets
 
@@ -109,7 +109,7 @@ To generate benchmark artifacts and vendor all paper assets into `drafts/`
 (tables, figures, and result JSON summaries), run:
 
 ```bash
-python scripts/prepare_draft_assets.py --run --compile
+python drafts/scripts/prepare_draft_assets.py --run --compile
 ```
 
 This writes to:
@@ -137,8 +137,8 @@ DVC/
 ├── src/dvc_package/      # library code
 ├── tests/                # unit tests
 ├── examples/             # runnable examples
-├── configs/              # YAML experiment configs
+├── configs/              # user-created/general experiment configs
 ├── docs/                 # docs and research notes
-├── drafts/               # paper drafts (NeurIPS 2026 draft included)
+├── drafts/               # paper drafts, paper-specific scripts/configs, figures
 └── archive/              # TensorFlow legacy baseline
 ```
