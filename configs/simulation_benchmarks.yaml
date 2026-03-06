@@ -11,6 +11,10 @@ analysis_config:
       n_samples: 6000
       noise_std: 0.25
 
+    - name: "higher_order_only_switch"
+      n_time_steps: 8
+      n_samples_per_time: 3000
+
     - name: "dynamic_tail_df"
       n_time_steps: 24
       n_samples_per_time: 250
@@ -44,4 +48,3 @@ analysis_config:
 
 plot_config:
   create_plots: true
-

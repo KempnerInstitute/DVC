@@ -102,6 +102,7 @@ METHOD_STYLES: Dict[str, Dict[str, object]] = {
     "TVGL (Frobenius)":   {"color": COLORS["red"],    "ls": "-.", "lw": 1.2, "marker": "v", "ms": 2.5},
     "Gaussian SSM":       {"color": COLORS["purple"], "ls": "--", "lw": 1.2, "marker": "D", "ms": 2.5},
     "KDE-flow (time BW)": {"color": COLORS["orange"], "ls": "-",  "lw": 1.2, "marker": "x", "ms": 2.5},
+    "Regularized DVC":    {"color": "#8C510A", "ls": "-.", "lw": 1.4, "marker": "P", "ms": 2.5},
 }
 
 # Short display names for compact legends and axis labels
@@ -112,10 +113,12 @@ SHORT_METHOD_NAMES: Dict[str, str] = {
     "TVGL (Frobenius)":   "TVGL",
     "Gaussian SSM":       "Gauss. SSM",
     "KDE-flow (time BW)": "KDE-flow",
+    "Regularized DVC":    "Reg. DVC",
 }
 
 SHORT_SCENARIO_NAMES: Dict[str, str] = {
     "multiplicative_triplet":       "Mult. triplet",
+    "higher_order_only_switch":     "HO-only switch",
     "dynamic_tail_df":              "Dyn. tail-DF",
     "tail_switch":                  "Tail switch",
     "hub_switch":                   "Hub switch",
@@ -130,6 +133,7 @@ GAP_KEY_TO_NAME = {
     "nll_gap_tvgl":            "TVGL (Frobenius)",
     "nll_gap_state_space":     "Gaussian SSM",
     "nll_gap_kde_flow":        "KDE-flow (time BW)",
+    "nll_gap_regularized_dvc": "Regularized DVC",
 }
 
 # ---------------------------------------------------------------------------

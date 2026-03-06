@@ -2,6 +2,7 @@ import numpy as np
 import torch
 
 from dvc_package.core.vine_factory import create_vine
+from dvc_package.time.flows import TimeBandwidthFlow as SharedTimeBandwidthFlow
 from dvc_package.time.models import (
     DynamicEntropyEstimator,
     TimeBandwidthFlow,
@@ -55,6 +56,10 @@ def test_time_dependent_vine_local_likelihood_path_runs():
     bw = model.get_bandwidths_over_time(torch.tensor(times, dtype=torch.float32))
     assert bw.shape == (T, n_edges)
     assert torch.all(bw > 0.0)
+
+
+def test_time_models_reuse_shared_bandwidth_flow_class():
+    assert TimeBandwidthFlow is SharedTimeBandwidthFlow
 
 
 def test_factory_uses_level0_edge_count_and_sample_checks_time_length():

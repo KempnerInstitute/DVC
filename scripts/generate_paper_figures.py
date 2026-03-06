@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -44,6 +45,7 @@ from dvc_package.visualization.paper_style import (
 )
 
 RESULTS_JSON = PROJECT_ROOT / "results" / "simulation_benchmarks" / "simulation_benchmarks_results.json"
+ALLEN_VBN_PILOT_FIGURE = PROJECT_ROOT / "results" / "allen_vbn_pilot" / "allen_vbn_pilot_summary.png"
 FIGURES_DIR = PROJECT_ROOT / "drafts" / "figures" / "paper"
 
 
@@ -148,6 +150,7 @@ def generate_figure2(results: Dict[str, Any], out_dir: Path) -> Path:
     hub_data = {
         "True":    (hub["true_hubs"],  COLORS["black"], "-",  "s", 1.8),
         "DVC":     (hub["estimated_hubs"], COLORS["blue"], "-", "o", 1.4),
+        "Reg. DVC": (hub.get("regularized_estimated_hubs"), "#8C510A", "-.", "P", 1.2),
         "Corr":    (hub.get("corr_hub_estimated_hubs"), COLORS["orange"], "--", "^", 1.0),
         "GLasso":  (hub.get("glasso_hub_estimated_hubs"), COLORS["green"], ":", "v", 1.0),
         "TVGL":    (hub.get("tvgl_hub_estimated_hubs"), COLORS["purple"], "-.", "D", 1.0),
@@ -163,16 +166,20 @@ def generate_figure2(results: Dict[str, Any], out_dir: Path) -> Path:
     ax_d.set_xlabel("Time step")
     ax_d.set_ylabel("Hub index")
     ax_d.set_title("Hub identity over time", fontsize=7)
-    ax_d.legend(fontsize=5, ncol=5, loc="upper center",
+    ax_d.legend(fontsize=5, ncol=3, loc="upper center",
                 handlelength=1.0, columnspacing=0.6, handletextpad=0.3,
                 borderpad=0.2, bbox_to_anchor=(0.5, 1.0))
 
     # Accuracy annotation — bottom-left, below the transition
     acc_dvc = hub.get("root_recovery_accuracy", 0)
+    acc_reg = hub.get("regularized_root_recovery_accuracy", 0)
     acc_corr = hub.get("corr_hub_recovery_accuracy", 0)
     acc_gl = hub.get("glasso_hub_recovery_accuracy", 0)
     acc_tvgl = hub.get("tvgl_hub_recovery_accuracy", 0)
-    acc_text = f"Acc: DVC {acc_dvc:.0%}  Corr {acc_corr:.0%}  GL {acc_gl:.0%}  TVGL {acc_tvgl:.0%}"
+    acc_text = (
+        f"Acc: DVC {acc_dvc:.0%}  Reg {acc_reg:.0%}  "
+        f"Corr {acc_corr:.0%}  GL {acc_gl:.0%}  TVGL {acc_tvgl:.0%}"
+    )
     ax_d.text(
         0.02, 0.03, acc_text, transform=ax_d.transAxes, fontsize=5,
         va="bottom", ha="left",
@@ -348,26 +355,46 @@ def generate_figure4(results: Dict[str, Any], out_dir: Path) -> Path:
     _short_legend(ax_c, loc="upper left", ncol=2, columnspacing=0.5)
     add_panel_label(ax_c, "C")
 
-    # --- Row 3 (D): F1 comparison bars ---
+    # --- Row 3 (D): Binary detection vs order classification ---
     ax_d = fig.add_subplot(gs[2, 0])
     det_metrics = ep.get("method_detection_metrics", {})
-    if det_metrics:
-        methods_sorted = sorted(det_metrics.keys(), key=lambda m: det_metrics[m].get("f1", 0))
-        y_pos = np.arange(len(methods_sorted))
-        bar_h = 0.22
-        f1s = [det_metrics[m].get("f1", 0) for m in methods_sorted]
+    compare_methods = ["DVC", "Regularized DVC"]
+    if det_metrics and all(m in det_metrics for m in compare_methods):
+        x = np.arange(len(compare_methods))
+        width = 0.32
+        f1_vals = [det_metrics[m].get("f1", 0.0) for m in compare_methods]
+        order_vals = [
+            float(ep.get("order_classification_accuracy", 0.0)),
+            float(ep.get("regularized_order_classification_accuracy", 0.0)),
+        ]
 
-        ax_d.barh(y_pos, f1s, bar_h * 2, color=COLORS["green"], alpha=0.75)
-        for i, f1_val in enumerate(f1s):
-            ax_d.text(f1_val + 0.01, y_pos[i], f"{f1_val:.2f}",
-                      va="center", ha="left", fontsize=5.5)
+        ax_d.bar(
+            x - width / 2,
+            f1_vals,
+            width,
+            color=COLORS["green"],
+            alpha=0.75,
+            label="Binary F1",
+        )
+        ax_d.bar(
+            x + width / 2,
+            order_vals,
+            width,
+            color=COLORS["red"],
+            alpha=0.75,
+            label="Order acc.",
+        )
+        for xpos, val in zip(x - width / 2, f1_vals):
+            ax_d.text(xpos, val + 0.02, f"{val:.2f}", ha="center", va="bottom", fontsize=5.5)
+        for xpos, val in zip(x + width / 2, order_vals):
+            ax_d.text(xpos, val + 0.02, f"{val:.2f}", ha="center", va="bottom", fontsize=5.5)
 
-        short_m = [SHORT_METHOD_NAMES.get(m, m[:12]) for m in methods_sorted]
-        ax_d.set_yticks(y_pos)
-        ax_d.set_yticklabels(short_m, fontsize=5.5)
-        ax_d.set_xlabel("F1 score")
-        ax_d.set_xlim(0, 1.12)
-        ax_d.set_title("Binary detection F1", fontsize=7)
+        ax_d.set_xticks(x)
+        ax_d.set_xticklabels([SHORT_METHOD_NAMES.get(m, m) for m in compare_methods], fontsize=5.5)
+        ax_d.set_ylim(0, 1.08)
+        ax_d.set_ylabel("Score")
+        ax_d.set_title("Detection vs. order", fontsize=7)
+        ax_d.legend(fontsize=5.5, loc="lower left", handlelength=1.2, borderpad=0.3)
     add_panel_label(ax_d, "D")
 
     # --- Row 3 (E): Detection timeline raster ---
@@ -697,10 +724,27 @@ def generate_figS3_time_dependent(out_dir: Path) -> Optional[Path]:
     return out
 
 
+def generate_figS4_allen_vbn_pilot(out_dir: Path) -> Optional[Path]:
+    """Copy the Allen VBN pilot summary figure into the paper figure set."""
+    if not ALLEN_VBN_PILOT_FIGURE.exists():
+        print(f"  Skipping Figure S4; missing Allen pilot figure: {ALLEN_VBN_PILOT_FIGURE}")
+        return None
+
+    out = out_dir / "figS4_allen_vbn_pilot.png"
+    shutil.copy2(ALLEN_VBN_PILOT_FIGURE, out)
+    print(f"  Figure S4 saved: {out}")
+    return out
+
+
 def generate_appendix_figures(out_dir: Path) -> List[Path]:
-    """Generate restyled appendix figures S1-S3."""
+    """Generate appendix figures S1-S4."""
     paths: List[Path] = []
-    for gen_func in [generate_figS1_probability, generate_figS2_entropy, generate_figS3_time_dependent]:
+    for gen_func in [
+        generate_figS1_probability,
+        generate_figS2_entropy,
+        generate_figS3_time_dependent,
+        generate_figS4_allen_vbn_pilot,
+    ]:
         result = gen_func(out_dir)
         if result is not None:
             paths.append(result)

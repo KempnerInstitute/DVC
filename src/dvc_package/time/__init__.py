@@ -20,6 +20,19 @@ from .models import (
     DynamicEntropyEstimator,
     create_time_dependent_vine,
 )
+from .regularized_cvine import (
+    RegularizedDynamicCVine,
+    RegularizedDynamicCVineResult,
+    DynamicCVineWindowFit,
+    EdgeCandidate,
+    EdgeDiagnostics,
+    SelectedEdgeFit,
+    enumerate_edge_candidates,
+    mean_copula_nll,
+    parameter_distance,
+    select_edge_candidate,
+    solve_root_sequence,
+)
 
 __all__ = [
     # Flows
@@ -35,4 +48,16 @@ __all__ = [
     "TimeDependentVine",
     "DynamicEntropyEstimator",
     "create_time_dependent_vine",
+    # Temporally regularized dynamic C-vine
+    "RegularizedDynamicCVine",
+    "RegularizedDynamicCVineResult",
+    "DynamicCVineWindowFit",
+    "EdgeCandidate",
+    "EdgeDiagnostics",
+    "SelectedEdgeFit",
+    "enumerate_edge_candidates",
+    "mean_copula_nll",
+    "parameter_distance",
+    "select_edge_candidate",
+    "solve_root_sequence",
 ]

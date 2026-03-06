@@ -257,6 +257,7 @@ def _extract_effective_behavior_rows(
         "nll_gap_tvgl": "TVGL (Frobenius)",
         "nll_gap_state_space": "Gaussian SSM",
         "nll_gap_kde_flow": "KDE-flow (time BW)",
+        "nll_gap_regularized_dvc": "Regularized DVC",
     }
 
     rows: List[Dict[str, Any]] = []
@@ -297,6 +298,61 @@ def _extract_effective_behavior_rows(
                 row["post_change_mean_gap"] = float(np.mean(post))
                 row["post_minus_pre_gap"] = float(np.mean(post) - np.mean(pre))
                 row["change_point"] = cp_clip
+            rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def _extract_agent_detection_rows(
+    result: Dict[str, Any],
+    run_name: str,
+) -> pd.DataFrame:
+    """Extract per-method detection metrics for agent-interaction scenarios."""
+    scenarios = result.get("scenarios", {})
+    if not isinstance(scenarios, dict):
+        return pd.DataFrame()
+
+    rows: List[Dict[str, Any]] = []
+    for scenario, payload in scenarios.items():
+        if not isinstance(payload, dict):
+            continue
+        metrics = payload.get("method_detection_metrics")
+        if not isinstance(metrics, dict):
+            continue
+
+        order_acc = _safe_float(payload.get("order_classification_accuracy"))
+        tc_pair = _safe_float(payload.get("tc_higher_pairwise_mean"))
+        tc_high = _safe_float(payload.get("tc_higher_higher_order_mean"))
+        tc_mixed = _safe_float(payload.get("tc_higher_mixed_mean"))
+        reg_order_acc = _safe_float(payload.get("regularized_order_classification_accuracy"))
+        reg_tc_pair = _safe_float(payload.get("regularized_tc_higher_pairwise_mean"))
+        reg_tc_high = _safe_float(payload.get("regularized_tc_higher_higher_order_mean"))
+        reg_tc_mixed = _safe_float(payload.get("regularized_tc_higher_mixed_mean"))
+
+        for method_name, mp in metrics.items():
+            if not isinstance(mp, dict):
+                continue
+            row = {
+                "experiment_name": run_name,
+                "scenario": str(scenario),
+                "method": str(method_name),
+                "binary_accuracy": _safe_float(mp.get("accuracy")),
+                "precision": _safe_float(mp.get("precision")),
+                "recall": _safe_float(mp.get("recall")),
+                "f1": _safe_float(mp.get("f1")),
+                "auroc": _safe_float(mp.get("auroc")),
+                "average_precision": _safe_float(mp.get("average_precision")),
+            }
+            if method_name == "DVC":
+                row["order_classification_accuracy"] = order_acc
+                row["tc_higher_pairwise_mean"] = tc_pair
+                row["tc_higher_higher_order_mean"] = tc_high
+                row["tc_higher_mixed_mean"] = tc_mixed
+            if method_name == "Regularized DVC":
+                row["order_classification_accuracy"] = reg_order_acc
+                row["tc_higher_pairwise_mean"] = reg_tc_pair
+                row["tc_higher_higher_order_mean"] = reg_tc_high
+                row["tc_higher_mixed_mean"] = reg_tc_mixed
             rows.append(row)
 
     return pd.DataFrame(rows)
@@ -416,6 +472,7 @@ def main():
     time_details = []
     sim_details = []
     sim_effective_details = []
+    agent_detection_details = []
     summary_rows = []
 
     for result_json in result_jsons:
@@ -448,6 +505,9 @@ def main():
                     eff_df,
                     plots_dir / "effective_behavior_heatmap.png",
                 )
+            agent_df = _extract_agent_detection_rows(result, run_name=run_name)
+            if not agent_df.empty:
+                agent_detection_details.append(agent_df)
 
     if prob_details:
         prob_df = pd.concat(prob_details, ignore_index=True)
@@ -502,6 +562,14 @@ def main():
             eff_summary_df,
             outdir / "effective_behavior_summary.csv",
             outdir / "effective_behavior_summary.tex",
+        )
+
+    if agent_detection_details:
+        agent_df = pd.concat(agent_detection_details, ignore_index=True)
+        _write_table(
+            agent_df,
+            outdir / "agent_detection_detail.csv",
+            outdir / "agent_detection_detail.tex",
         )
 
     if summary_rows:

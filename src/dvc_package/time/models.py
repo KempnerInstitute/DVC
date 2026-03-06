@@ -7,152 +7,15 @@ including bandwidth flows and dynamic entropy estimation.
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Any, Union, Sequence
 import logging
 
 from ..core.objects import vine_obj_bin
-from ..core.info_estimation import vine_entropy, mutual_information
 from ..core.utils_locallik import loclik_batch_eval
+from .flows import TimeBandwidthFlow
 
 logger = logging.getLogger(__name__)
-
-
-class TimeBandwidthFlow(nn.Module):
-    """
-    Neural network that maps time to bandwidth parameters for vine copulas.
-    
-    This model learns time-dependent bandwidth parameters for each edge
-    in a vine copula structure, enabling dynamic dependency modeling.
-    
-    Parameters
-    ----------
-    n_edges : int
-        Number of edges in the vine structure
-    hidden_dims : list of int
-        Hidden layer dimensions for the MLP
-    time_embedding_dim : int
-        Dimension of time embedding
-    activation : str
-        Activation function ('relu', 'tanh', 'elu')
-    dropout_rate : float
-        Dropout rate for regularization
-    min_bandwidth : float
-        Minimum bandwidth value (for numerical stability)
-    max_bandwidth : float
-        Maximum bandwidth value
-    """
-    
-    def __init__(self,
-                 n_edges: int,
-                 hidden_dims: Optional[List[int]] = None,
-                 time_embedding_dim: int = 16,
-                 activation: str = 'relu',
-                 dropout_rate: float = 0.1,
-                 min_bandwidth: float = 0.01,
-                 max_bandwidth: float = 2.0):
-        super().__init__()
-        if hidden_dims is None:
-            hidden_dims = [64, 32]
-        
-        self.n_edges = n_edges
-        self.min_bandwidth = min_bandwidth
-        self.max_bandwidth = max_bandwidth
-        self.register_buffer("_time_min", torch.tensor(0.0), persistent=False)
-        self.register_buffer("_time_max", torch.tensor(1.0), persistent=False)
-        
-        # Time embedding layer
-        self.time_embedding = nn.Linear(1, time_embedding_dim)
-        
-        # MLP layers
-        layers = []
-        input_dim = time_embedding_dim
-        
-        for hidden_dim in hidden_dims:
-            layers.extend([
-                nn.Linear(input_dim, hidden_dim),
-                self._get_activation(activation),
-                nn.Dropout(dropout_rate)
-            ])
-            input_dim = hidden_dim
-        
-        # Output layer (one bandwidth per edge)
-        layers.append(nn.Linear(input_dim, n_edges))
-        
-        self.mlp = nn.Sequential(*layers)
-        
-        # Initialize weights
-        self._initialize_weights()
-    
-    def _get_activation(self, activation: str) -> nn.Module:
-        """Get activation function by name."""
-        if activation == 'relu':
-            return nn.ReLU()
-        elif activation == 'tanh':
-            return nn.Tanh()
-        elif activation == 'elu':
-            return nn.ELU()
-        elif activation == 'leaky_relu':
-            return nn.LeakyReLU(0.1)
-        else:
-            return nn.ReLU()
-    
-    def _initialize_weights(self):
-        """Initialize network weights."""
-        for module in self.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
-                nn.init.zeros_(module.bias)
-    
-    def forward(self, time: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass: map time to bandwidth parameters.
-        
-        Parameters
-        ----------
-        time : torch.Tensor
-            Time values, shape (batch_size,) or (batch_size, 1)
-            
-        Returns
-        -------
-        torch.Tensor
-            Bandwidth parameters, shape (batch_size, n_edges)
-        """
-        if time.dim() == 1:
-            time = time.unsqueeze(-1)
-        
-        time = time.to(dtype=torch.float32)
-        denom = (self._time_max - self._time_min).clamp_min(1e-8)
-        t01 = ((time - self._time_min) / denom).clamp(0.0, 1.0)
-        time_normalized = 2.0 * t01 - 1.0
-        
-        # Time embedding
-        time_emb = torch.tanh(self.time_embedding(time_normalized))
-        
-        # MLP forward pass
-        raw_bandwidths = self.mlp(time_emb)
-        
-        # Apply sigmoid and scale to [min_bandwidth, max_bandwidth]
-        bandwidths = torch.sigmoid(raw_bandwidths)
-        bandwidths = self.min_bandwidth + (self.max_bandwidth - self.min_bandwidth) * bandwidths
-        
-        return bandwidths
-
-    def set_time_range(self, t_min: float, t_max: float) -> None:
-        """Set absolute time range used for stable normalization in forward()."""
-        t_lo = float(min(t_min, t_max))
-        t_hi = float(max(t_min, t_max))
-        if abs(t_hi - t_lo) < 1e-8:
-            t_hi = t_lo + 1.0
-        self._time_min = torch.tensor(t_lo, dtype=torch.float32, device=self._time_min.device)
-        self._time_max = torch.tensor(t_hi, dtype=torch.float32, device=self._time_max.device)
-    
-    def get_bandwidth_at_time(self, time: float) -> torch.Tensor:
-        """Get bandwidth parameters for a specific time point."""
-        time_tensor = torch.tensor([[time]], dtype=torch.float32, device=self._time_min.device)
-        with torch.no_grad():
-            return self.forward(time_tensor).squeeze(0)
 
 
 class TimeDependentVine(nn.Module):
