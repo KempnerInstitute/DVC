@@ -308,17 +308,22 @@ def select_edge_candidate(
     best: Optional[SelectedEdgeFit] = None
     best_prefers_prev = False
     for cand in candidates:
-        adjusted = float(cand.raw_aic)
         switched = False
+        theta = cand.theta
         drift = 0.0
 
         if prev_family is not None:
             if cand.family != prev_family:
-                adjusted += float(family_switch_penalty)
                 switched = True
             else:
-                drift = parameter_distance(cand.theta, prev_theta)
-                adjusted += float(parameter_drift_penalty) * drift
+                theta = _blend_theta(cand.family, cand.theta, prev_theta, parameter_smoothing)
+                drift = parameter_distance(theta, prev_theta)
+
+        adjusted = float(cand.raw_aic)
+        if switched:
+            adjusted += float(family_switch_penalty)
+        elif prev_family is not None:
+            adjusted += float(parameter_drift_penalty) * drift
 
         prefers_prev = prev_family is not None and cand.family == prev_family
         is_better = best is None or adjusted < best.adjusted_aic - 1e-12
@@ -327,10 +332,6 @@ def select_edge_candidate(
         sticky_break = ties_best and abs(cand.raw_aic - best.raw_aic) <= 1e-12 and prefers_prev and not best_prefers_prev
 
         if is_better or tie_break or sticky_break:
-            theta = cand.theta
-            if prev_family is not None and cand.family == prev_family:
-                theta = _blend_theta(cand.family, cand.theta, prev_theta, parameter_smoothing)
-                drift = parameter_distance(theta, prev_theta)
             best = SelectedEdgeFit(
                 family=cand.family,
                 theta=theta,

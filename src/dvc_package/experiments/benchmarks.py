@@ -7,9 +7,15 @@ for comparing vine copula methods.
 
 import numpy as np
 import pandas as pd
+import time
+import torch
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 import logging
+
+from ..core.info_estimation import mutual_information, vine_entropy
+from ..core.vine_factory import create_vine
+from ..core.vine_model import fit_vine
 
 logger = logging.getLogger(__name__)
 
@@ -438,21 +444,67 @@ def run_benchmark_suite(vine_methods: List[str],
 
 def _evaluate_method_on_dataset(method: str, dataset: BenchmarkDataset) -> Dict[str, Any]:
     """Evaluate a vine method on a benchmark dataset."""
-    
-    # This is a placeholder for actual evaluation
-    # In practice, you'd:
-    # 1. Create vine using the specified method
-    # 2. Fit to the dataset
-    # 3. Compute evaluation metrics
-    # 4. Return results
-    
+    method_norm = method.strip().lower()
+    is_nonparam = "nonparam" in method_norm or "kernel" in method_norm
+    vine_type = "d-vine" if "d-vine" in method_norm or "dvine" in method_norm else "c-vine"
+    supported_tokens = {"c-vine", "cvine", "d-vine", "dvine", "parametric", "nonparametric", "kernel"}
+    if not any(token in method_norm for token in supported_tokens):
+        raise NotImplementedError(
+            f"Unsupported benchmark method '{method}'. Supported strings should identify "
+            "a C-vine/D-vine and optionally whether the fit is nonparametric."
+        )
+
+    data = np.asarray(dataset.data, dtype=np.float32)
+    n_samples, dimension = data.shape
+    split = max(int(round(0.8 * n_samples)), min(n_samples - 1, dimension + 5))
+    if split <= 1 or split >= n_samples:
+        raise ValueError(f"Dataset {dataset.name} is too small for a train/test benchmark split")
+    train = data[:split]
+    test = data[split:]
+
+    vine = create_vine(vine_type, dimension)
+    gen_dict = {"param": not is_nonparam, "binning": False, "fitted": False}
+    npc_dict = {
+        "opt_method": "LL1",
+        "max_iter_phase1": 4,
+        "max_iter_phase2": 6,
+        "normal_iters_phase1": 25,
+        "normal_iters_phase2": 50,
+        "final_normalization_iters": 100,
+        "batch_size": 2,
+    }
+    par_dict = {"param_families": ["ind", "gaussian", "student", "clayton", "frank", "gumbel"]}
+    bin_dict: Dict[str, Any] = {}
+
+    start = time.perf_counter()
+    fit_vine(vine, train, gen_dict, npc_dict, par_dict, bin_dict)
+    fitting_time = float(time.perf_counter() - start)
+
+    test_tensor = torch.tensor(test, dtype=torch.float32)
+    logpdf = vine.logpdf(test_tensor)
+    mean_log_likelihood = float(np.mean(np.asarray(logpdf.detach().cpu().numpy() if hasattr(logpdf, "detach") else logpdf)))
+
+    info_dict = {"alpha": 0.05, "cases": min(200, max(50, split // 4)), "iterations": 3, "units": "bits"}
+    entropy = float(vine_entropy(vine, info_dict))
+
+    pair_candidates = [(i, i + 1) for i in range(min(dimension - 1, 3))]
+    if not pair_candidates:
+        mean_pairwise_mi = 0.0
+    else:
+        mi_vals = [float(mutual_information(vine, [i], [j], info_dict)) for i, j in pair_candidates]
+        mean_pairwise_mi = float(np.mean(mi_vals))
+
     return {
         'method': method,
         'dataset': dataset.name,
-        'entropy': np.random.uniform(2, 5),  # Placeholder
-        'mutual_information': np.random.uniform(0.1, 1.0),  # Placeholder
-        'fitting_time': np.random.uniform(0.5, 5.0),  # Placeholder
-        'log_likelihood': np.random.uniform(-1000, -100)  # Placeholder
+        'entropy': entropy,
+        'mutual_information': mean_pairwise_mi,
+        'fitting_time': fitting_time,
+        'log_likelihood': mean_log_likelihood,
+        'train_size': int(split),
+        'test_size': int(n_samples - split),
+        'vine_type': vine_type,
+        'nonparametric': bool(is_nonparam),
     }
 
 

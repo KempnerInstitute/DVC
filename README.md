@@ -5,9 +5,11 @@ PyTorch-based tooling for vine copula modeling, information-theoretic analysis, 
 ## What This Repository Contains
 
 - Parametric pair-copula fitting (`gaussian`, `student`, `clayton`, `frank`, `gumbel`, `ind`/`independence`)
+- Static nonparametric local-likelihood vine fitting via `gen_dict={"param": False}`
 - Vine structure construction for C-vine, D-vine, and R-vine
 - Vine-level density evaluation, sampling, entropy, and mutual information utilities
 - Structure optimization routines (sequential, genetic, entropy-guided, hybrid)
+- Vine-type selection across `C-vine`, `D-vine`, and `R-vine`
 - Time-series helpers and neural flow modules for time-conditioned bandwidth modeling
 - YAML-based experiment runner and reference configurations
 - Archived TensorFlow baseline in `archive/`
@@ -69,12 +71,29 @@ entropy_bits = vine_entropy(vine, {"alpha": 0.05, "cases": 1000, "iterations": 1
 print(entropy_bits)
 ```
 
+To compare `C-vine`, `D-vine`, and `R-vine` and keep the best fitted model:
+
+```python
+from dvc_package.core.vine_factory import optimize_vine_type
+
+best_vine = optimize_vine_type(
+    data,
+    selection_criterion="aic",
+    optimize_structure=True,
+    optimization_method="sequential",
+    optimization_criterion="kendall_tau",
+    par_dict={"param_families": ["ind", "gaussian", "clayton"]},
+)
+```
+
 ## Running Examples
 
 ```bash
 python examples/basic_vine_example.py
 python examples/entropy_analysis_example.py
 python examples/time_dependent_example.py
+python scripts/run_nonparametric_vine_example.py
+python scripts/run_dynamic_nonparametric_vine_example.py
 ```
 
 ## Running Configured Experiments
@@ -87,6 +106,17 @@ python scripts/run_experiment.py --create-examples
 # Run one paper config
 python scripts/run_experiment.py drafts/configs/probability_analysis.yaml
 ```
+
+## Joint Dynamic Example
+
+To run a compact example of the new jointly fitted dynamic vine estimators:
+
+```bash
+python scripts/run_dynamic_cvine_example.py --output-dir results/dynamic_cvine_example
+```
+
+This saves a small synthetic benchmark figure and a JSON summary comparing
+windowed, joint, and latent-state dynamic C-vine fits.
 
 ## Generate Benchmark Tables
 
@@ -123,6 +153,10 @@ This writes to:
 - Core unit tests pass under NumPy 2.x and current PyTorch.
 - Sampling-path regressions from `tests/test_vine_pipeline.py` are now covered by passing tests.
 - Time-dependent modeling APIs are available, but parts are still in active refinement and should be treated as research code.
+- Generic `C-vine`/`D-vine`/`R-vine` support is available in the parametric path.
+- Static nonparametric fit/evaluation/sampling now supports `C-vine`/`D-vine`/`R-vine` in the unbinned path through legacy edge-index bookkeeping.
+- Binning is still not implemented in the PyTorch nonparametric path.
+- For `R-vine`, use structure optimization or an explicit `r_matrix` for serious runs instead of relying on the random default initializer.
 
 ## Documentation Pointers
 

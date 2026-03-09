@@ -14,6 +14,7 @@ import logging
 from ..core.objects import vine_obj_bin
 from ..core.utils_locallik import loclik_batch_eval
 from .flows import TimeBandwidthFlow
+from .trajectory_models import create_trajectory_model
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,8 @@ class TimeDependentVine(nn.Module):
                 raise ValueError("time_points length must match number of time slices")
 
         self.bandwidth_flow.set_time_range(float(t.min()), float(t.max()))
+        if hasattr(self.bandwidth_flow, "set_reference_time_grid"):
+            self.bandwidth_flow.set_reference_time_grid(torch.tensor(t, dtype=torch.float32, device=self.device))
         self._time_grid = torch.tensor(t, dtype=torch.float32, device=self.device)
         self._fit_pairs_by_time = [self._pairs_from_matrix(self._rank_normal_scores(x_t)) for x_t in x_list]
         self._reference_ready = True
@@ -232,6 +235,8 @@ class TimeDependentVine(nn.Module):
                 raise ValueError("time_points length must match number of time slices")
 
         self.bandwidth_flow.set_time_range(float(t.min()), float(t.max()))
+        if hasattr(self.bandwidth_flow, "set_reference_time_grid"):
+            self.bandwidth_flow.set_reference_time_grid(torch.tensor(t, dtype=torch.float32, device=self.device))
         t_tensor = torch.tensor(t, dtype=torch.float32, device=self.device).unsqueeze(-1)
 
         val_fraction = float(np.clip(val_fraction, 0.05, 0.5))
@@ -271,6 +276,8 @@ class TimeDependentVine(nn.Module):
 
             bw_all = self.bandwidth_flow(t_tensor)
             bw_reg = 1e-3 * torch.mean((bw_all[1:] - bw_all[:-1]) ** 2) if bw_all.shape[0] > 1 else 0.0
+            if hasattr(self.bandwidth_flow, "regularization_loss"):
+                bw_reg = bw_reg + self.bandwidth_flow.regularization_loss()
             loss = loss + bw_reg
             loss.backward()
             opt.step()
@@ -517,6 +524,8 @@ class DynamicEntropyEstimator(nn.Module):
 def create_time_dependent_vine(base_vine: vine_obj_bin,
                              hidden_dims: Optional[List[int]] = None,
                              time_embedding_dim: int = 16,
+                             trajectory_type: str = "mlp",
+                             trajectory_kwargs: Optional[Dict[str, Any]] = None,
                              device: Union[str, torch.device] = 'cpu') -> TimeDependentVine:
     """
     Factory function to create a time-dependent vine copula.
@@ -529,6 +538,11 @@ def create_time_dependent_vine(base_vine: vine_obj_bin,
         Hidden dimensions for bandwidth flow network
     time_embedding_dim : int
         Time embedding dimension
+    trajectory_type : str
+        Temporal parameterization for the bandwidth path. One of
+        ``"mlp"`` (default), ``"basis"``, or ``"state_space"``.
+    trajectory_kwargs : dict
+        Additional keyword arguments forwarded to the chosen trajectory model.
     device : str or torch.device
         Computation device
         
@@ -546,12 +560,32 @@ def create_time_dependent_vine(base_vine: vine_obj_bin,
     else:
         n_edges = max(int(getattr(base_vine, "n_cop", 2)) - 1, 1)
     
-    # Create bandwidth flow
-    bandwidth_flow = TimeBandwidthFlow(
-        n_edges=n_edges,
-        hidden_dims=hidden_dims,
-        time_embedding_dim=time_embedding_dim
-    )
+    trajectory_kwargs = dict(trajectory_kwargs or {})
+    if trajectory_type == "mlp":
+        bandwidth_flow = TimeBandwidthFlow(
+            n_edges=n_edges,
+            hidden_dims=hidden_dims,
+            time_embedding_dim=time_embedding_dim,
+            **trajectory_kwargs,
+        )
+    else:
+        default_kwargs: Dict[str, Any] = {
+            "constraint": "bounded",
+            "min_value": 0.01,
+            "max_value": 2.0,
+        }
+        if trajectory_type == "basis":
+            default_kwargs.setdefault("n_basis", 4)
+        if trajectory_type == "state_space":
+            default_kwargs.setdefault("latent_dim", 3)
+            default_kwargs.setdefault("n_steps", 8)
+            default_kwargs.setdefault("transition_penalty", 1e-2)
+        default_kwargs.update(trajectory_kwargs)
+        bandwidth_flow = create_trajectory_model(
+            trajectory_type,
+            output_dim=n_edges,
+            **default_kwargs,
+        )
     
     # Create time-dependent vine
     time_vine = TimeDependentVine(

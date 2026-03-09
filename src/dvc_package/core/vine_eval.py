@@ -9,7 +9,7 @@ from typing import Tuple, Optional
 from scipy import interpolate
 
 from .utils_tensor import check_bound3
-from .cop_eval import eval_rs_cop, eval_rs_p, cdf_grid_fun, cdf_grid_fun_with_kernel_smoothing
+from .cop_eval import cdf_grid_fun, normalize_pdf_grid
 from .utils_interpolation import nearestInterp2d, interp_regular_nd_grid
 from .utils_locallik import loclik_batch_eval
 from .grid_ops import grid_obj
@@ -29,10 +29,10 @@ def evaluate_fit(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[torc
 
     Returns:
         pd_grid_uv: PDF on UV grid
-        cdf1: CDF values
+        cdf1: Conditional CDF / h-function grid values
         theta: Updated theta matrix (None if not provided)
-        grad_u: Gradient wrt u (None if grad_precompute is False)
-        grad_v: Gradient wrt v (None if grad_precompute is False)
+        grad_u: Finite-difference gradient wrt the first grid axis
+        grad_v: Finite-difference gradient wrt the second grid axis
     """
     grid_u = grid_dict['grid_u']
     grid_s = grid_dict['grid_s']
@@ -51,6 +51,7 @@ def evaluate_fit(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[torc
     n_cop = par_dict['n_cop']
     batch_size = par_dict['batch']
     grad_precompute = par_dict.get('grad_precompute', False)
+    normalization_iters = int(par_dict.get('normalization_iters', 500))
     
     # If bw is already correct shape, use it directly
     if isinstance(bw, torch.Tensor) and bw.dim() == 2 and bw.shape[1] == n_cop:
@@ -92,17 +93,20 @@ def evaluate_fit(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[torc
     # Add small value to avoid log(0) - matching TensorFlow's 1e-15
     ker_grid_all = ker_grid_all + 1e-15 * NORM
     
-    # Evaluate copula PDF using TensorFlow-style normalization
-    pdf1 = eval_rs_cop(adu11, adu22, ker_grid_all, NORM, n_cop)
+    # Normalize the grid using the requested number of iterations directly.
+    pdf1 = normalize_pdf_grid(
+        adu11,
+        adu22,
+        ker_grid_all,
+        NORM,
+        n_cop,
+        iterations=normalization_iters,
+    )
     pd_grid_uv = pdf1 / NORM
     
-    # Compute CDF with kernel smoothing (CRITICAL FIX)
-    cdf1 = cdf_grid_fun_with_kernel_smoothing(
-        pd_grid_uv, grid_u.ex, adu11, adu22, n_cop,
-        data_s,  # Pass data for smoothing
-        grid_s.min,  # Grid bounds
-        grid_s.max
-    )
+    # Historical naming note: `cdf1` is the conditional CDF / h-function grid
+    # used by the nonparametric vine path, not the joint copula CDF.
+    cdf1 = cdf_grid_fun(pd_grid_uv, grid_u.ex, adu11, adu22, n_cop)
 
     # Compute gradients if requested
     grad_u = None
@@ -130,7 +134,7 @@ def evaluate_fit(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[torc
         theta_update = torch.zeros((data_s.shape[0], n_cop), device=device)
         
         for i in range(n_cop):
-            # Step 1: Interpolate CDF at data points
+            # Step 1: Interpolate the conditional-CDF grid at data points.
             if data_s.dim() == 3:
                 ccdf_data = interp_regular_nd_grid(
                     data_s[:, :, i],
@@ -146,8 +150,9 @@ def evaluate_fit(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[torc
                     cdf1[:, :, i].to(device)
                 )
             
-            # Step 2: Apply kernel CDF to ensure uniform margins (CRITICAL)
-            # This is what TensorFlow does and PyTorch was missing
+            # Step 2: Apply the 1D calibration used in the legacy TensorFlow
+            # code so the propagated pseudo-observations remain approximately
+            # uniform.
             interp_cdf, _, _ = kernel_cdf(
                 ccdf_data.cpu().numpy(),
                 ccdf_data.cpu().numpy(),
@@ -238,7 +243,7 @@ def evaluate_fit_bin(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[
 
     Returns:
         pd_grid_uv: PDF on UV grid
-        cdf1: CDF values
+        cdf1: Conditional CDF / h-function grid values
     """
     grid_u = grid_dict['grid_u']
     grid_s = grid_dict['grid_s']
@@ -280,16 +285,16 @@ def evaluate_fit_bin(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[
     # Add small value to avoid log(0) - matching TensorFlow's 1e-15
     ker_grid_all = ker_grid_all + 1e-15 * NORM
     
-    # Evaluate copula PDF
-    pdf1 = eval_rs_cop(adu11, adu22, ker_grid_all, NORM, n_cop1)
+    pdf1 = normalize_pdf_grid(
+        adu11,
+        adu22,
+        ker_grid_all,
+        NORM,
+        n_cop1,
+        iterations=int(par_dict.get("normalization_iters", 500)),
+    )
     pd_grid_uv = pdf1 / NORM
     
-    # Compute CDF with kernel smoothing (CRITICAL FIX)  
-    cdf1 = cdf_grid_fun_with_kernel_smoothing(
-        pd_grid_uv, grid_u.ex, adu11, adu22, n_cop1,
-        data_s,  # Pass data for smoothing
-        grid_s.min,  # Grid bounds 
-        grid_s.max
-    )
+    cdf1 = cdf_grid_fun(pd_grid_uv, grid_u.ex, adu11, adu22, n_cop1)
 
     return pd_grid_uv, cdf1

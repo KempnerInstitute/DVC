@@ -26,43 +26,50 @@ RCPARAMS: Dict[str, object] = {
     # Fonts
     "font.family": "serif",
     "font.serif": ["Times New Roman", "DejaVu Serif", "Computer Modern Roman"],
-    "font.size": 8,
+    "font.size": 8.2,
     "mathtext.fontset": "dejavuserif",
+    "pdf.fonttype": 42,
+    "ps.fonttype": 42,
     # Axes
     "axes.labelsize": 8,
-    "axes.titlesize": 9,
-    "axes.linewidth": 0.5,
+    "axes.titlesize": 8.8,
+    "axes.linewidth": 0.6,
     "axes.grid": False,
     "axes.spines.top": False,
     "axes.spines.right": False,
+    "axes.titlepad": 4.0,
+    "axes.labelpad": 2.0,
     # Ticks
     "xtick.labelsize": 7,
     "ytick.labelsize": 7,
-    "xtick.major.width": 0.4,
-    "ytick.major.width": 0.4,
-    "xtick.major.size": 2.5,
-    "ytick.major.size": 2.5,
+    "xtick.major.width": 0.5,
+    "ytick.major.width": 0.5,
+    "xtick.major.size": 2.8,
+    "ytick.major.size": 2.8,
     "xtick.direction": "out",
     "ytick.direction": "out",
     # Legend
     "legend.fontsize": 7,
     "legend.title_fontsize": 7,
     "legend.frameon": True,
-    "legend.framealpha": 0.8,
-    "legend.edgecolor": "0.8",
+    "legend.framealpha": 0.96,
+    "legend.edgecolor": "0.75",
     "legend.fancybox": False,
+    "legend.borderpad": 0.35,
+    "legend.borderaxespad": 0.35,
     # Lines / markers
-    "lines.linewidth": 1.2,
+    "lines.linewidth": 1.8,
     "lines.markersize": 4,
-    "patch.linewidth": 0.5,
+    "patch.linewidth": 0.6,
     # Grid
     "grid.linewidth": 0.3,
     "grid.alpha": 0.3,
     # Figure
-    "figure.dpi": 150,
-    "savefig.dpi": 300,
+    "figure.dpi": 220,
+    "savefig.dpi": 600,
     "savefig.bbox": "tight",
-    "savefig.pad_inches": 0.02,
+    "savefig.pad_inches": 0.015,
+    "savefig.transparent": False,
     "figure.constrained_layout.use": False,
 }
 
@@ -96,17 +103,20 @@ COLOR_CYCLE = [
 # Method styling — consistent across ALL benchmark figures
 # ---------------------------------------------------------------------------
 METHOD_STYLES: Dict[str, Dict[str, object]] = {
-    "Gaussian copula":    {"color": COLORS["blue"],   "ls": "-",  "lw": 1.2, "marker": "o", "ms": 2.5},
-    "1-truncated C-vine": {"color": COLORS["cyan"],   "ls": "--", "lw": 1.2, "marker": "s", "ms": 2.5},
-    "Graphical Lasso":    {"color": COLORS["green"],  "ls": ":",  "lw": 1.3, "marker": "^", "ms": 2.5},
-    "TVGL (Frobenius)":   {"color": COLORS["red"],    "ls": "-.", "lw": 1.2, "marker": "v", "ms": 2.5},
-    "Gaussian SSM":       {"color": COLORS["purple"], "ls": "--", "lw": 1.2, "marker": "D", "ms": 2.5},
-    "KDE-flow (time BW)": {"color": COLORS["orange"], "ls": "-",  "lw": 1.2, "marker": "x", "ms": 2.5},
-    "Regularized DVC":    {"color": "#8C510A", "ls": "-.", "lw": 1.4, "marker": "P", "ms": 2.5},
+    "Gaussian copula":    {"color": COLORS["blue"],   "ls": "-",                "lw": 1.9, "marker": "o", "ms": 2.5},
+    "1-truncated C-vine": {"color": COLORS["cyan"],   "ls": (0, (4, 2)),        "lw": 2.0, "marker": "s", "ms": 2.5},
+    "Graphical Lasso":    {"color": COLORS["green"],  "ls": (0, (1, 1.5)),      "lw": 1.9, "marker": "^", "ms": 2.5},
+    "TVGL (Frobenius)":   {"color": COLORS["red"],    "ls": (0, (5, 2, 1, 2)),  "lw": 2.0, "marker": "v", "ms": 2.5},
+    "Gaussian SSM":       {"color": COLORS["purple"], "ls": (0, (7, 2)),        "lw": 2.0, "marker": "D", "ms": 2.5},
+    "KDE-flow (time BW)": {"color": COLORS["orange"], "ls": (0, (2, 1.5)),      "lw": 2.1, "marker": "x", "ms": 2.7},
+    "Regularized DVC":    {"color": "#8C510A",        "ls": (0, (6, 2, 1, 2)),  "lw": 2.2, "marker": "P", "ms": 2.7},
+    "Joint Dynamic DVC":  {"color": COLORS["black"],  "ls": "-",                "lw": 2.2, "marker": "o", "ms": 2.6},
+    "Latent-State DVC":   {"color": COLORS["purple"], "ls": (0, (3, 1.5)),      "lw": 2.1, "marker": "D", "ms": 2.6},
 }
 
 # Short display names for compact legends and axis labels
 SHORT_METHOD_NAMES: Dict[str, str] = {
+    "DVC":                "DVC",
     "Gaussian copula":    "Gauss. cop.",
     "1-truncated C-vine": "1-trunc.",
     "Graphical Lasso":    "GLasso",
@@ -114,6 +124,8 @@ SHORT_METHOD_NAMES: Dict[str, str] = {
     "Gaussian SSM":       "Gauss. SSM",
     "KDE-flow (time BW)": "KDE-flow",
     "Regularized DVC":    "Reg. DVC",
+    "Joint Dynamic DVC":  "Joint DVC",
+    "Latent-State DVC":   "Latent DVC",
 }
 
 SHORT_SCENARIO_NAMES: Dict[str, str] = {
@@ -134,6 +146,8 @@ GAP_KEY_TO_NAME = {
     "nll_gap_state_space":     "Gaussian SSM",
     "nll_gap_kde_flow":        "KDE-flow (time BW)",
     "nll_gap_regularized_dvc": "Regularized DVC",
+    "nll_gap_joint_dynamic_dvc": "Joint Dynamic DVC",
+    "nll_gap_latent_state_dvc": "Latent-State DVC",
 }
 
 # ---------------------------------------------------------------------------
@@ -201,6 +215,8 @@ def plot_nll_gaps(
     ylabel: str = r"$\Delta$NLL (nats)",
     legend: bool = True,
     markevery: int = 4,
+    keys: Optional[list[str]] = None,
+    markers: bool = False,
 ) -> None:
     """Plot NLL gap trajectories for multiple baselines on a single axes.
 
@@ -208,7 +224,9 @@ def plot_nll_gaps(
     ----------
     gaps : dict mapping gap-key (from JSON) to 1-D array of per-timestep gaps
     """
-    for key, series in gaps.items():
+    plot_keys = [key for key in (keys if keys is not None else list(gaps.keys())) if key in gaps]
+    for key in plot_keys:
+        series = gaps[key]
         name = GAP_KEY_TO_NAME.get(key, key)
         style = METHOD_STYLES.get(name, {})
         ax.plot(
@@ -217,8 +235,8 @@ def plot_nll_gaps(
             color=style.get("color", COLORS["gray"]),
             ls=style.get("ls", "-"),
             lw=style.get("lw", 1.2),
-            marker=style.get("marker", None),
-            ms=style.get("ms", 3),
+            marker=style.get("marker", None) if markers else None,
+            ms=style.get("ms", 3) if markers else 0,
             markevery=markevery,
             label=name,
         )

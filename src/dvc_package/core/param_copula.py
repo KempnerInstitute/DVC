@@ -419,9 +419,10 @@ def fit_frank(u: torch.Tensor):
             
         theta = torch.clamp(theta_init, -20.0, 20.0)
         
-        # Handle theta ≈ 0 (independence)
-        if torch.abs(theta) < 1e-6:
-            log_pdf = torch.zeros(u.shape[0], dtype=dtype, device=device)
+        # Keep a valid gradient path near independence so optimization can
+        # recover gracefully instead of crashing on a constant objective.
+        if float(torch.abs(theta).item()) < 1e-6:
+            log_pdf = torch.zeros(u.shape[0], dtype=dtype, device=device) + 0.0 * theta.squeeze()
         else:
             u_clamped = torch.clamp(u, 1e-9, 1-1e-9)
             u1, u2 = u_clamped[:, 0], u_clamped[:, 1]
@@ -1116,14 +1117,17 @@ def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
 
         u1, v = uv_clamped[:, 0], uv_clamped[:, 1]
 
-        # Stable form using expm1.
         exp_neg_theta_u1 = torch.exp(-theta * u1)
         expm1_neg_theta_v = torch.expm1(-theta * v)
         expm1_neg_theta = torch.expm1(torch.tensor(-theta, dtype=uv.dtype, device=uv.device))
 
         num = exp_neg_theta_u1 * expm1_neg_theta_v
-        den = num + expm1_neg_theta
-        den = torch.clamp(den, min=1e-15)
+        den = expm1_neg_theta + (exp_neg_theta_u1 - 1.0) * expm1_neg_theta_v
+        den = torch.where(
+            den.abs() < 1e-15,
+            torch.where(den >= 0, torch.full_like(den, 1e-15), torch.full_like(den, -1e-15)),
+            den,
+        )
         h_ = num / den
         return torch.clamp(h_, 1e-9, 1.0 - 1e-9)
 
@@ -1322,24 +1326,20 @@ def copulainvccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
 
         u1 = uv_clamped[:, 0]
         w = uv_clamped[:, 1]
-
-        # Exact inverse h-function for Frank copula:
-        # The h-function (conditional CDF) for Frank copula is:
-        #   h(v|u) = exp(-theta*u) / (exp(-theta*u) + (exp(-theta) - 1) / (exp(-theta*v) - 1))
-        # Its inverse (solving for v given w = h(v|u)):
-        #   v = -log(1 + (exp(-theta) - 1) / (exp(-theta*u) * (1/w - 1) + 1)) / theta
-        exp_neg_theta = torch.exp(torch.tensor(-theta, dtype=u1.dtype, device=u1.device))
         exp_neg_theta_u1 = torch.exp(-theta * u1)
+        expm1_neg_theta = torch.expm1(torch.tensor(-theta, dtype=u1.dtype, device=u1.device))
 
-        # Compute the denominator term: exp(-theta*u1) * (1/w - 1) + 1
-        denom_term = exp_neg_theta_u1 * (1.0 / w - 1.0) + 1.0
-        denom_term = torch.clamp(denom_term, min=1e-15)
-
-        # Compute the argument to log: 1 + (exp(-theta) - 1) / denom_term
-        log_arg = 1.0 + (exp_neg_theta - 1.0) / denom_term
-        log_arg = torch.clamp(log_arg, min=1e-15)
-
-        u2 = -torch.log(log_arg) / theta
+        # Frank h-function:
+        #   h(v|u) = A B / (C + (A - 1) B),
+        # where A = exp(-theta u), B = expm1(-theta v), C = expm1(-theta).
+        # Solving for B yields
+        #   B = w C / (A (1 - w) + w),
+        # then v = -log1p(B) / theta.
+        denom = exp_neg_theta_u1 * (1.0 - w) + w
+        denom = torch.clamp(denom, min=1e-15)
+        b_term = (w * expm1_neg_theta) / denom
+        b_term = torch.clamp(b_term, min=-1.0 + 1e-12)
+        u2 = -torch.log1p(b_term) / theta
 
         return torch.clamp(u2, 1e-9, 1-1e-9)
 

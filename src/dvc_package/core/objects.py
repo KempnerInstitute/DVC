@@ -12,8 +12,17 @@ class copula_obj:
         elif isinstance(opt_bw, float):
             opt_bw = torch.tensor(opt_bw, dtype=torch.float32)
         self.opt_bw = opt_bw
+        self.family = "kercop"
         self.pd_grid_uv = None
+        self.ccdf_grid = None
+        # Backward-compatible alias used by the legacy sampler/evaluator.
         self.cdf = None
+        self.ccdf_train_raw = None
+        self.ccdf_train_u = None
+        self.grid_s_min = None
+        self.grid_s_max = None
+        self.normalization_iterations = None
+        self.validation = {}
 
 class cop_par_obj:
     def __init__(self, family: str, theta):

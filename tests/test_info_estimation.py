@@ -8,6 +8,7 @@ distributions (multivariate Gaussian).
 import pytest
 import torch
 import numpy as np
+import scipy.stats as stats
 from scipy.stats import norm
 
 from dvc_package.core.info_estimation import (
@@ -99,6 +100,14 @@ class TestVineEntropy:
         # Both should be finite
         assert np.isfinite(H_low) and np.isfinite(H_high)
 
+    def test_entropy_supports_nats(self):
+        rho = np.array([[1, 0.5], [0.5, 1]])
+        vine = _fit_gaussian_vine(rho)
+        H_bits = vine_entropy(vine, {"alpha": 0.05, "cases": 200, "iterations": 3, "units": "bits", "seed": 123})
+        H_nats = vine_entropy(vine, {"alpha": 0.05, "cases": 200, "iterations": 3, "units": "nats", "seed": 123})
+        assert np.isfinite(H_bits) and np.isfinite(H_nats)
+        assert abs(H_bits * np.log(2.0) - H_nats) < 0.5
+
 
 # ---------------------------------------------------------------------------
 # Mutual information tests
@@ -134,6 +143,24 @@ class TestMutualInformation:
         # Both should be finite and non-negative
         assert np.isfinite(mi_low) and np.isfinite(mi_high)
         assert mi_low >= 0 and mi_high >= 0
+
+    def test_mi_kde_failure_uses_deterministic_gaussian_fallback(self, monkeypatch):
+        class FailingKDE:
+            def __init__(self, *_args, **_kwargs):
+                raise np.linalg.LinAlgError("forced failure")
+
+        monkeypatch.setattr(stats, "gaussian_kde", FailingKDE)
+        rho = np.array([[1, 0.7], [0.7, 1]])
+        vine = _fit_gaussian_vine(rho, n=400)
+        rng = np.random.default_rng(123)
+        fixed_samples = rng.multivariate_normal(np.zeros(2), rho, size=200).astype(np.float32)
+        monkeypatch.setattr(vine, "sample", lambda cases: fixed_samples[:cases])
+        info_dict = {"alpha": 0.05, "cases": 200, "iterations": 2, "units": "bits"}
+        mi_1 = mutual_information(vine, [0], [1], info_dict)
+        mi_2 = mutual_information(vine, [0], [1], info_dict)
+        assert np.isfinite(mi_1) and np.isfinite(mi_2)
+        assert mi_1 >= 0.0 and mi_2 >= 0.0
+        assert abs(mi_1 - mi_2) < 1e-12
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,9 @@ python scripts/run_experiment.py --create-examples
 python scripts/run_experiment.py drafts/configs/probability_analysis.yaml
 python scripts/run_experiment.py drafts/configs/entropy_analysis.yaml
 python scripts/run_experiment.py drafts/configs/time_dependent.yaml
+
+# run the standalone joint-dynamic example
+python scripts/run_dynamic_cvine_example.py --output-dir results/dynamic_cvine_example
 ```
 
 ## Config Structure

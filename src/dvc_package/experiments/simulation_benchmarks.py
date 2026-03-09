@@ -36,7 +36,15 @@ from ..core.param_copula import copulaccdf, copulainvccdf, copulapdf, parametric
 from ..core.utils_locallik import loclik_batch_eval
 from ..core.vine_model import fit_vine
 from ..optimization.structure import optimize_vine_structure
+from ..time.joint_dynamic_cvine import JointDynamicCVine, JointDynamicCVineResult
 from ..time.regularized_cvine import RegularizedDynamicCVine, RegularizedDynamicCVineResult
+from ..time.latent_state_dynamic_cvine import LatentStateDynamicCVine, LatentStateDynamicCVineResult
+from ..time.nonparametric_dynamic_cvine import (
+    JointDynamicNonparametricCVine,
+    JointDynamicNonparametricCVineResult,
+    WindowedNonparametricCVine,
+    WindowedNonparametricCVineResult,
+)
 
 
 def _set_seaborn_style() -> None:
@@ -187,6 +195,39 @@ def _make_levelwise_cvine(
     return vine
 
 
+def _sample_gaussian_star_cvine(
+    n_samples: int,
+    order: List[int],
+    rho: float,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Sample a Gaussian C-vine with one hub and independent higher trees.
+
+    For a Gaussian C-vine whose level-0 edges all share the same correlation and
+    whose higher trees are independent, the implied joint distribution is a
+    simple one-factor Gaussian model:
+
+      X_root ~ N(0, 1)
+      X_leaf = rho * X_root + sqrt(1-rho^2) * eps_leaf
+
+    where the leaves are conditionally independent given the root.
+    """
+    order = [int(v) for v in order]
+    d = len(order)
+    if d < 2:
+        return rng.standard_normal((n_samples, d)).astype(np.float32)
+
+    rho = float(np.clip(rho, -0.999, 0.999))
+    root_scores = rng.standard_normal(n_samples).astype(np.float32)
+    samples = np.zeros((n_samples, d), dtype=np.float32)
+    samples[:, order[0]] = root_scores
+    scale = float(np.sqrt(max(1.0 - rho * rho, 1e-8)))
+    for leaf in order[1:]:
+        eps = rng.standard_normal(n_samples).astype(np.float32)
+        samples[:, int(leaf)] = rho * root_scores + scale * eps
+    return samples
+
+
 def _mean_copula_nll(vine: vine_obj_bin, x: np.ndarray) -> float:
     """Mean negative log copula density (copula NLL), in nats.
 
@@ -194,34 +235,56 @@ def _mean_copula_nll(vine: vine_obj_bin, x: np.ndarray) -> float:
     Uses rank-based pseudo-observations (pseudo-likelihood), so it does not assume
     a parametric form for the marginals.
     """
+    from ..core.nonparametric_vine import _build_edge_input_pairs, _build_internal_edge_structure
+    from ..core.vine_tree import flip_check_all
+
     x_t = torch.tensor(x, dtype=torch.float32)
     n, d = x_t.shape
     device = x_t.device
 
     # Base pseudo-observations via ranks (per-dimension).
-    u_ = torch.zeros((n, d, d), dtype=torch.float32, device=device)
+    u_state = torch.zeros((n, d, d), dtype=torch.float32, device=device)
+    u_state_flip = torch.zeros((n, d, d), dtype=torch.float32, device=device)
     for i in range(d):
         vals = x_t[:, i].contiguous()
         sorted_col = torch.sort(vals)[0]
         ranks = torch.searchsorted(sorted_col, vals).float() + 1.0
-        u_[:, 0, i] = (ranks / (n + 1.0)).clamp(1e-6, 1.0 - 1e-6)
+        u_state[:, 0, i] = (ranks / (n + 1.0)).clamp(1e-6, 1.0 - 1e-6)
+
+    edge_refs = getattr(vine, "_internal_ind_vine", None)
+    if edge_refs is None:
+        edge_refs = _build_internal_edge_structure(vine, d)
+        vine._internal_ind_vine = edge_refs
 
     log_cop = torch.zeros(n, dtype=torch.float32, device=device)
     for level in range(d - 1):
-        edges_now = vine.ind_vine[level] if level < len(vine.ind_vine) else []
+        if not getattr(vine, "flip_flag", None) or level >= len(vine.flip_flag):
+            flip_flag1, ind_edge_rel1, _parent_all = flip_check_all(edge_refs, level, False, 1)
+        else:
+            flip_flag1 = vine.flip_flag[level]
+            ind_edge_rel1 = vine.ind_edge_rel[level]
+
+        point_u = _build_edge_input_pairs(
+            state=u_state,
+            state_flip=u_state_flip,
+            edge_refs=edge_refs,
+            level=level,
+            device=device,
+        )
         cops_now = vine.copulas[level] if level < len(vine.copulas) else []
-        for e_idx, edge in enumerate(edges_now):
-            if e_idx >= len(cops_now):
+        for j, ind_edge in enumerate(ind_edge_rel1):
+            if ind_edge >= len(cops_now):
                 continue
-            cobj = cops_now[e_idx]
-            i, j = int(edge[0]), int(edge[1])
-            ui = u_[:, level, i]
-            uj = u_[:, level, j]
-            uv = torch.stack([ui, uj], dim=1)
+            cobj = cops_now[ind_edge]
+            uv = point_u[:, :, ind_edge]
             pdf_val = copulapdf(cobj, uv).clamp_min(1e-30)
             log_cop = log_cop + torch.log(pdf_val)
-            # forward h-function to build conditional uniforms for higher trees
-            u_[:, level + 1, j] = copulaccdf(cobj, uv).clamp(1e-6, 1.0 - 1e-6)
+            if flip_flag1[j]:
+                hval = copulaccdf(cobj, uv[:, [1, 0]]).clamp(1e-6, 1.0 - 1e-6)
+                u_state_flip[:, level + 1, ind_edge] = torch.where(torch.isfinite(hval), hval, uv[:, 0])
+            else:
+                hval = copulaccdf(cobj, uv).clamp(1e-6, 1.0 - 1e-6)
+                u_state[:, level + 1, ind_edge] = torch.where(torch.isfinite(hval), hval, uv[:, 1])
 
     return float((-log_cop).mean().detach().cpu())
 
@@ -632,16 +695,14 @@ def generate_hub_switch(
         true_hubs.append(hub)
         order = order_for_hub(hub)
 
-        # Star dependence: strong Gaussian at level 0, independence at higher trees.
-        level_fams = ["gaussian"] + ["ind"] * (n_variables - 2)
-        level_thetas: List[Any] = [float(rho_hub)] + [None] * (n_variables - 2)
-        vine = _make_levelwise_cvine(
-            n_variables,
+        # Avoid benchmark contamination from generic recursive sampling here:
+        # this scenario is analytically a Gaussian star with independent higher trees.
+        data[t] = _sample_gaussian_star_cvine(
+            n_samples=n_samples_per_time,
             order=order,
-            level_families=level_fams,
-            level_thetas=level_thetas,
+            rho=rho_hub,
+            rng=rng,
         )
-        data[t] = vine.sample(n_samples_per_time)
         data[t] += 1e-3 * rng.standard_normal(data[t].shape).astype(np.float32)
 
     return {
@@ -958,6 +1019,118 @@ def _fit_regularized_dynamic_cvine_from_splits(
         parameter_drift_penalty=parameter_drift_penalty,
         parameter_smoothing=parameter_smoothing,
         root_score_method=root_score_method,
+    )
+    result = model.fit(x_train_list)
+    test_nll = model.evaluate(x_test_list).tolist()
+    return result, test_nll
+
+
+def _fit_joint_dynamic_cvine_from_splits(
+    x_train_list: List[np.ndarray],
+    x_test_list: List[np.ndarray],
+    families: List[str],
+    *,
+    order: Optional[List[int]] = None,
+    n_basis: int = 4,
+    smoothness_penalty: float = 5.0,
+    ridge_penalty: float = 1e-3,
+    maxiter: int = 80,
+) -> Tuple[JointDynamicCVineResult, List[float]]:
+    """Fit a jointly parameterized dynamic C-vine on train windows and evaluate on test windows."""
+    if len(x_train_list) != len(x_test_list):
+        raise ValueError("x_train_list and x_test_list must have the same length")
+    model = JointDynamicCVine(
+        families=families,
+        order=order,
+        n_basis=n_basis,
+        smoothness_penalty=smoothness_penalty,
+        ridge_penalty=ridge_penalty,
+        maxiter=maxiter,
+    )
+    result = model.fit(x_train_list)
+    test_nll = model.evaluate(x_test_list).tolist()
+    return result, test_nll
+
+
+def _fit_latent_state_dynamic_cvine_from_splits(
+    x_train_list: List[np.ndarray],
+    x_test_list: List[np.ndarray],
+    families: List[str],
+    *,
+    order: Optional[List[int]] = None,
+    selection_n_basis: int = 4,
+    selection_smoothness_penalty: float = 5.0,
+    latent_dim: int = 2,
+    transition_penalty: float = 1e-2,
+    n_epochs: int = 250,
+    lr: float = 2e-2,
+) -> Tuple[LatentStateDynamicCVineResult, List[float]]:
+    """Fit a shared-latent dynamic C-vine on train windows and evaluate on test windows."""
+    if len(x_train_list) != len(x_test_list):
+        raise ValueError("x_train_list and x_test_list must have the same length")
+    model = LatentStateDynamicCVine(
+        families=families,
+        order=order,
+        selection_n_basis=selection_n_basis,
+        selection_smoothness_penalty=selection_smoothness_penalty,
+        latent_dim=latent_dim,
+        transition_penalty=transition_penalty,
+        n_epochs=n_epochs,
+        lr=lr,
+    )
+    result = model.fit(x_train_list)
+    test_nll = model.evaluate(x_test_list).tolist()
+    return result, test_nll
+
+
+def _fit_windowed_nonparametric_cvine_from_splits(
+    x_train_list: List[np.ndarray],
+    x_test_list: List[np.ndarray],
+    *,
+    order: Optional[List[int]] = None,
+    knots: int = 9,
+    npc_dict: Optional[Dict[str, Any]] = None,
+) -> Tuple[WindowedNonparametricCVineResult, List[float]]:
+    if len(x_train_list) != len(x_test_list):
+        raise ValueError("x_train_list and x_test_list must have the same length")
+    model = WindowedNonparametricCVine(
+        order=order,
+        knots=knots,
+        npc_dict=npc_dict,
+    )
+    result = model.fit(x_train_list)
+    test_nll = model.evaluate(x_test_list).tolist()
+    return result, test_nll
+
+
+def _fit_joint_dynamic_nonparametric_cvine_from_splits(
+    x_train_list: List[np.ndarray],
+    x_test_list: List[np.ndarray],
+    *,
+    order: Optional[List[int]] = None,
+    knots: int = 9,
+    trajectory_type: str = "basis",
+    trajectory_kwargs: Optional[Dict[str, Any]] = None,
+    n_epochs: int = 20,
+    lr: float = 3e-2,
+    smoothness_penalty: float = 1e-2,
+    batch_size: int = 2,
+    normalization_iters: int = 10,
+    final_normalization_iters: int = 50,
+) -> Tuple[JointDynamicNonparametricCVineResult, List[float]]:
+    if len(x_train_list) != len(x_test_list):
+        raise ValueError("x_train_list and x_test_list must have the same length")
+    model = JointDynamicNonparametricCVine(
+        order=order,
+        knots=knots,
+        trajectory_type=trajectory_type,
+        trajectory_kwargs=trajectory_kwargs,
+        n_epochs=n_epochs,
+        lr=lr,
+        smoothness_penalty=smoothness_penalty,
+        batch_size=batch_size,
+        normalization_iters=normalization_iters,
+        final_normalization_iters=final_normalization_iters,
     )
     result = model.fit(x_train_list)
     test_nll = model.evaluate(x_test_list).tolist()
@@ -1416,6 +1589,42 @@ def _plot_dynamic_panel(
             linewidth=1.8,
             linestyle=(0, (5, 2)),
             label="Regularized DVC",
+        )
+    if "nll_gap_joint_dynamic_dvc" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_joint_dynamic_dvc"],
+            color="#000000",
+            linewidth=1.9,
+            linestyle=(0, (7, 1.5)),
+            label="Joint Dynamic DVC",
+        )
+    if "nll_gap_latent_state_dvc" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_latent_state_dvc"],
+            color="#6a3d9a",
+            linewidth=1.9,
+            linestyle=(0, (3, 1.5)),
+            label="Latent-State DVC",
+        )
+    if "nll_gap_windowed_nonparametric_dvc" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_windowed_nonparametric_dvc"],
+            color="#17becf",
+            linewidth=1.7,
+            linestyle=(0, (2, 1)),
+            label="Windowed NP-DVC",
+        )
+    if "nll_gap_joint_nonparametric_dvc" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_joint_nonparametric_dvc"],
+            color="#bc5090",
+            linewidth=1.8,
+            linestyle=(0, (6, 2)),
+            label="Joint NP-DVC",
         )
     ax4.axhline(0.0, color="gray", linewidth=1.0, linestyle="--")
     ax4.set_title("Held-out copula NLL gap (positive = DVC better)")
@@ -1994,7 +2203,13 @@ def run_simulation_benchmark_suite(
             cp = gen["change_point"]
 
             families = ["gaussian", "student", "clayton", "gumbel", "joe", "independence"]
+            smooth_dynamic_families = ["gaussian", "student", "independence"]
             dvc_nll = []
+            reg_dvc_nll: List[float] = []
+            joint_dvc_nll: List[float] = []
+            latent_dvc_nll: List[float] = []
+            windowed_np_dvc_nll: List[float] = []
+            joint_np_dvc_nll: List[float] = []
             gauss_nll = []
             trunc_nll = []
             glasso_nll = []
@@ -2073,6 +2288,66 @@ def run_simulation_benchmark_suite(
                 x_train_list,
                 x_test_list,
             )
+            reg_result, reg_dvc_nll = _fit_regularized_dynamic_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                families=smooth_dynamic_families,
+                root_switch_penalty=0.10,
+                family_switch_penalty=0.15,
+                parameter_drift_penalty=0.15,
+                parameter_smoothing=0.30,
+                root_score_method="kendall_tau",
+            )
+            joint_result, joint_dvc_nll = _fit_joint_dynamic_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                families=smooth_dynamic_families,
+                n_basis=2,
+                smoothness_penalty=0.50,
+                ridge_penalty=1e-3,
+                maxiter=20,
+            )
+            latent_result, latent_dvc_nll = _fit_latent_state_dynamic_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                families=smooth_dynamic_families,
+                order=list(joint_result.order),
+                selection_n_basis=2,
+                selection_smoothness_penalty=0.50,
+                latent_dim=1,
+                transition_penalty=5e-2,
+                n_epochs=25,
+                lr=2e-2,
+            )
+            windowed_np_result, windowed_np_dvc_nll = _fit_windowed_nonparametric_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                order=list(joint_result.order),
+                knots=7,
+                npc_dict={
+                    "opt_method": "LL1",
+                    "max_iter_phase1": 1,
+                    "max_iter_phase2": 1,
+                    "normal_iters_phase1": 5,
+                    "normal_iters_phase2": 5,
+                    "final_normalization_iters": 50,
+                    "batch_size": 1,
+                },
+            )
+            joint_np_result, joint_np_dvc_nll = _fit_joint_dynamic_nonparametric_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                order=list(joint_result.order),
+                knots=7,
+                trajectory_type="basis",
+                trajectory_kwargs={"n_basis": 2},
+                n_epochs=3,
+                lr=5e-2,
+                smoothness_penalty=5e-3,
+                batch_size=1,
+                normalization_iters=5,
+                final_normalization_iters=50,
+            )
             kde_flow_nll, kde_flow_val_nll, kde_flow_bandwidths = _kde_flow_truncated_level0_nll_from_splits(
                 x_train_list,
                 x_test_list,
@@ -2097,6 +2372,11 @@ def run_simulation_benchmark_suite(
                 "nll_gap_tvgl": np.asarray(tvgl_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_state_space": np.asarray(ssm_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_kde_flow": np.asarray(kde_flow_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_regularized_dvc": np.asarray(reg_dvc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_joint_dynamic_dvc": np.asarray(joint_dvc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_latent_state_dvc": np.asarray(latent_dvc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_windowed_nonparametric_dvc": np.asarray(windowed_np_dvc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_joint_nonparametric_dvc": np.asarray(joint_np_dvc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
             }
             out_png = plots_dir / "dynamic_tail_df_panel.png"
             _plot_dynamic_panel(
@@ -2116,7 +2396,13 @@ def run_simulation_benchmark_suite(
                 "change_point_hat_tail_emp": cp_hat,
                 "change_point_abs_error_tail_emp": cp_err,
                 "nu_schedule": gen["nu_schedule"].tolist(),
+                "smooth_dynamic_family_candidates": list(smooth_dynamic_families),
                 "dvc_nll": dvc_nll,
+                "regularized_dvc_nll": reg_dvc_nll,
+                "joint_dynamic_dvc_nll": joint_dvc_nll,
+                "latent_state_dvc_nll": latent_dvc_nll,
+                "windowed_nonparametric_dvc_nll": windowed_np_dvc_nll,
+                "joint_nonparametric_dvc_nll": joint_np_dvc_nll,
                 "gaussian_nll": gauss_nll,
                 "nll_gap": (np.asarray(gauss_nll) - np.asarray(dvc_nll)).tolist(),
                 "truncated_level0_nll": trunc_nll,
@@ -2132,6 +2418,22 @@ def run_simulation_benchmark_suite(
                 "kde_flow_val_nll": kde_flow_val_nll,
                 "kde_flow_bandwidths": kde_flow_bandwidths.tolist(),
                 "nll_gap_kde_flow": (np.asarray(kde_flow_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_regularized_dvc": (np.asarray(reg_dvc_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_joint_dynamic_dvc": (np.asarray(joint_dvc_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_latent_state_dvc": (np.asarray(latent_dvc_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_windowed_nonparametric_dvc": (np.asarray(windowed_np_dvc_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_joint_nonparametric_dvc": (np.asarray(joint_np_dvc_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_improvement_regularized_over_dvc": (np.asarray(dvc_nll) - np.asarray(reg_dvc_nll)).tolist(),
+                "nll_improvement_joint_over_dvc": (np.asarray(dvc_nll) - np.asarray(joint_dvc_nll)).tolist(),
+                "nll_improvement_latent_over_dvc": (np.asarray(dvc_nll) - np.asarray(latent_dvc_nll)).tolist(),
+                "joint_dynamic_order": list(joint_result.order),
+                "joint_dynamic_selected_families": [str(edge_fit.family) for edge_fit in joint_result.edge_fits],
+                "latent_state_order": list(latent_result.order),
+                "latent_state_selected_families": [str(edge_fit.family) for edge_fit in latent_result.edge_fits],
+                "windowed_nonparametric_order": list(windowed_np_result.order),
+                "joint_nonparametric_order": list(joint_np_result.order),
+                "regularized_family_switch_count": int(reg_result.total_family_switches()),
+                "regularized_parameter_drift_total": float(reg_result.total_parameter_drift()),
                 "corr_mean_abs": corr_mean,
                 "tau_mean_abs": tau_mean,
                 "tail_emp_upper_q95": tail_emp,
@@ -2822,10 +3124,34 @@ def run_simulation_benchmark_suite(
             gap = np.asarray(payload["nll_gap_regularized_dvc"], dtype=np.float64)
             row["nll_gap_regularized_dvc_mean"] = float(np.nanmean(gap))
             row["nll_gap_regularized_dvc_std"] = float(np.nanstd(gap))
+        if "nll_gap_joint_dynamic_dvc" in payload:
+            gap = np.asarray(payload["nll_gap_joint_dynamic_dvc"], dtype=np.float64)
+            row["nll_gap_joint_dynamic_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_gap_joint_dynamic_dvc_std"] = float(np.nanstd(gap))
+        if "nll_gap_latent_state_dvc" in payload:
+            gap = np.asarray(payload["nll_gap_latent_state_dvc"], dtype=np.float64)
+            row["nll_gap_latent_state_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_gap_latent_state_dvc_std"] = float(np.nanstd(gap))
+        if "nll_gap_windowed_nonparametric_dvc" in payload:
+            gap = np.asarray(payload["nll_gap_windowed_nonparametric_dvc"], dtype=np.float64)
+            row["nll_gap_windowed_nonparametric_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_gap_windowed_nonparametric_dvc_std"] = float(np.nanstd(gap))
+        if "nll_gap_joint_nonparametric_dvc" in payload:
+            gap = np.asarray(payload["nll_gap_joint_nonparametric_dvc"], dtype=np.float64)
+            row["nll_gap_joint_nonparametric_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_gap_joint_nonparametric_dvc_std"] = float(np.nanstd(gap))
         if "nll_improvement_regularized_over_dvc" in payload:
             gap = np.asarray(payload["nll_improvement_regularized_over_dvc"], dtype=np.float64)
             row["nll_improvement_regularized_over_dvc_mean"] = float(np.nanmean(gap))
             row["nll_improvement_regularized_over_dvc_std"] = float(np.nanstd(gap))
+        if "nll_improvement_joint_over_dvc" in payload:
+            gap = np.asarray(payload["nll_improvement_joint_over_dvc"], dtype=np.float64)
+            row["nll_improvement_joint_over_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_improvement_joint_over_dvc_std"] = float(np.nanstd(gap))
+        if "nll_improvement_latent_over_dvc" in payload:
+            gap = np.asarray(payload["nll_improvement_latent_over_dvc"], dtype=np.float64)
+            row["nll_improvement_latent_over_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_improvement_latent_over_dvc_std"] = float(np.nanstd(gap))
         for k in [
             "episode_detection_accuracy",
             "order_classification_accuracy",

@@ -170,10 +170,10 @@ class TestCopulaInvCCDF:
         self._roundtrip(cop_par_obj("gumbel", 2.0), n=80, atol=0.08)
 
     def test_frank_roundtrip(self):
-        self._roundtrip(cop_par_obj("frank", 3.0), atol=0.5)
+        self._roundtrip(cop_par_obj("frank", 3.0), atol=0.02)
 
     def test_frank_negative_roundtrip(self):
-        self._roundtrip(cop_par_obj("frank", -2.0), atol=0.5)
+        self._roundtrip(cop_par_obj("frank", -2.0), atol=0.02)
 
     def test_independence_roundtrip(self):
         """For independence, inverse should return the second column."""

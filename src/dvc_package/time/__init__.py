@@ -6,6 +6,13 @@ using normalizing flows and dynamic vine copula structures.
 """
 
 from .flows import TimeBandwidthFlow, MLPEdgeFlow
+from .trajectory_models import (
+    BasisTrajectory,
+    MLPTrajectory,
+    StateSpaceTrajectory,
+    TimeTrajectoryBase,
+    create_trajectory_model,
+)
 
 from .data import (
     TimeSeriesVineDataset,
@@ -33,11 +40,35 @@ from .regularized_cvine import (
     select_edge_candidate,
     solve_root_sequence,
 )
+from .joint_dynamic_cvine import (
+    JointDynamicCVine,
+    JointDynamicCVineResult,
+    JointDynamicEdgeFit,
+)
+from .latent_state_dynamic_cvine import (
+    LatentStateDynamicCVine,
+    LatentStateDynamicCVineResult,
+    LatentStateEdgeFit,
+)
+from .nonparametric_dynamic_cvine import (
+    WindowedNonparametricCVine,
+    WindowedNonparametricCVineResult,
+    WindowedDynamicNonparametricVine,
+    JointDynamicNonparametricCVine,
+    JointDynamicNonparametricCVineResult,
+    JointDynamicNonparametricVine,
+    DynamicNonparametricEdgeFit,
+)
 
 __all__ = [
     # Flows
     "TimeBandwidthFlow",
     "MLPEdgeFlow",
+    "BasisTrajectory",
+    "MLPTrajectory",
+    "StateSpaceTrajectory",
+    "TimeTrajectoryBase",
+    "create_trajectory_model",
     # Data
     "TimeSeriesVineDataset",
     "generate_synthetic_time_series",
@@ -60,4 +91,18 @@ __all__ = [
     "parameter_distance",
     "select_edge_candidate",
     "solve_root_sequence",
+    # Joint dynamic C-vine
+    "JointDynamicCVine",
+    "JointDynamicCVineResult",
+    "JointDynamicEdgeFit",
+    "LatentStateDynamicCVine",
+    "LatentStateDynamicCVineResult",
+    "LatentStateEdgeFit",
+    "WindowedNonparametricCVine",
+    "WindowedNonparametricCVineResult",
+    "WindowedDynamicNonparametricVine",
+    "JointDynamicNonparametricCVine",
+    "JointDynamicNonparametricCVineResult",
+    "JointDynamicNonparametricVine",
+    "DynamicNonparametricEdgeFit",
 ]
