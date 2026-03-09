@@ -192,7 +192,7 @@ def main():
         print("\nReady to run DVC experiments!")
         print("\nNext steps:")
         print("  1. Activate environment: conda activate dvc-env")
-        print("  2. Run example: python scripts/run_experiment.py configs/probability_analysis.yaml")
+        print("  2. Run example: python scripts/run_experiment.py drafts/configs/probability_analysis.yaml")
         print("  3. Check docs/user-guide/ for detailed usage")
     else:
         print("\nINSTALLATION VERIFICATION INCOMPLETE")

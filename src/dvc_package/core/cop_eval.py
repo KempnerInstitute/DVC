@@ -38,23 +38,22 @@ def eval1(adu11_col1: torch.Tensor,
     t2_new = torch.where(torch.isfinite(t2_new), t2_new, torch.zeros_like(t2_new))
     return t2_new
 
-def eval_rs_cop(adu11: torch.Tensor,
-                adu22: torch.Tensor,
-                ker_fit: torch.Tensor,
-                NORM1: torch.Tensor,
-                n_cop: int) -> torch.Tensor:
+def normalize_pdf_grid(adu11: torch.Tensor,
+                       adu22: torch.Tensor,
+                       ker_fit: torch.Tensor,
+                       NORM1: torch.Tensor,
+                       n_cop: int,
+                       iterations: int = 500) -> torch.Tensor:
     """
-    Copula normalization with 500 iterations (matching TensorFlow).
-    
-    Args:
-        adu11: Grid differences u1
-        adu22: Grid differences u2
-        ker_fit: Kernel estimates
-        NORM1: Bivariate normal reference
-        n_cop: Number of copulas
-        
-    Returns:
-        Normalized copula density
+    Row/column normalize a kernel density grid into a copula density.
+
+    Parameters
+    ----------
+    iterations:
+        Number of Sinkhorn-style normalization iterations. The previous code
+        switched between separate 50- and 500-step routines based on an
+        arbitrary threshold; this helper uses the requested iteration count
+        directly.
     """
     device = ker_fit.device
     
@@ -69,7 +68,7 @@ def eval_rs_cop(adu11: torch.Tensor,
     adu22_1 = adu22.unsqueeze(-1).expand(-1, n_cop)  # [K, n_cop]
     adu11_col1 = adu11_col.expand(-1, n_cop).unsqueeze(0)  # [1, K, n_cop]
     
-    for _ in range(500):
+    for _ in range(max(int(iterations), 1)):
         t1 = eval1(adu11_col1, adu22_1, t1, n_cop)
     
     adu11_col1_t = adu11_col1.transpose(0, 1)  # [K, 1, n_cop]
@@ -79,6 +78,15 @@ def eval_rs_cop(adu11: torch.Tensor,
     t1 = t1 * NORM1
     
     return t1
+
+
+def eval_rs_cop(adu11: torch.Tensor,
+                adu22: torch.Tensor,
+                ker_fit: torch.Tensor,
+                NORM1: torch.Tensor,
+                n_cop: int) -> torch.Tensor:
+    """Compatibility wrapper for the legacy 500-iteration normalization."""
+    return normalize_pdf_grid(adu11, adu22, ker_fit, NORM1, n_cop, iterations=500)
 
 def eval_rs_p(adu11: torch.Tensor,
               adu22: torch.Tensor,
@@ -89,29 +97,7 @@ def eval_rs_p(adu11: torch.Tensor,
     Copula normalization for MISE cost function with 50 iterations.
     This is used during optimization (fewer iterations for speed).
     """
-    device = ker_fit.device
-    
-    adu11_col = adu11.unsqueeze(-1)  # [K, 1]
-    
-    t1 = ker_fit / (NORM1 + 1e-30)
-    
-    for i in range(n_cop):
-        if torch.max(t1[:, :, i]) < 1e-6:
-            t1[:, :, i] = torch.ones_like(t1[:, :, i])
-    
-    adu22_1 = adu22.unsqueeze(-1).expand(-1, n_cop)  # [K, n_cop]
-    adu11_col1 = adu11_col.expand(-1, n_cop).unsqueeze(0)  # [1, K, n_cop]
-    
-    for _ in range(50):
-        t1 = eval1(adu11_col1, adu22_1, t1, n_cop)
-    
-    adu11_col1_t = adu11_col1.transpose(0, 1)  # [K, 1, n_cop]
-    II = torch.sum(adu11_col1_t * torch.sum(adu22_1.unsqueeze(0) * t1, dim=1, keepdim=True), dim=0).squeeze(0)
-    t1 = t1 / (II.unsqueeze(0).unsqueeze(0) + 1e-30)
-    
-    t1 = t1 * NORM1
-    
-    return t1
+    return normalize_pdf_grid(adu11, adu22, ker_fit, NORM1, n_cop, iterations=50)
 
 def cdf_grid_fun(pd_grid_uv: torch.Tensor,
                  ex_u: torch.Tensor,
@@ -119,7 +105,12 @@ def cdf_grid_fun(pd_grid_uv: torch.Tensor,
                  u2d: torch.Tensor,
                  n_cop: int) -> torch.Tensor:
     """
-    Compute CDF on grid from PDF (matching TensorFlow).
+    Compute the conditional CDF / h-function grid from a copula PDF grid.
+
+    Despite the historical `cdf` name in the legacy code, this quantity is not
+    the joint copula CDF `C(u,v)`. It is the grid used for pseudo-observation
+    propagation and inverse h-function sampling, i.e. the conditional CDF of
+    the second argument given the first one.
     
     Args:
         pd_grid_uv: PDF on UV grid, shape [K, K, n_cop]
@@ -129,7 +120,7 @@ def cdf_grid_fun(pd_grid_uv: torch.Tensor,
         n_cop: Number of copulas
         
     Returns:
-        CDF values on grid
+        Conditional CDF values on the grid
     """
     device = pd_grid_uv.device
     knots = pd_grid_uv.shape[0]
@@ -149,7 +140,7 @@ def cdf_grid_fun(pd_grid_uv: torch.Tensor,
     cdf1 = cdf1.permute(1, 0, 2)
     
     cdf1 = torch.clamp(cdf1, 0.0, 1.0)
-    
+
     return cdf1
 
 def cdf_grid_fun_with_kernel_smoothing(pd_grid_uv: torch.Tensor,

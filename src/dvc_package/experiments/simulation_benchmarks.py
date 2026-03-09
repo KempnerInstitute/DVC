@@ -36,6 +36,15 @@ from ..core.param_copula import copulaccdf, copulainvccdf, copulapdf, parametric
 from ..core.utils_locallik import loclik_batch_eval
 from ..core.vine_model import fit_vine
 from ..optimization.structure import optimize_vine_structure
+from ..time.joint_dynamic_cvine import JointDynamicCVine, JointDynamicCVineResult
+from ..time.regularized_cvine import RegularizedDynamicCVine, RegularizedDynamicCVineResult
+from ..time.latent_state_dynamic_cvine import LatentStateDynamicCVine, LatentStateDynamicCVineResult
+from ..time.nonparametric_dynamic_cvine import (
+    JointDynamicNonparametricCVine,
+    JointDynamicNonparametricCVineResult,
+    WindowedNonparametricCVine,
+    WindowedNonparametricCVineResult,
+)
 
 
 def _set_seaborn_style() -> None:
@@ -186,6 +195,39 @@ def _make_levelwise_cvine(
     return vine
 
 
+def _sample_gaussian_star_cvine(
+    n_samples: int,
+    order: List[int],
+    rho: float,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Sample a Gaussian C-vine with one hub and independent higher trees.
+
+    For a Gaussian C-vine whose level-0 edges all share the same correlation and
+    whose higher trees are independent, the implied joint distribution is a
+    simple one-factor Gaussian model:
+
+      X_root ~ N(0, 1)
+      X_leaf = rho * X_root + sqrt(1-rho^2) * eps_leaf
+
+    where the leaves are conditionally independent given the root.
+    """
+    order = [int(v) for v in order]
+    d = len(order)
+    if d < 2:
+        return rng.standard_normal((n_samples, d)).astype(np.float32)
+
+    rho = float(np.clip(rho, -0.999, 0.999))
+    root_scores = rng.standard_normal(n_samples).astype(np.float32)
+    samples = np.zeros((n_samples, d), dtype=np.float32)
+    samples[:, order[0]] = root_scores
+    scale = float(np.sqrt(max(1.0 - rho * rho, 1e-8)))
+    for leaf in order[1:]:
+        eps = rng.standard_normal(n_samples).astype(np.float32)
+        samples[:, int(leaf)] = rho * root_scores + scale * eps
+    return samples
+
+
 def _mean_copula_nll(vine: vine_obj_bin, x: np.ndarray) -> float:
     """Mean negative log copula density (copula NLL), in nats.
 
@@ -193,34 +235,56 @@ def _mean_copula_nll(vine: vine_obj_bin, x: np.ndarray) -> float:
     Uses rank-based pseudo-observations (pseudo-likelihood), so it does not assume
     a parametric form for the marginals.
     """
+    from ..core.nonparametric_vine import _build_edge_input_pairs, _build_internal_edge_structure
+    from ..core.vine_tree import flip_check_all
+
     x_t = torch.tensor(x, dtype=torch.float32)
     n, d = x_t.shape
     device = x_t.device
 
     # Base pseudo-observations via ranks (per-dimension).
-    u_ = torch.zeros((n, d, d), dtype=torch.float32, device=device)
+    u_state = torch.zeros((n, d, d), dtype=torch.float32, device=device)
+    u_state_flip = torch.zeros((n, d, d), dtype=torch.float32, device=device)
     for i in range(d):
         vals = x_t[:, i].contiguous()
         sorted_col = torch.sort(vals)[0]
         ranks = torch.searchsorted(sorted_col, vals).float() + 1.0
-        u_[:, 0, i] = (ranks / (n + 1.0)).clamp(1e-6, 1.0 - 1e-6)
+        u_state[:, 0, i] = (ranks / (n + 1.0)).clamp(1e-6, 1.0 - 1e-6)
+
+    edge_refs = getattr(vine, "_internal_ind_vine", None)
+    if edge_refs is None:
+        edge_refs = _build_internal_edge_structure(vine, d)
+        vine._internal_ind_vine = edge_refs
 
     log_cop = torch.zeros(n, dtype=torch.float32, device=device)
     for level in range(d - 1):
-        edges_now = vine.ind_vine[level] if level < len(vine.ind_vine) else []
+        if not getattr(vine, "flip_flag", None) or level >= len(vine.flip_flag):
+            flip_flag1, ind_edge_rel1, _parent_all = flip_check_all(edge_refs, level, False, 1)
+        else:
+            flip_flag1 = vine.flip_flag[level]
+            ind_edge_rel1 = vine.ind_edge_rel[level]
+
+        point_u = _build_edge_input_pairs(
+            state=u_state,
+            state_flip=u_state_flip,
+            edge_refs=edge_refs,
+            level=level,
+            device=device,
+        )
         cops_now = vine.copulas[level] if level < len(vine.copulas) else []
-        for e_idx, edge in enumerate(edges_now):
-            if e_idx >= len(cops_now):
+        for j, ind_edge in enumerate(ind_edge_rel1):
+            if ind_edge >= len(cops_now):
                 continue
-            cobj = cops_now[e_idx]
-            i, j = int(edge[0]), int(edge[1])
-            ui = u_[:, level, i]
-            uj = u_[:, level, j]
-            uv = torch.stack([ui, uj], dim=1)
+            cobj = cops_now[ind_edge]
+            uv = point_u[:, :, ind_edge]
             pdf_val = copulapdf(cobj, uv).clamp_min(1e-30)
             log_cop = log_cop + torch.log(pdf_val)
-            # forward h-function to build conditional uniforms for higher trees
-            u_[:, level + 1, j] = copulaccdf(cobj, uv).clamp(1e-6, 1.0 - 1e-6)
+            if flip_flag1[j]:
+                hval = copulaccdf(cobj, uv[:, [1, 0]]).clamp(1e-6, 1.0 - 1e-6)
+                u_state_flip[:, level + 1, ind_edge] = torch.where(torch.isfinite(hval), hval, uv[:, 0])
+            else:
+                hval = copulaccdf(cobj, uv).clamp(1e-6, 1.0 - 1e-6)
+                u_state[:, level + 1, ind_edge] = torch.where(torch.isfinite(hval), hval, uv[:, 1])
 
     return float((-log_cop).mean().detach().cpu())
 
@@ -631,16 +695,14 @@ def generate_hub_switch(
         true_hubs.append(hub)
         order = order_for_hub(hub)
 
-        # Star dependence: strong Gaussian at level 0, independence at higher trees.
-        level_fams = ["gaussian"] + ["ind"] * (n_variables - 2)
-        level_thetas: List[Any] = [float(rho_hub)] + [None] * (n_variables - 2)
-        vine = _make_levelwise_cvine(
-            n_variables,
+        # Avoid benchmark contamination from generic recursive sampling here:
+        # this scenario is analytically a Gaussian star with independent higher trees.
+        data[t] = _sample_gaussian_star_cvine(
+            n_samples=n_samples_per_time,
             order=order,
-            level_families=level_fams,
-            level_thetas=level_thetas,
+            rho=rho_hub,
+            rng=rng,
         )
-        data[t] = vine.sample(n_samples_per_time)
         data[t] += 1e-3 * rng.standard_normal(data[t].shape).astype(np.float32)
 
     return {
@@ -752,6 +814,67 @@ def generate_agent_interaction_episodes(
         "episode_labels": episode_labels,
         "episode_agents": episode_agents,
         "episode_schedule": episode_schedule,
+    }
+
+
+def _sample_modsum_higher_order_triplet(
+    n_samples: int,
+    rng: np.random.Generator,
+    eps: float = 1e-6,
+) -> np.ndarray:
+    """Sample a continuous XOR-style triplet with pairwise-independent marginals.
+
+    Let U, V ~ Unif(0,1) and W = (U + V) mod 1. Each pair is marginally
+    independent, but the triplet has deterministic higher-order dependence.
+    After Gaussianization, pairwise Gaussian statistics remain near zero while
+    the full-vine conditional edge carries substantial signal.
+    """
+    uv = rng.uniform(eps, 1.0 - eps, size=(n_samples, 2)).astype(np.float64)
+    w = np.mod(uv[:, 0] + uv[:, 1], 1.0)
+    w = np.clip(w, eps, 1.0 - eps)
+    xyz = np.column_stack([uv[:, 0], uv[:, 1], w])
+    return norm.ppf(xyz).astype(np.float32)
+
+
+def generate_higher_order_only_switch(
+    n_time_steps: int,
+    n_samples_per_time: int,
+    seed: int,
+) -> Dict[str, Any]:
+    """Generate a dynamic benchmark where pairwise marginals stay matched.
+
+    Pre-change: fully independent Gaussianized triplets.
+    Post-change: continuous XOR-style triplets with the same pairwise marginals
+    but strong third-order dependence.
+    """
+    rng = np.random.default_rng(seed)
+    time_idx = np.arange(n_time_steps, dtype=np.float32)
+    change_point = n_time_steps // 2
+    regime_labels = np.zeros(n_time_steps, dtype=np.int32)
+    regime_labels[change_point:] = 1
+
+    data = np.zeros((n_time_steps, n_samples_per_time, 3), dtype=np.float32)
+    for t in range(n_time_steps):
+        if t < change_point:
+            u = rng.uniform(1e-6, 1.0 - 1e-6, size=(n_samples_per_time, 3))
+            data[t] = norm.ppf(u).astype(np.float32)
+        else:
+            data[t] = _sample_modsum_higher_order_triplet(
+                n_samples=n_samples_per_time,
+                rng=rng,
+                eps=1e-6,
+            )
+        data[t] += 1e-3 * rng.standard_normal(data[t].shape).astype(np.float32)
+
+    return {
+        "time_data": data,
+        "time_indices": time_idx,
+        "change_point": int(change_point),
+        "regime_labels": regime_labels,
+        "regime_schedule": [
+            {"t_start": 0, "t_end": int(change_point), "type": "pairwise_matched_control"},
+            {"t_start": int(change_point), "t_end": int(n_time_steps), "type": "higher_order_only"},
+        ],
     }
 
 
@@ -873,6 +996,145 @@ def _fit_truncated_cvine_level0(
     vine.param = True
     vine.fitted = True
     return vine
+
+
+def _fit_regularized_dynamic_cvine_from_splits(
+    x_train_list: List[np.ndarray],
+    x_test_list: List[np.ndarray],
+    families: List[str],
+    *,
+    root_switch_penalty: float,
+    family_switch_penalty: float,
+    parameter_drift_penalty: float,
+    parameter_smoothing: float,
+    root_score_method: str,
+) -> Tuple[RegularizedDynamicCVineResult, List[float]]:
+    """Fit a temporally regularized dynamic C-vine on train windows and evaluate on test windows."""
+    if len(x_train_list) != len(x_test_list):
+        raise ValueError("x_train_list and x_test_list must have the same length")
+    model = RegularizedDynamicCVine(
+        families=families,
+        root_switch_penalty=root_switch_penalty,
+        family_switch_penalty=family_switch_penalty,
+        parameter_drift_penalty=parameter_drift_penalty,
+        parameter_smoothing=parameter_smoothing,
+        root_score_method=root_score_method,
+    )
+    result = model.fit(x_train_list)
+    test_nll = model.evaluate(x_test_list).tolist()
+    return result, test_nll
+
+
+def _fit_joint_dynamic_cvine_from_splits(
+    x_train_list: List[np.ndarray],
+    x_test_list: List[np.ndarray],
+    families: List[str],
+    *,
+    order: Optional[List[int]] = None,
+    n_basis: int = 4,
+    smoothness_penalty: float = 5.0,
+    ridge_penalty: float = 1e-3,
+    maxiter: int = 80,
+) -> Tuple[JointDynamicCVineResult, List[float]]:
+    """Fit a jointly parameterized dynamic C-vine on train windows and evaluate on test windows."""
+    if len(x_train_list) != len(x_test_list):
+        raise ValueError("x_train_list and x_test_list must have the same length")
+    model = JointDynamicCVine(
+        families=families,
+        order=order,
+        n_basis=n_basis,
+        smoothness_penalty=smoothness_penalty,
+        ridge_penalty=ridge_penalty,
+        maxiter=maxiter,
+    )
+    result = model.fit(x_train_list)
+    test_nll = model.evaluate(x_test_list).tolist()
+    return result, test_nll
+
+
+def _fit_latent_state_dynamic_cvine_from_splits(
+    x_train_list: List[np.ndarray],
+    x_test_list: List[np.ndarray],
+    families: List[str],
+    *,
+    order: Optional[List[int]] = None,
+    selection_n_basis: int = 4,
+    selection_smoothness_penalty: float = 5.0,
+    latent_dim: int = 2,
+    transition_penalty: float = 1e-2,
+    n_epochs: int = 250,
+    lr: float = 2e-2,
+) -> Tuple[LatentStateDynamicCVineResult, List[float]]:
+    """Fit a shared-latent dynamic C-vine on train windows and evaluate on test windows."""
+    if len(x_train_list) != len(x_test_list):
+        raise ValueError("x_train_list and x_test_list must have the same length")
+    model = LatentStateDynamicCVine(
+        families=families,
+        order=order,
+        selection_n_basis=selection_n_basis,
+        selection_smoothness_penalty=selection_smoothness_penalty,
+        latent_dim=latent_dim,
+        transition_penalty=transition_penalty,
+        n_epochs=n_epochs,
+        lr=lr,
+    )
+    result = model.fit(x_train_list)
+    test_nll = model.evaluate(x_test_list).tolist()
+    return result, test_nll
+
+
+def _fit_windowed_nonparametric_cvine_from_splits(
+    x_train_list: List[np.ndarray],
+    x_test_list: List[np.ndarray],
+    *,
+    order: Optional[List[int]] = None,
+    knots: int = 9,
+    npc_dict: Optional[Dict[str, Any]] = None,
+) -> Tuple[WindowedNonparametricCVineResult, List[float]]:
+    if len(x_train_list) != len(x_test_list):
+        raise ValueError("x_train_list and x_test_list must have the same length")
+    model = WindowedNonparametricCVine(
+        order=order,
+        knots=knots,
+        npc_dict=npc_dict,
+    )
+    result = model.fit(x_train_list)
+    test_nll = model.evaluate(x_test_list).tolist()
+    return result, test_nll
+
+
+def _fit_joint_dynamic_nonparametric_cvine_from_splits(
+    x_train_list: List[np.ndarray],
+    x_test_list: List[np.ndarray],
+    *,
+    order: Optional[List[int]] = None,
+    knots: int = 9,
+    trajectory_type: str = "basis",
+    trajectory_kwargs: Optional[Dict[str, Any]] = None,
+    n_epochs: int = 20,
+    lr: float = 3e-2,
+    smoothness_penalty: float = 1e-2,
+    batch_size: int = 2,
+    normalization_iters: int = 10,
+    final_normalization_iters: int = 50,
+) -> Tuple[JointDynamicNonparametricCVineResult, List[float]]:
+    if len(x_train_list) != len(x_test_list):
+        raise ValueError("x_train_list and x_test_list must have the same length")
+    model = JointDynamicNonparametricCVine(
+        order=order,
+        knots=knots,
+        trajectory_type=trajectory_type,
+        trajectory_kwargs=trajectory_kwargs,
+        n_epochs=n_epochs,
+        lr=lr,
+        smoothness_penalty=smoothness_penalty,
+        batch_size=batch_size,
+        normalization_iters=normalization_iters,
+        final_normalization_iters=final_normalization_iters,
+    )
+    result = model.fit(x_train_list)
+    test_nll = model.evaluate(x_test_list).tolist()
+    return result, test_nll
 
 
 class _TimeBandwidthMLP(nn.Module):
@@ -1135,6 +1397,69 @@ def _plot_multiplicative_triplet(
     plt.close(fig)
 
 
+def _plot_higher_order_only_switch_panel(
+    out_png: Path,
+    time: np.ndarray,
+    pairwise_abs_corr: np.ndarray,
+    tc_higher_order: np.ndarray,
+    detection_threshold: float,
+    nll_gaps: Dict[str, np.ndarray],
+    change_point: int,
+    title: str,
+) -> None:
+    _set_seaborn_style()
+    fig, axes = plt.subplots(1, 3, figsize=(12.6, 3.6), constrained_layout=True)
+
+    # Panel 1: pairwise summary should stay flat across the regime switch.
+    ax = axes[0]
+    ax.plot(time, pairwise_abs_corr, color="#1f77b4", linewidth=2.2)
+    ax.axvline(float(time[change_point]), color="red", linewidth=2, alpha=0.8)
+    ax.set_title("Pairwise mean |corr|")
+    ax.set_xlabel("time")
+    ax.set_ylabel(r"mean $|\rho_{ij}|$")
+
+    # Panel 2: higher-order score should rise only after the switch.
+    ax = axes[1]
+    ax.plot(time, tc_higher_order, color="#d62728", linewidth=2.2, label=r"$\mathrm{TC}_{\mathrm{higher}}$")
+    ax.axhline(float(detection_threshold), color="gray", linewidth=1.3, linestyle="--", label="threshold")
+    ax.axvline(float(time[change_point]), color="red", linewidth=2, alpha=0.8)
+    ax.fill_between(
+        time,
+        detection_threshold,
+        tc_higher_order,
+        where=tc_higher_order >= detection_threshold,
+        color="#d62728",
+        alpha=0.15,
+    )
+    ax.set_title("Higher-order score")
+    ax.set_xlabel("time")
+    ax.set_ylabel(r"$\mathrm{NLL}(1\mathrm{-trunc}) - \mathrm{NLL}(\mathrm{DVC})$")
+    ax.legend(frameon=True)
+
+    # Panel 3: NLL gaps vs baselines.
+    ax = axes[2]
+    ax.plot(time, nll_gaps["nll_gap"], color="black", linewidth=2.0, label="Gaussian copula")
+    if "nll_gap_truncated_level0" in nll_gaps:
+        ax.plot(time, nll_gaps["nll_gap_truncated_level0"], color="#1f77b4", linewidth=1.8, linestyle="--", label="1-truncated C-vine")
+    if "nll_gap_glasso" in nll_gaps:
+        ax.plot(time, nll_gaps["nll_gap_glasso"], color="#2ca02c", linewidth=1.6, linestyle=":", label="Graphical Lasso")
+    if "nll_gap_tvgl" in nll_gaps:
+        ax.plot(time, nll_gaps["nll_gap_tvgl"], color="#d62728", linewidth=1.6, linestyle="-.", label="TVGL (Frobenius)")
+    if "nll_gap_state_space" in nll_gaps:
+        ax.plot(time, nll_gaps["nll_gap_state_space"], color="#9467bd", linewidth=1.6, linestyle=(0, (3, 1, 1, 1)), label="Gaussian SSM")
+    ax.axhline(0.0, color="gray", linewidth=1.0, linestyle="--")
+    ax.axvline(float(time[change_point]), color="red", linewidth=2, alpha=0.8)
+    ax.set_title("Held-out NLL gap")
+    ax.set_xlabel("time")
+    ax.set_ylabel("baseline - DVC")
+    ax.legend(frameon=True)
+
+    fig.suptitle(title, y=1.03)
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
 def _plot_dynamic_panel(
     out_png: Path,
     time: np.ndarray,
@@ -1256,6 +1581,51 @@ def _plot_dynamic_panel(
             linestyle="-",
             label="KDE-flow (time BW)",
         )
+    if "nll_gap_regularized_dvc" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_regularized_dvc"],
+            color="#8c564b",
+            linewidth=1.8,
+            linestyle=(0, (5, 2)),
+            label="Regularized DVC",
+        )
+    if "nll_gap_joint_dynamic_dvc" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_joint_dynamic_dvc"],
+            color="#000000",
+            linewidth=1.9,
+            linestyle=(0, (7, 1.5)),
+            label="Joint Dynamic DVC",
+        )
+    if "nll_gap_latent_state_dvc" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_latent_state_dvc"],
+            color="#6a3d9a",
+            linewidth=1.9,
+            linestyle=(0, (3, 1.5)),
+            label="Latent-State DVC",
+        )
+    if "nll_gap_windowed_nonparametric_dvc" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_windowed_nonparametric_dvc"],
+            color="#17becf",
+            linewidth=1.7,
+            linestyle=(0, (2, 1)),
+            label="Windowed NP-DVC",
+        )
+    if "nll_gap_joint_nonparametric_dvc" in series:
+        ax4.plot(
+            time,
+            series["nll_gap_joint_nonparametric_dvc"],
+            color="#bc5090",
+            linewidth=1.8,
+            linestyle=(0, (6, 2)),
+            label="Joint NP-DVC",
+        )
     ax4.axhline(0.0, color="gray", linewidth=1.0, linestyle="--")
     ax4.set_title("Held-out copula NLL gap (positive = DVC better)")
     ax4.set_xlabel("time")
@@ -1277,6 +1647,7 @@ def _plot_hub_switch_panel(
     time: np.ndarray,
     true_hub: List[int],
     est_hub: List[int],
+    reg_hub: Optional[List[int]],
     corr_hub: Optional[List[int]],
     glasso_hub: Optional[List[int]],
     tvgl_hub: Optional[List[int]],
@@ -1304,6 +1675,11 @@ def _plot_hub_switch_panel(
         time, est_hub, label="DVC (C-vine root)", linewidth=2.5,
         color="#1f77b4", marker="o", markersize=4, markevery=2,
     )
+    if reg_hub is not None:
+        ax_hub.plot(
+            time, reg_hub, label="Regularized DVC", linewidth=2.2,
+            color="#8c564b", linestyle=(0, (5, 2)), marker="P", markersize=3, markevery=2,
+        )
     if corr_hub is not None:
         ax_hub.plot(
             time, corr_hub, label="corr hub", linewidth=2.0,
@@ -1327,6 +1703,8 @@ def _plot_hub_switch_panel(
     # Add accuracy annotation.
     acc = float(np.mean(np.asarray(true_hub) == np.asarray(est_hub)))
     acc_parts = [f"DVC: {acc:.3f}"]
+    if reg_hub is not None:
+        acc_parts.append(f"Reg-DVC: {float(np.mean(np.asarray(true_hub) == np.asarray(reg_hub))):.3f}")
     if corr_hub is not None:
         acc_parts.append(f"Corr: {float(np.mean(np.asarray(true_hub) == np.asarray(corr_hub))):.3f}")
     if glasso_hub is not None:
@@ -1350,6 +1728,7 @@ def _plot_hub_switch_panel(
             ("nll_gap_glasso", "Graphical Lasso", "#2ca02c", ":"),
             ("nll_gap_tvgl", "TVGL (Frobenius)", "#d62728", "-."),
             ("nll_gap_state_space", "Gaussian SSM", "#9467bd", (0, (3, 1, 1, 1))),
+            ("nll_gap_regularized_dvc", "Regularized DVC", "#8c564b", (0, (5, 2))),
         ]
         for key, label, color, ls in _nll_styles:
             if key in nll_gaps:
@@ -1438,6 +1817,7 @@ def _plot_agent_interaction_episodes_panel(
         ("nll_gap_glasso", "Graphical Lasso", "#2ca02c", ":"),
         ("nll_gap_tvgl", "TVGL (Frobenius)", "#d62728", "-."),
         ("nll_gap_state_space", "Gaussian SSM", "#9467bd", (0, (3, 1, 1, 1))),
+        ("nll_gap_regularized_dvc", "Regularized DVC", "#8c564b", (0, (5, 2))),
     ]
     for key, label, color, ls in _nll_styles:
         if key in nll_gaps:
@@ -1648,6 +2028,165 @@ def run_simulation_benchmark_suite(
             }
             continue
 
+        if name == "higher_order_only_switch":
+            cfg = {
+                "n_time_steps": int(sc.get("n_time_steps", 8)),
+                "n_samples_per_time": int(sc.get("n_samples_per_time", 3000)),
+            }
+            gen = generate_higher_order_only_switch(seed=seed, **cfg)
+            time_data = gen["time_data"]
+            time = gen["time_indices"]
+            change_point = int(gen["change_point"])
+            regime_labels = np.asarray(gen["regime_labels"], dtype=np.int32)
+            regime_schedule = gen["regime_schedule"]
+
+            families = ["independence", "gaussian", "frank"]
+
+            dvc_nll: List[float] = []
+            gauss_nll: List[float] = []
+            trunc_nll: List[float] = []
+            glasso_nll: List[float] = []
+            pairwise_abs_corr: List[float] = []
+            x_train_list: List[np.ndarray] = []
+            x_test_list: List[np.ndarray] = []
+
+            for t in range(time_data.shape[0]):
+                x_t = time_data[t]
+                n = x_t.shape[0]
+                n_train = int(0.8 * n)
+                idx = np.random.default_rng(seed + 19 * t).permutation(n)
+                tr = x_t[idx[:n_train]]
+                te = x_t[idx[n_train:]]
+
+                vine = _fit_parametric_vine(tr, families=families, optimize_structure=False, seed=seed + 19 * t)
+                dvc_nll.append(_mean_copula_nll(vine, te))
+                trunc_vine = _fit_truncated_cvine_level0(tr, families=families, order=[0, 1, 2])
+                trunc_nll.append(_mean_copula_nll(trunc_vine, te))
+                gauss_nll.append(_gaussian_copula_nll_fit_eval(tr, te))
+                glasso_nll.append(_glasso_gaussian_copula_nll_fit_eval(tr, te, alpha=0.02))
+
+                R = np.corrcoef(x_t, rowvar=False)
+                tri = np.triu_indices_from(R, k=1)
+                pairwise_abs_corr.append(float(np.mean(np.abs(R[tri]))))
+
+                x_train_list.append(tr)
+                x_test_list.append(te)
+
+            tvgl_nll = _tvgl_gaussian_copula_nll_fit_eval(
+                x_train_list,
+                x_test_list,
+                alpha=0.02,
+                beta=1.0,
+                max_iter=200,
+                step_size=0.05,
+                eps=1e-4,
+            )
+            ssm_nll, ssm_fit = gaussian_copula_state_space_nll_fit_eval(
+                x_train_list,
+                x_test_list,
+            )
+
+            _dvc_arr = np.asarray(dvc_nll, dtype=np.float64)
+            _trunc_arr = np.asarray(trunc_nll, dtype=np.float64)
+            _gauss_arr = np.asarray(gauss_nll, dtype=np.float64)
+            _glasso_arr = np.asarray(glasso_nll, dtype=np.float64)
+            _tvgl_arr = np.asarray(tvgl_nll, dtype=np.float64)
+            _ssm_arr = np.asarray(ssm_nll, dtype=np.float64)
+            tc_higher_order = _trunc_arr - _dvc_arr
+            pairwise_abs_corr_arr = np.asarray(pairwise_abs_corr, dtype=np.float64)
+
+            indep_mask = regime_labels == 0
+            higher_mask = regime_labels == 1
+            tc_higher_ind_mean = float(np.mean(tc_higher_order[indep_mask])) if np.any(indep_mask) else float("nan")
+            tc_higher_higher_mean = float(np.mean(tc_higher_order[higher_mask])) if np.any(higher_mask) else float("nan")
+            higher_order_regime_contrast = float(tc_higher_higher_mean - tc_higher_ind_mean)
+            pairwise_abs_corr_ind_mean = float(np.mean(pairwise_abs_corr_arr[indep_mask])) if np.any(indep_mask) else float("nan")
+            pairwise_abs_corr_higher_mean = float(np.mean(pairwise_abs_corr_arr[higher_mask])) if np.any(higher_mask) else float("nan")
+
+            if np.any(indep_mask):
+                thresh_higher = float(np.mean(tc_higher_order[indep_mask]) + 2.0 * max(np.std(tc_higher_order[indep_mask]), 0.02))
+            else:
+                thresh_higher = 0.05
+            higher_detected = (tc_higher_order > thresh_higher).astype(np.int32)
+            higher_detect_acc = float(np.mean(higher_detected == regime_labels))
+            if np.any(higher_detected > 0):
+                change_point_hat = int(np.argmax(higher_detected > 0))
+            else:
+                change_point_hat = int(np.argmax(tc_higher_order))
+            change_point_abs_error = int(abs(change_point_hat - change_point))
+
+            try:
+                from sklearn.metrics import average_precision_score, roc_auc_score
+            except Exception:
+                average_precision_score = None
+                roc_auc_score = None
+            higher_auroc = None
+            higher_avg_prec = None
+            if np.unique(regime_labels).size >= 2 and roc_auc_score is not None and average_precision_score is not None:
+                try:
+                    higher_auroc = float(roc_auc_score(regime_labels, tc_higher_order))
+                except Exception:
+                    higher_auroc = None
+                try:
+                    higher_avg_prec = float(average_precision_score(regime_labels, tc_higher_order))
+                except Exception:
+                    higher_avg_prec = None
+
+            nll_gaps = {
+                "nll_gap": (_gauss_arr - _dvc_arr),
+                "nll_gap_truncated_level0": (_trunc_arr - _dvc_arr),
+                "nll_gap_glasso": (_glasso_arr - _dvc_arr),
+                "nll_gap_tvgl": (_tvgl_arr - _dvc_arr),
+                "nll_gap_state_space": (_ssm_arr - _dvc_arr),
+            }
+
+            out_png = plots_dir / "higher_order_only_switch_panel.png"
+            _plot_higher_order_only_switch_panel(
+                out_png,
+                time=time,
+                pairwise_abs_corr=pairwise_abs_corr_arr,
+                tc_higher_order=tc_higher_order,
+                detection_threshold=thresh_higher,
+                nll_gaps=nll_gaps,
+                change_point=change_point,
+                title="Higher-order-only switch with matched pairwise marginals",
+            )
+
+            results["scenarios"][name] = {
+                **cfg,
+                "change_point": change_point,
+                "change_point_hat_higher_order": change_point_hat,
+                "change_point_abs_error_higher_order": change_point_abs_error,
+                "regime_labels": regime_labels.tolist(),
+                "regime_schedule": regime_schedule,
+                "pairwise_abs_corr_by_time": pairwise_abs_corr_arr.tolist(),
+                "pairwise_abs_corr_independence_mean": pairwise_abs_corr_ind_mean,
+                "pairwise_abs_corr_higher_order_mean": pairwise_abs_corr_higher_mean,
+                "pairwise_abs_corr_shift": float(abs(pairwise_abs_corr_higher_mean - pairwise_abs_corr_ind_mean)),
+                "higher_order_detection_threshold": thresh_higher,
+                "higher_order_detection_accuracy": higher_detect_acc,
+                "higher_order_detection_auroc": higher_auroc,
+                "higher_order_detection_average_precision": higher_avg_prec,
+                "higher_order_detected": higher_detected.tolist(),
+                "tc_higher_independence_mean": tc_higher_ind_mean,
+                "tc_higher_higher_order_mean": tc_higher_higher_mean,
+                "higher_order_regime_contrast": higher_order_regime_contrast,
+                "tc_higher_order": tc_higher_order.tolist(),
+                "dvc_nll": dvc_nll,
+                "gaussian_nll": gauss_nll,
+                "truncated_level0_nll": trunc_nll,
+                "glasso_gaussian_nll": glasso_nll,
+                "tvgl_gaussian_nll": tvgl_nll,
+                "state_space_gaussian_nll": ssm_nll,
+                "nll_gap": nll_gaps["nll_gap"].tolist(),
+                "nll_gap_truncated_level0": nll_gaps["nll_gap_truncated_level0"].tolist(),
+                "nll_gap_glasso": nll_gaps["nll_gap_glasso"].tolist(),
+                "nll_gap_tvgl": nll_gaps["nll_gap_tvgl"].tolist(),
+                "nll_gap_state_space": nll_gaps["nll_gap_state_space"].tolist(),
+                "state_space_process_variance": float(ssm_fit.process_variance),
+            }
+            continue
+
         if name == "dynamic_tail_df":
             cfg = {
                 "n_time_steps": int(sc.get("n_time_steps", 30)),
@@ -1664,7 +2203,13 @@ def run_simulation_benchmark_suite(
             cp = gen["change_point"]
 
             families = ["gaussian", "student", "clayton", "gumbel", "joe", "independence"]
+            smooth_dynamic_families = ["gaussian", "student", "independence"]
             dvc_nll = []
+            reg_dvc_nll: List[float] = []
+            joint_dvc_nll: List[float] = []
+            latent_dvc_nll: List[float] = []
+            windowed_np_dvc_nll: List[float] = []
+            joint_np_dvc_nll: List[float] = []
             gauss_nll = []
             trunc_nll = []
             glasso_nll = []
@@ -1743,6 +2288,66 @@ def run_simulation_benchmark_suite(
                 x_train_list,
                 x_test_list,
             )
+            reg_result, reg_dvc_nll = _fit_regularized_dynamic_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                families=smooth_dynamic_families,
+                root_switch_penalty=0.10,
+                family_switch_penalty=0.15,
+                parameter_drift_penalty=0.15,
+                parameter_smoothing=0.30,
+                root_score_method="kendall_tau",
+            )
+            joint_result, joint_dvc_nll = _fit_joint_dynamic_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                families=smooth_dynamic_families,
+                n_basis=2,
+                smoothness_penalty=0.50,
+                ridge_penalty=1e-3,
+                maxiter=20,
+            )
+            latent_result, latent_dvc_nll = _fit_latent_state_dynamic_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                families=smooth_dynamic_families,
+                order=list(joint_result.order),
+                selection_n_basis=2,
+                selection_smoothness_penalty=0.50,
+                latent_dim=1,
+                transition_penalty=5e-2,
+                n_epochs=25,
+                lr=2e-2,
+            )
+            windowed_np_result, windowed_np_dvc_nll = _fit_windowed_nonparametric_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                order=list(joint_result.order),
+                knots=7,
+                npc_dict={
+                    "opt_method": "LL1",
+                    "max_iter_phase1": 1,
+                    "max_iter_phase2": 1,
+                    "normal_iters_phase1": 5,
+                    "normal_iters_phase2": 5,
+                    "final_normalization_iters": 50,
+                    "batch_size": 1,
+                },
+            )
+            joint_np_result, joint_np_dvc_nll = _fit_joint_dynamic_nonparametric_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                order=list(joint_result.order),
+                knots=7,
+                trajectory_type="basis",
+                trajectory_kwargs={"n_basis": 2},
+                n_epochs=3,
+                lr=5e-2,
+                smoothness_penalty=5e-3,
+                batch_size=1,
+                normalization_iters=5,
+                final_normalization_iters=50,
+            )
             kde_flow_nll, kde_flow_val_nll, kde_flow_bandwidths = _kde_flow_truncated_level0_nll_from_splits(
                 x_train_list,
                 x_test_list,
@@ -1767,6 +2372,11 @@ def run_simulation_benchmark_suite(
                 "nll_gap_tvgl": np.asarray(tvgl_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_state_space": np.asarray(ssm_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_kde_flow": np.asarray(kde_flow_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_regularized_dvc": np.asarray(reg_dvc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_joint_dynamic_dvc": np.asarray(joint_dvc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_latent_state_dvc": np.asarray(latent_dvc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_windowed_nonparametric_dvc": np.asarray(windowed_np_dvc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
+                "nll_gap_joint_nonparametric_dvc": np.asarray(joint_np_dvc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
             }
             out_png = plots_dir / "dynamic_tail_df_panel.png"
             _plot_dynamic_panel(
@@ -1786,7 +2396,13 @@ def run_simulation_benchmark_suite(
                 "change_point_hat_tail_emp": cp_hat,
                 "change_point_abs_error_tail_emp": cp_err,
                 "nu_schedule": gen["nu_schedule"].tolist(),
+                "smooth_dynamic_family_candidates": list(smooth_dynamic_families),
                 "dvc_nll": dvc_nll,
+                "regularized_dvc_nll": reg_dvc_nll,
+                "joint_dynamic_dvc_nll": joint_dvc_nll,
+                "latent_state_dvc_nll": latent_dvc_nll,
+                "windowed_nonparametric_dvc_nll": windowed_np_dvc_nll,
+                "joint_nonparametric_dvc_nll": joint_np_dvc_nll,
                 "gaussian_nll": gauss_nll,
                 "nll_gap": (np.asarray(gauss_nll) - np.asarray(dvc_nll)).tolist(),
                 "truncated_level0_nll": trunc_nll,
@@ -1802,6 +2418,22 @@ def run_simulation_benchmark_suite(
                 "kde_flow_val_nll": kde_flow_val_nll,
                 "kde_flow_bandwidths": kde_flow_bandwidths.tolist(),
                 "nll_gap_kde_flow": (np.asarray(kde_flow_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_regularized_dvc": (np.asarray(reg_dvc_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_joint_dynamic_dvc": (np.asarray(joint_dvc_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_latent_state_dvc": (np.asarray(latent_dvc_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_windowed_nonparametric_dvc": (np.asarray(windowed_np_dvc_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_joint_nonparametric_dvc": (np.asarray(joint_np_dvc_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_improvement_regularized_over_dvc": (np.asarray(dvc_nll) - np.asarray(reg_dvc_nll)).tolist(),
+                "nll_improvement_joint_over_dvc": (np.asarray(dvc_nll) - np.asarray(joint_dvc_nll)).tolist(),
+                "nll_improvement_latent_over_dvc": (np.asarray(dvc_nll) - np.asarray(latent_dvc_nll)).tolist(),
+                "joint_dynamic_order": list(joint_result.order),
+                "joint_dynamic_selected_families": [str(edge_fit.family) for edge_fit in joint_result.edge_fits],
+                "latent_state_order": list(latent_result.order),
+                "latent_state_selected_families": [str(edge_fit.family) for edge_fit in latent_result.edge_fits],
+                "windowed_nonparametric_order": list(windowed_np_result.order),
+                "joint_nonparametric_order": list(joint_np_result.order),
+                "regularized_family_switch_count": int(reg_result.total_family_switches()),
+                "regularized_parameter_drift_total": float(reg_result.total_parameter_drift()),
                 "corr_mean_abs": corr_mean,
                 "tau_mean_abs": tau_mean,
                 "tail_emp_upper_q95": tail_emp,
@@ -1984,6 +2616,7 @@ def run_simulation_benchmark_suite(
 
             families = ["gaussian", "independence"]
             dvc_nll: List[float] = []
+            reg_dvc_nll: List[float] = []
             gauss_nll: List[float] = []
             trunc_nll: List[float] = []
             glasso_nll: List[float] = []
@@ -2023,6 +2656,18 @@ def run_simulation_benchmark_suite(
                 x_train_list.append(tr)
                 x_test_list.append(te)
 
+            reg_result, reg_dvc_nll = _fit_regularized_dynamic_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                families=families,
+                root_switch_penalty=0.25,
+                family_switch_penalty=0.0,
+                parameter_drift_penalty=0.0,
+                parameter_smoothing=0.25,
+                root_score_method="kendall_tau",
+            )
+            reg_est_hubs = [int(v) for v in reg_result.root_sequence]
+
             # TVGL baseline (fit across time).
             covs = []
             for xtr in x_train_list:
@@ -2060,6 +2705,7 @@ def run_simulation_benchmark_suite(
                 "nll_gap_glasso": np.asarray(glasso_nll) - _dvc_arr,
                 "nll_gap_tvgl": np.asarray(tvgl_nll) - _dvc_arr,
                 "nll_gap_state_space": np.asarray(ssm_nll) - _dvc_arr,
+                "nll_gap_regularized_dvc": np.asarray(reg_dvc_nll) - _dvc_arr,
             }
 
             out_png = plots_dir / "hub_switch_panel.png"
@@ -2068,6 +2714,7 @@ def run_simulation_benchmark_suite(
                 time=time,
                 true_hub=true_hubs,
                 est_hub=est_hubs,
+                reg_hub=reg_est_hubs,
                 corr_hub=corr_hubs,
                 glasso_hub=glasso_hubs,
                 tvgl_hub=tvgl_hubs,
@@ -2077,6 +2724,7 @@ def run_simulation_benchmark_suite(
             )
 
             acc = float(np.mean(np.asarray(true_hubs) == np.asarray(est_hubs)))
+            acc_reg = float(np.mean(np.asarray(true_hubs) == np.asarray(reg_est_hubs)))
             acc_corr = float(np.mean(np.asarray(true_hubs) == np.asarray(corr_hubs)))
             acc_glasso = float(np.mean(np.asarray(true_hubs) == np.asarray(glasso_hubs)))
             acc_tvgl = float(np.mean(np.asarray(true_hubs) == np.asarray(tvgl_hubs)))
@@ -2090,6 +2738,7 @@ def run_simulation_benchmark_suite(
                 return None
 
             cp_hat_dvc = _first_change(est_hubs)
+            cp_hat_reg = _first_change(reg_est_hubs)
             cp_hat_corr = _first_change(corr_hubs)
             cp_hat_glasso = _first_change(glasso_hubs)
             cp_hat_tvgl = _first_change(tvgl_hubs)
@@ -2099,6 +2748,8 @@ def run_simulation_benchmark_suite(
                 "change_point": cp,
                 "change_point_hat_dvc": cp_hat_dvc,
                 "change_point_abs_error_dvc": None if cp_hat_dvc is None else int(abs(int(cp_hat_dvc) - int(cp))),
+                "change_point_hat_regularized_dvc": cp_hat_reg,
+                "change_point_abs_error_regularized_dvc": None if cp_hat_reg is None else int(abs(int(cp_hat_reg) - int(cp))),
                 "change_point_hat_corr": cp_hat_corr,
                 "change_point_abs_error_corr": None if cp_hat_corr is None else int(abs(int(cp_hat_corr) - int(cp))),
                 "change_point_hat_glasso": cp_hat_glasso,
@@ -2108,6 +2759,8 @@ def run_simulation_benchmark_suite(
                 "true_hubs": true_hubs,
                 "estimated_hubs": est_hubs,
                 "root_recovery_accuracy": acc,
+                "regularized_estimated_hubs": reg_est_hubs,
+                "regularized_root_recovery_accuracy": acc_reg,
                 "corr_hub_estimated_hubs": corr_hubs,
                 "corr_hub_recovery_accuracy": acc_corr,
                 "glasso_hub_estimated_hubs": glasso_hubs,
@@ -2115,6 +2768,7 @@ def run_simulation_benchmark_suite(
                 "tvgl_hub_estimated_hubs": tvgl_hubs,
                 "tvgl_hub_recovery_accuracy": acc_tvgl,
                 "dvc_nll": dvc_nll,
+                "regularized_dvc_nll": reg_dvc_nll,
                 "gaussian_nll": gauss_nll,
                 "truncated_level0_nll": trunc_nll,
                 "glasso_gaussian_nll": glasso_nll,
@@ -2125,6 +2779,10 @@ def run_simulation_benchmark_suite(
                 "nll_gap_glasso": (np.asarray(glasso_nll) - np.asarray(dvc_nll)).tolist(),
                 "nll_gap_tvgl": (np.asarray(tvgl_nll) - np.asarray(dvc_nll)).tolist(),
                 "nll_gap_state_space": (np.asarray(ssm_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_gap_regularized_dvc": (np.asarray(reg_dvc_nll) - np.asarray(dvc_nll)).tolist(),
+                "nll_improvement_regularized_over_dvc": (np.asarray(dvc_nll) - np.asarray(reg_dvc_nll)).tolist(),
+                "regularized_family_switch_count": int(reg_result.total_family_switches()),
+                "regularized_parameter_drift_total": float(reg_result.total_parameter_drift()),
                 "state_space_process_variance": float(ssm_fit.process_variance),
             }
             continue
@@ -2148,6 +2806,7 @@ def run_simulation_benchmark_suite(
             families = ["gaussian", "student", "clayton", "gumbel", "joe", "independence"]
 
             dvc_nll: List[float] = []
+            reg_dvc_nll: List[float] = []
             gauss_nll: List[float] = []
             trunc_nll: List[float] = []
             glasso_nll: List[float] = []
@@ -2175,6 +2834,17 @@ def run_simulation_benchmark_suite(
 
                 x_train_list.append(tr)
                 x_test_list.append(te)
+
+            reg_result, reg_dvc_nll = _fit_regularized_dynamic_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                families=families,
+                root_switch_penalty=0.10,
+                family_switch_penalty=0.20,
+                parameter_drift_penalty=0.10,
+                parameter_smoothing=0.25,
+                root_score_method="aic",
+            )
 
             # Cross-time baselines: TVGL.
             covs = []
@@ -2215,12 +2885,14 @@ def run_simulation_benchmark_suite(
                 "nll_gap_glasso": np.asarray(glasso_nll) - _dvc_arr,
                 "nll_gap_tvgl": np.asarray(tvgl_nll) - _dvc_arr,
                 "nll_gap_state_space": np.asarray(ssm_nll) - _dvc_arr,
+                "nll_gap_regularized_dvc": np.asarray(reg_dvc_nll) - _dvc_arr,
             }
 
             # TC decomposition: pairwise contribution from 1-truncated vine,
             # higher-order residual from full vine minus truncated.
             tc_pairwise = np.asarray(gauss_nll) - np.asarray(trunc_nll)
             tc_higher_order = np.asarray(trunc_nll) - _dvc_arr
+            reg_tc_higher_order = np.asarray(trunc_nll) - np.asarray(reg_dvc_nll)
 
             # --- Episode detection across all methods ---
             # For each method, compute per-time NLL and detect episodes via
@@ -2253,9 +2925,15 @@ def run_simulation_benchmark_suite(
             # Binary detection (0=indep, 1=any interaction) for each method.
             gt_binary = (ep_labels > 0).astype(np.int32)
             method_detections: Dict[str, Dict[str, Any]] = {}
+            try:
+                from sklearn.metrics import average_precision_score, roc_auc_score
+            except Exception:
+                average_precision_score = None
+                roc_auc_score = None
 
             for mname, nll_arr in [
                 ("DVC", dvc_nll),
+                ("Regularized DVC", reg_dvc_nll),
                 ("Gaussian copula", gauss_nll),
                 ("1-truncated C-vine", trunc_nll),
                 ("Graphical Lasso", glasso_nll),
@@ -2271,12 +2949,27 @@ def run_simulation_benchmark_suite(
                 prec = tp / max(tp + fp, 1)
                 rec = tp / max(tp + fn, 1)
                 f1 = 2 * prec * rec / max(prec + rec, 1e-12)
+                # Threshold-free ranking metrics avoid tuning a detector on the same sequence.
+                score = -np.asarray(nll_arr, dtype=np.float64)
+                auroc = None
+                avg_prec = None
+                if np.unique(gt_binary).size >= 2 and roc_auc_score is not None and average_precision_score is not None:
+                    try:
+                        auroc = float(roc_auc_score(gt_binary, score))
+                    except Exception:
+                        auroc = None
+                    try:
+                        avg_prec = float(average_precision_score(gt_binary, score))
+                    except Exception:
+                        avg_prec = None
                 method_detections[mname] = {
                     "detected": det.tolist(),
                     "accuracy": acc_bin,
                     "precision": prec,
                     "recall": rec,
                     "f1": f1,
+                    "auroc": auroc,
+                    "average_precision": avg_prec,
                 }
 
             # DVC 3-class detection (independence / pairwise / higher-order).
@@ -2301,6 +2994,33 @@ def run_simulation_benchmark_suite(
             # Map mixed (label=3) to higher-order (2) for accuracy comparison.
             gt_collapsed = np.where(ep_labels == 3, 2, ep_labels)
             ep_detect_acc = float(np.mean(detected == gt_collapsed))
+            reg_detected = np.zeros(len(time), dtype=np.int32)
+            reg_ep_nll_gap = np.asarray(gauss_nll, dtype=np.float64) - np.asarray(reg_dvc_nll, dtype=np.float64)
+            if np.any(indep_mask):
+                reg_indep_gap = reg_ep_nll_gap[indep_mask]
+                reg_thresh_nll = float(np.mean(reg_indep_gap) + 2.0 * max(np.std(reg_indep_gap), 0.01))
+                reg_indep_trunc = reg_tc_higher_order[indep_mask]
+                reg_thresh_higher = float(np.mean(reg_indep_trunc) + 2.0 * max(np.std(reg_indep_trunc), 0.005))
+            else:
+                reg_thresh_nll = 0.02
+                reg_thresh_higher = 0.01
+            for t_idx in range(len(time)):
+                if reg_ep_nll_gap[t_idx] < reg_thresh_nll:
+                    reg_detected[t_idx] = 0
+                elif reg_tc_higher_order[t_idx] < reg_thresh_higher:
+                    reg_detected[t_idx] = 1
+                else:
+                    reg_detected[t_idx] = 2
+            reg_ep_detect_acc = float(np.mean(reg_detected == gt_collapsed))
+            pair_mask = ep_labels == 1
+            higher_mask = ep_labels == 2
+            mixed_mask = ep_labels == 3
+            tc_higher_pairwise_mean = float(np.mean(tc_higher_order[pair_mask])) if np.any(pair_mask) else float("nan")
+            tc_higher_higher_order_mean = float(np.mean(tc_higher_order[higher_mask])) if np.any(higher_mask) else float("nan")
+            tc_higher_mixed_mean = float(np.mean(tc_higher_order[mixed_mask])) if np.any(mixed_mask) else float("nan")
+            reg_tc_higher_pairwise_mean = float(np.mean(reg_tc_higher_order[pair_mask])) if np.any(pair_mask) else float("nan")
+            reg_tc_higher_higher_order_mean = float(np.mean(reg_tc_higher_order[higher_mask])) if np.any(higher_mask) else float("nan")
+            reg_tc_higher_mixed_mean = float(np.mean(reg_tc_higher_order[mixed_mask])) if np.any(mixed_mask) else float("nan")
 
             # Plot.
             corr_mat_arr = np.stack(corr_matrices, axis=0)  # (T, d, d)
@@ -2324,12 +3044,23 @@ def run_simulation_benchmark_suite(
                 "episode_schedule": ep_schedule,
                 "episode_labels": ep_labels.tolist(),
                 "episode_detection_accuracy": ep_detect_acc,
+                "order_classification_accuracy": ep_detect_acc,
+                "regularized_order_classification_accuracy": reg_ep_detect_acc,
                 "method_detection_metrics": method_detections,
                 "detection_threshold_nll": thresh_nll,
                 "detection_threshold_higher": thresh_higher,
+                "regularized_detection_threshold_nll": reg_thresh_nll,
+                "regularized_detection_threshold_higher": reg_thresh_higher,
+                "tc_higher_pairwise_mean": tc_higher_pairwise_mean,
+                "tc_higher_higher_order_mean": tc_higher_higher_order_mean,
+                "tc_higher_mixed_mean": tc_higher_mixed_mean,
+                "regularized_tc_higher_pairwise_mean": reg_tc_higher_pairwise_mean,
+                "regularized_tc_higher_higher_order_mean": reg_tc_higher_higher_order_mean,
+                "regularized_tc_higher_mixed_mean": reg_tc_higher_mixed_mean,
                 "tc_pairwise": tc_pairwise.tolist(),
                 "tc_higher_order": tc_higher_order.tolist(),
                 "dvc_nll": dvc_nll,
+                "regularized_dvc_nll": reg_dvc_nll,
                 "gaussian_nll": gauss_nll,
                 "truncated_level0_nll": trunc_nll,
                 "glasso_gaussian_nll": glasso_nll,
@@ -2340,6 +3071,11 @@ def run_simulation_benchmark_suite(
                 "nll_gap_glasso": (np.asarray(glasso_nll) - _dvc_arr).tolist(),
                 "nll_gap_tvgl": (np.asarray(tvgl_nll) - _dvc_arr).tolist(),
                 "nll_gap_state_space": (np.asarray(ssm_nll) - _dvc_arr).tolist(),
+                "nll_gap_regularized_dvc": (np.asarray(reg_dvc_nll) - _dvc_arr).tolist(),
+                "nll_improvement_regularized_over_dvc": (np.asarray(dvc_nll) - np.asarray(reg_dvc_nll)).tolist(),
+                "regularized_tc_higher_order": reg_tc_higher_order.tolist(),
+                "regularized_family_switch_count": int(reg_result.total_family_switches()),
+                "regularized_parameter_drift_total": float(reg_result.total_parameter_drift()),
                 "state_space_process_variance": float(ssm_fit.process_variance),
             }
             continue
@@ -2352,6 +3088,8 @@ def run_simulation_benchmark_suite(
         row = {"scenario": name}
         if "root_recovery_accuracy" in payload:
             row["root_recovery_accuracy"] = payload["root_recovery_accuracy"]
+        if "regularized_root_recovery_accuracy" in payload:
+            row["regularized_root_recovery_accuracy"] = payload["regularized_root_recovery_accuracy"]
         if "corr_hub_recovery_accuracy" in payload:
             row["corr_hub_recovery_accuracy"] = payload["corr_hub_recovery_accuracy"]
         if "glasso_hub_recovery_accuracy" in payload:
@@ -2382,12 +3120,96 @@ def run_simulation_benchmark_suite(
             gap = np.asarray(payload["nll_gap_kde_flow"], dtype=np.float64)
             row["nll_gap_kde_flow_mean"] = float(np.nanmean(gap))
             row["nll_gap_kde_flow_std"] = float(np.nanstd(gap))
+        if "nll_gap_regularized_dvc" in payload:
+            gap = np.asarray(payload["nll_gap_regularized_dvc"], dtype=np.float64)
+            row["nll_gap_regularized_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_gap_regularized_dvc_std"] = float(np.nanstd(gap))
+        if "nll_gap_joint_dynamic_dvc" in payload:
+            gap = np.asarray(payload["nll_gap_joint_dynamic_dvc"], dtype=np.float64)
+            row["nll_gap_joint_dynamic_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_gap_joint_dynamic_dvc_std"] = float(np.nanstd(gap))
+        if "nll_gap_latent_state_dvc" in payload:
+            gap = np.asarray(payload["nll_gap_latent_state_dvc"], dtype=np.float64)
+            row["nll_gap_latent_state_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_gap_latent_state_dvc_std"] = float(np.nanstd(gap))
+        if "nll_gap_windowed_nonparametric_dvc" in payload:
+            gap = np.asarray(payload["nll_gap_windowed_nonparametric_dvc"], dtype=np.float64)
+            row["nll_gap_windowed_nonparametric_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_gap_windowed_nonparametric_dvc_std"] = float(np.nanstd(gap))
+        if "nll_gap_joint_nonparametric_dvc" in payload:
+            gap = np.asarray(payload["nll_gap_joint_nonparametric_dvc"], dtype=np.float64)
+            row["nll_gap_joint_nonparametric_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_gap_joint_nonparametric_dvc_std"] = float(np.nanstd(gap))
+        if "nll_improvement_regularized_over_dvc" in payload:
+            gap = np.asarray(payload["nll_improvement_regularized_over_dvc"], dtype=np.float64)
+            row["nll_improvement_regularized_over_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_improvement_regularized_over_dvc_std"] = float(np.nanstd(gap))
+        if "nll_improvement_joint_over_dvc" in payload:
+            gap = np.asarray(payload["nll_improvement_joint_over_dvc"], dtype=np.float64)
+            row["nll_improvement_joint_over_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_improvement_joint_over_dvc_std"] = float(np.nanstd(gap))
+        if "nll_improvement_latent_over_dvc" in payload:
+            gap = np.asarray(payload["nll_improvement_latent_over_dvc"], dtype=np.float64)
+            row["nll_improvement_latent_over_dvc_mean"] = float(np.nanmean(gap))
+            row["nll_improvement_latent_over_dvc_std"] = float(np.nanstd(gap))
+        for k in [
+            "episode_detection_accuracy",
+            "order_classification_accuracy",
+            "regularized_order_classification_accuracy",
+            "higher_order_detection_accuracy",
+            "higher_order_detection_auroc",
+            "higher_order_detection_average_precision",
+            "pairwise_abs_corr_independence_mean",
+            "pairwise_abs_corr_higher_order_mean",
+            "pairwise_abs_corr_shift",
+            "higher_order_regime_contrast",
+            "tc_higher_independence_mean",
+            "tc_higher_higher_order_mean",
+            "tc_higher_pairwise_mean",
+            "tc_higher_higher_order_mean",
+            "tc_higher_mixed_mean",
+            "regularized_tc_higher_pairwise_mean",
+            "regularized_tc_higher_higher_order_mean",
+            "regularized_tc_higher_mixed_mean",
+        ]:
+            if k in payload:
+                try:
+                    row[k] = float(payload[k])
+                except Exception:
+                    pass
+        method_metrics = payload.get("method_detection_metrics")
+        if isinstance(method_metrics, dict):
+            for method_name, prefix in [
+                ("DVC", "dvc"),
+                ("Gaussian copula", "gaussian"),
+                ("1-truncated C-vine", "truncated"),
+                ("Graphical Lasso", "glasso"),
+                ("TVGL", "tvgl"),
+                ("Gaussian SSM", "state_space"),
+                ("Regularized DVC", "regularized_dvc"),
+            ]:
+                mp = method_metrics.get(method_name)
+                if not isinstance(mp, dict):
+                    continue
+                for src_key, dst_key in [
+                    ("f1", f"{prefix}_binary_f1"),
+                    ("auroc", f"{prefix}_binary_auroc"),
+                    ("average_precision", f"{prefix}_binary_average_precision"),
+                ]:
+                    val = mp.get(src_key)
+                    if val is not None:
+                        try:
+                            row[dst_key] = float(val)
+                        except Exception:
+                            pass
 
         # Change-point localization diagnostics (optional per scenario).
         for k in [
             "change_point_abs_error_tail_emp",
             "change_point_abs_error_tail_asym",
+            "change_point_abs_error_higher_order",
             "change_point_abs_error_dvc",
+            "change_point_abs_error_regularized_dvc",
             "change_point_abs_error_corr",
             "change_point_abs_error_glasso",
             "change_point_abs_error_tvgl",

@@ -1,6 +1,6 @@
 # Running Experiments
 
-Experiments are configured with YAML files in `configs/` and executed with:
+Experiments are configured with YAML files in `configs/` for general use, while the paper benchmark configs live in `drafts/configs/`. Execute them with:
 
 ```bash
 python scripts/run_experiment.py <config.yaml>
@@ -16,9 +16,12 @@ python scripts/run_experiment.py --list-examples
 python scripts/run_experiment.py --create-examples
 
 # run a provided config
-python scripts/run_experiment.py configs/probability_analysis.yaml
-python scripts/run_experiment.py configs/entropy_analysis.yaml
-python scripts/run_experiment.py configs/time_dependent.yaml
+python scripts/run_experiment.py drafts/configs/probability_analysis.yaml
+python scripts/run_experiment.py drafts/configs/entropy_analysis.yaml
+python scripts/run_experiment.py drafts/configs/time_dependent.yaml
+
+# run the standalone joint-dynamic example
+python scripts/run_dynamic_cvine_example.py --output-dir results/dynamic_cvine_example
 ```
 
 ## Config Structure
@@ -55,7 +58,7 @@ under the configured `output_dir`.
 To run the standard benchmark configs and export paper-ready tables:
 
 ```bash
-python scripts/generate_benchmark_tables.py --run
+python drafts/scripts/generate_benchmark_tables.py --run
 ```
 
 This creates CSV and LaTeX tables in `results/benchmark_tables/`.
@@ -65,7 +68,7 @@ This creates CSV and LaTeX tables in `results/benchmark_tables/`.
 To prepare all Overleaf-ready assets directly under `drafts/`:
 
 ```bash
-python scripts/prepare_draft_assets.py --run --compile
+python drafts/scripts/prepare_draft_assets.py --run --compile
 ```
 
 This command vendors:

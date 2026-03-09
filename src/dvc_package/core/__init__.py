@@ -2,6 +2,7 @@
 
 from .objects import copula_obj, cop_par_obj, margin_obj, vine_obj_bin
 from .vine_model import fit_vine, evaluate_vine, sample_vine
+from .nonparametric_vine import fit_nonparametric_vine, evaluate_nonparametric_vine
 from .info_estimation import (
     vine_entropy,
     cond_vine_entropy,
@@ -9,7 +10,7 @@ from .info_estimation import (
     compute_max,
     theoretic_mutual_information_AWGN,
 )
-from .vine_factory import create_vine, VineType
+from .vine_factory import create_vine, VineType, optimize_vine_type
 from .param_copula import (
     copulapdf,
     copulaccdf,
@@ -26,8 +27,9 @@ __all__ = [
     "copula_obj", "cop_par_obj", "margin_obj", "vine_obj_bin",
     # Vine model
     "fit_vine", "evaluate_vine", "sample_vine",
+    "fit_nonparametric_vine", "evaluate_nonparametric_vine",
     # Factory
-    "create_vine", "VineType",
+    "create_vine", "VineType", "optimize_vine_type",
     # Copula functions
     "copulapdf", "copulaccdf", "copulainvccdf", "parametric_fit",
     # Info estimation

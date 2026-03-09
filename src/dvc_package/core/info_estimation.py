@@ -2,9 +2,89 @@
 # src/DVC/info_estimation.py
 ###############################################
 
+import logging
 import torch
 import numpy as np
 from typing import Dict, Tuple
+from contextlib import contextmanager
+
+
+logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _temporary_seed(seed):
+    if seed is None:
+        yield
+        return
+
+    np_state = np.random.get_state()
+    torch_state = torch.random.get_rng_state()
+    cuda_states = None
+    if torch.cuda.is_available():
+        cuda_states = torch.cuda.get_rng_state_all()
+    np.random.seed(int(seed))
+    torch.manual_seed(int(seed))
+    try:
+        yield
+    finally:
+        np.random.set_state(np_state)
+        torch.random.set_rng_state(torch_state)
+        if cuda_states is not None:
+            torch.cuda.set_rng_state_all(cuda_states)
+
+
+def _unit_scale(units: str) -> float:
+    units_norm = str(units).lower()
+    if units_norm in {"bit", "bits"}:
+        return float(np.log(2.0))
+    if units_norm in {"nat", "nats", "e"}:
+        return 1.0
+    raise ValueError(f"Unsupported information unit: {units}")
+
+
+def _log_prob(values: np.ndarray, units: str) -> np.ndarray:
+    clipped = np.asarray(values, dtype=np.float64)
+    return np.log(clipped + 1e-15) / _unit_scale(units)
+
+
+def _gaussian_mutual_information_from_samples(x: np.ndarray,
+                                              y: np.ndarray,
+                                              units: str) -> float:
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    if x.ndim == 1:
+        x = x[:, None]
+    if y.ndim == 1:
+        y = y[:, None]
+    xy = np.concatenate([x, y], axis=1)
+    eps = 1e-8
+
+    def _regularized_cov(z: np.ndarray) -> np.ndarray:
+        cov = np.cov(z, rowvar=False)
+        if np.ndim(cov) == 0:
+            cov = np.asarray([[float(cov)]], dtype=np.float64)
+        cov = np.asarray(cov, dtype=np.float64)
+        cov = 0.5 * (cov + cov.T)
+        cov = cov + eps * np.eye(cov.shape[0], dtype=np.float64)
+        return cov
+
+    cov_x = _regularized_cov(x)
+    cov_y = _regularized_cov(y)
+    cov_xy = _regularized_cov(xy)
+    sign_x, logdet_x = np.linalg.slogdet(cov_x)
+    sign_y, logdet_y = np.linalg.slogdet(cov_y)
+    sign_xy, logdet_xy = np.linalg.slogdet(cov_xy)
+    if sign_x <= 0 or sign_y <= 0 or sign_xy <= 0:
+        raise RuntimeError("Covariance regularization failed during Gaussian MI fallback")
+    mi_nats = 0.5 * (logdet_x + logdet_y - logdet_xy)
+    return max(0.0, float(mi_nats / _unit_scale(units)))
+
+
+def _safe_stderr(conf: float, varsum: float, denom: float) -> float:
+    if denom <= 0:
+        return float("inf")
+    return float(conf) * float(np.sqrt(max(float(varsum) / float(denom), 0.0)))
 
 def vine_entropy(vine, info_dict: dict) -> float:
     """
@@ -18,7 +98,8 @@ def vine_entropy(vine, info_dict: dict) -> float:
             - iterations: Maximum number of iterations
             
     Returns:
-        H_est: Estimated entropy value
+        H_est: Estimated entropy value in the units specified by
+            ``info_dict['units']``. Defaults to bits for backward compatibility.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -26,6 +107,8 @@ def vine_entropy(vine, info_dict: dict) -> float:
     alpha = info_dict.get('alpha', 0.05)
     cases = info_dict.get('cases', 1000)
     max_iter = info_dict.get('iterations', 10)
+    units = info_dict.get('units', 'bits')
+    seed = info_dict.get('seed')
     d = vine.n_cop
     
     # Get confidence interval multiplier
@@ -48,38 +131,37 @@ def vine_entropy(vine, info_dict: dict) -> float:
         mig = 0.0
     
     # Monte Carlo iterations
-    while (stderr1 >= erreps) and (mo < max_iter):
-        mo += 1
-        
-        # Sample from vine
-        if vine.param == False:
-            # Non-parametric sampling
-            w = torch.rand(cases, d, device=device)
-            w = (mag - mig) * (w - w.min()) / (w.max() - w.min()) + mig
-            sample = vine.sample(cases) if hasattr(vine, 'sample') else w
-        else:
-            # Parametric sampling
-            sample = vine.sample(cases) if hasattr(vine, 'sample') else torch.randn(cases, d, device=device)
-        
-        # Evaluate PDF
-        p, p_copula, log_marg_f = vine.evaluation(sample)
-        
-        # Convert to numpy for log computation
-        p_copula_np = p_copula.cpu().numpy()
-        
-        # Compute log2 of probability
-        log2pp = np.log2(p_copula_np + 1e-15)  # Add small value to avoid log(0)
-        log2pp[p_copula_np == 0] = 0.
-        
-        # Update entropy estimate
-        old_H_est = H_est
-        H_est += (np.mean(log2pp) - H_est) / mo
-        
-        # Update variance sum for standard error calculation
-        varsum1 += np.sum((log2pp - H_est) * (log2pp - old_H_est))
-        denom = mo * cases * (mo * cases - 1)
-        if denom > 0:
-            stderr1 = conf * np.sqrt(varsum1 / denom)
+    with _temporary_seed(seed):
+        while (stderr1 >= erreps) and (mo < max_iter):
+            mo += 1
+            
+            # Sample from vine
+            if vine.param == False:
+                # Non-parametric sampling
+                w = torch.rand(cases, d, device=device)
+                w = (mag - mig) * (w - w.min()) / (w.max() - w.min()) + mig
+                sample = vine.sample(cases) if hasattr(vine, 'sample') else w
+            else:
+                # Parametric sampling
+                sample = vine.sample(cases) if hasattr(vine, 'sample') else torch.randn(cases, d, device=device)
+            
+            # Evaluate PDF
+            p, p_copula, log_marg_f = vine.evaluation(sample)
+
+            p_copula_np = p_copula.detach().cpu().numpy()
+            p_copula_np = np.where(np.isfinite(p_copula_np), p_copula_np, 1e-15)
+            logpp = _log_prob(p_copula_np, units)
+            logpp[p_copula_np == 0] = 0.
+            
+            # Update entropy estimate
+            old_H_est = H_est
+            H_est += (np.mean(logpp) - H_est) / mo
+            
+            # Update variance sum for standard error calculation
+            varsum1 += np.sum((logpp - H_est) * (logpp - old_H_est))
+            denom = mo * cases * (mo * cases - 1)
+            if denom > 0:
+                stderr1 = _safe_stderr(conf, varsum1, denom)
     
     return -H_est  # Negative because H = -E[log p]
 
@@ -101,6 +183,8 @@ def cond_vine_entropy(vine, vine_f2, info_dict: dict) -> Tuple[float, float, lis
     alpha = info_dict.get('alpha', 0.05)
     cases = info_dict.get('cases', 1000)
     max_iter = info_dict.get('iterations', 10)
+    units = info_dict.get('units', 'bits')
+    seed = info_dict.get('seed')
     d = vine.n_cop
     d_f2 = vine_f2.n_cop
     
@@ -137,75 +221,70 @@ def cond_vine_entropy(vine, vine_f2, info_dict: dict) -> Tuple[float, float, lis
         mig_f2 = mig
     
     # Monte Carlo iterations
-    while ((stderr1 >= erreps) or (stderr2 >= erreps)) and (mo < max_iter):
-        mo += 1
-        
-        if vine.param == False:
-            # Non-parametric case
-            
-            # Sample from joint copula
-            w = torch.rand(cases, d, device=device)
-            w = (mag - mig) * (w - w.min()) / (w.max() - w.min()) + mig
-            
-            if hasattr(vine, 'sample'):
-                sample = vine.sample(cases)
+    with _temporary_seed(seed):
+        while ((stderr1 >= erreps) or (stderr2 >= erreps)) and (mo < max_iter):
+            mo += 1
+
+            if vine.param == False:
+                # Non-parametric case
+                w = torch.rand(cases, d, device=device)
+                w = (mag - mig) * (w - w.min()) / (w.max() - w.min()) + mig
+
+                if hasattr(vine, 'sample'):
+                    sample = vine.sample(cases)
+                else:
+                    sample = w.cpu().numpy()
+
+                # Evaluate joint density
+                p, p_copula, _ = vine.evaluation(torch.from_numpy(sample).to(device))
+
+                # Sample from marginal copula (Y)
+                sample_f2 = sample[:, :d_f2]
+
+                # Evaluate marginal density
+                p_f2, p_copula_f2, _ = vine_f2.evaluation(torch.from_numpy(sample_f2).to(device))
+
+                # Compute conditional entropy
+                p_np = np.where(np.isfinite(p.cpu().numpy()), p.cpu().numpy(), 1e-15)
+                p_f2_np = np.where(np.isfinite(p_f2.cpu().numpy()), p_f2.cpu().numpy(), 1e-15)
+                p_cond = np.exp(np.log(p_np + 1e-15) - np.log(p_f2_np + 1e-15))
+
+                log_cond = _log_prob(p_cond, units)
+                log_cond[p_cond == 0] = 0
+
+                old_cond_entr = cond_entr
+                cond_entr += (np.mean(log_cond) - cond_entr) / mo
+
+                varsum1 += np.sum((log_cond - cond_entr) * (log_cond - old_cond_entr))
+                stderr1 = _safe_stderr(conf, varsum1, mo * cases * (mo * cases - 1) + 1e-15)
+
+                log_f2 = _log_prob(p_f2_np, units)
+                log_f2[p_f2_np == 0] = 0
+
+                old_entr_f2 = entr_f2
+                entr_f2 += (np.mean(log_f2) - entr_f2) / mo
+
+                varsum2 += np.sum((log_f2 - entr_f2) * (log_f2 - old_entr_f2))
+                stderr2 = _safe_stderr(conf, varsum2, mo * cases * (mo * cases - 1) + 1e-15)
+
             else:
-                sample = w.cpu().numpy()
+                # Parametric case
+                sample = vine.sample(cases) if hasattr(vine, 'sample') else torch.randn(cases, d, device=device).cpu().numpy()
                 
-            # Evaluate joint density
-            p, p_copula, _ = vine.evaluation(torch.from_numpy(sample).to(device))
+                # Compute pdf of samples
+                p, pcop, _ = vine.evaluation(torch.from_numpy(sample).to(device))
+                
+                pcop_np = np.where(np.isfinite(pcop.detach().cpu().numpy()), pcop.detach().cpu().numpy(), 1e-15)
+                logpp = _log_prob(pcop_np, units)
+                logpp[pcop_np == 0] = 0
+                
+                old_cond_entr = cond_entr
+                cond_entr += (np.mean(logpp) - cond_entr) / mo
+                varsum1 += np.sum((logpp - cond_entr) * (logpp - old_cond_entr))
+                stderr1 = _safe_stderr(conf, varsum1, mo * cases * (mo * cases - 1) + 1e-15)
             
-            # Sample from marginal copula (Y)
-            sample_f2 = sample[:, :d_f2]  # Take first d_f2 dimensions
-            
-            # Evaluate marginal density
-            p_f2, p_copula_f2, _ = vine_f2.evaluation(torch.from_numpy(sample_f2).to(device))
-            
-            # Compute conditional entropy
-            p_np = p.cpu().numpy()
-            p_f2_np = p_f2.cpu().numpy()
-            
-            # p(x|y) = p(x,y) / p(y)
-            p_cond = np.exp(np.log(p_np + 1e-15) - np.log(p_f2_np + 1e-15))
-            
-            log2_cond = np.log2(p_cond + 1e-15)
-            log2_cond[p_cond == 0] = 0
-            
-            # Update conditional entropy
-            old_cond_entr = cond_entr
-            cond_entr += (np.mean(log2_cond) - cond_entr) / mo
-            
-            varsum1 += np.sum((log2_cond - cond_entr) * (log2_cond - old_cond_entr))
-            stderr1 = conf * np.sqrt(varsum1 / (mo * cases * (mo * cases - 1) + 1e-15))
-            
-            # Compute marginal entropy
-            log2_f2 = np.log2(p_f2_np + 1e-15)
-            log2_f2[p_f2_np == 0] = 0
-            
-            old_entr_f2 = entr_f2
-            entr_f2 += (np.mean(log2_f2) - entr_f2) / mo
-            
-            varsum2 += np.sum((log2_f2 - entr_f2) * (log2_f2 - old_entr_f2))
-            stderr2 = conf * np.sqrt(varsum2 / (mo * cases * (mo * cases - 1) + 1e-15))
-            
-        else:
-            # Parametric case
-            sample = vine.sample(cases) if hasattr(vine, 'sample') else torch.randn(cases, d, device=device).cpu().numpy()
-            
-            # Compute pdf of samples
-            p, pcop, _ = vine.evaluation(torch.from_numpy(sample).to(device))
-            
-            pcop_np = pcop.cpu().numpy()
-            log2pp = np.log2(pcop_np + 1e-15)
-            log2pp[pcop_np == 0] = 0
-            
-            old_cond_entr = cond_entr
-            cond_entr += (np.mean(log2pp) - cond_entr) / mo
-            varsum1 += np.sum((log2pp - cond_entr) * (log2pp - old_cond_entr))
-            stderr1 = conf * np.sqrt(varsum1 / (mo * cases * (mo * cases - 1) + 1e-15))
-        
-        # Store mutual information at each iteration
-        info.append(-cond_entr + entr_f2)  # MI = H(Y) - H(X|Y)
+            # Store mutual information at each iteration
+            info.append(-cond_entr + entr_f2)  # MI = H(Y) - H(X|Y)
         
     return -entr_f2, -cond_entr, info
 
@@ -237,6 +316,8 @@ def mutual_information(vine, X_indices, Y_indices, info_dict: dict) -> float:
     alpha = info_dict.get('alpha', 0.05)
     cases = info_dict.get('cases', 1000)
     max_iter = info_dict.get('iterations', 10)
+    units = info_dict.get('units', 'bits')
+    seed = info_dict.get('seed')
     
     # Get confidence interval multiplier
     normal_dist = torch.distributions.Normal(0., 1.)
@@ -253,65 +334,59 @@ def mutual_information(vine, X_indices, Y_indices, info_dict: dict) -> float:
     erreps = 1e-3
     
     # Monte Carlo iterations
-    while (stderr >= erreps) and (mo < max_iter):
-        mo += 1
-        
-        # Sample from vine
-        if hasattr(vine, 'sample'):
-            samples = vine.sample(cases)
-        else:
-            samples = np.random.randn(cases, vine.n_cop)
-        
-        samples = torch.from_numpy(samples).float().to(device)
-        
-        # Extract relevant variables
-        X_samples = samples[:, X_indices]
-        Y_samples = samples[:, Y_indices]
-        XY_samples = samples[:, joint_indices]
-        
-        # Estimate densities using kernel density estimation
-        # For simplicity, we'll use a basic approach here
-        # In practice, you'd want to use the full vine structure
-        
-        # Compute log densities (simplified)
-        # This is a placeholder - in practice you'd evaluate the marginal vines
-        from scipy.stats import gaussian_kde
-        
-        # Convert to numpy for KDE
-        X_np = X_samples.cpu().numpy()
-        Y_np = Y_samples.cpu().numpy()
-        XY_np = XY_samples.cpu().numpy()
-        
-        # Estimate densities
-        try:
-            kde_X = gaussian_kde(X_np.T)
-            kde_Y = gaussian_kde(Y_np.T)
-            kde_XY = gaussian_kde(XY_np.T)
+    with _temporary_seed(seed):
+        while (stderr >= erreps) and (mo < max_iter):
+            mo += 1
             
-            # Evaluate densities
-            log_p_X = np.log(kde_X(X_np.T) + 1e-15)
-            log_p_Y = np.log(kde_Y(Y_np.T) + 1e-15)
-            log_p_XY = np.log(kde_XY(XY_np.T) + 1e-15)
+            # Sample from vine
+            if hasattr(vine, 'sample'):
+                samples = vine.sample(cases)
+            else:
+                samples = np.random.randn(cases, vine.n_cop)
+
+            if isinstance(samples, torch.Tensor):
+                samples = samples.detach().cpu().numpy()
+            samples = torch.from_numpy(np.asarray(samples, dtype=np.float32)).float().to(device)
             
-            # MI = E[log(p(X,Y)/(p(X)p(Y)))]
-            mi_samples = log_p_XY - log_p_X - log_p_Y
+            # Extract relevant variables
+            X_samples = samples[:, X_indices]
+            Y_samples = samples[:, Y_indices]
+            XY_samples = samples[:, joint_indices]
             
-        except:
-            # Fallback to simple estimate
-            mi_samples = np.random.normal(0, 0.1, cases)
-        
-        # Update MI estimate
-        old_mi_est = mi_est
-        mi_est += (np.mean(mi_samples) - mi_est) / mo
-        
-        # Update variance for standard error
-        varsum += np.sum((mi_samples - mi_est) * (mi_samples - old_mi_est))
-        denom = mo * cases * (mo * cases - 1)
-        if denom > 0:
-            stderr = conf * np.sqrt(varsum / denom)
-    
-    # Convert from nats to bits
-    mi_est = mi_est / np.log(2)
+            from scipy.stats import gaussian_kde
+            
+            # Convert to numpy for KDE
+            X_np = X_samples.cpu().numpy()
+            Y_np = Y_samples.cpu().numpy()
+            XY_np = XY_samples.cpu().numpy()
+            
+            # Estimate densities
+            try:
+                kde_X = gaussian_kde(X_np.T)
+                kde_Y = gaussian_kde(Y_np.T)
+                kde_XY = gaussian_kde(XY_np.T)
+                
+                # Evaluate densities
+                log_p_X = np.log(kde_X(X_np.T) + 1e-15)
+                log_p_Y = np.log(kde_Y(Y_np.T) + 1e-15)
+                log_p_XY = np.log(kde_XY(XY_np.T) + 1e-15)
+                
+                # MI = E[log(p(X,Y)/(p(X)p(Y)))]
+                mi_samples = (log_p_XY - log_p_X - log_p_Y) / _unit_scale(units)
+            except Exception as exc:
+                logger.warning("Falling back to Gaussian MI approximation because KDE failed: %s", exc)
+                mi_value = _gaussian_mutual_information_from_samples(X_np, Y_np, units=units)
+                mi_samples = np.full(cases, mi_value, dtype=np.float64)
+            
+            # Update MI estimate
+            old_mi_est = mi_est
+            mi_est += (np.mean(mi_samples) - mi_est) / mo
+            
+            # Update variance for standard error
+            varsum += np.sum((mi_samples - mi_est) * (mi_samples - old_mi_est))
+            denom = mo * cases * (mo * cases - 1)
+            if denom > 0:
+                stderr = _safe_stderr(conf, varsum, denom)
     
     return max(0, mi_est)  # MI is non-negative
 

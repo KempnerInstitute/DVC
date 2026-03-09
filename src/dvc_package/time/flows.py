@@ -1,98 +1,113 @@
 """
 Time-dependent bandwidth flows for vine copulas.
 
-This module implements normalizing flows for modeling time-varying bandwidth
-parameters in local likelihood estimation, enabling time-dependent vine copulas.
+This module exposes the canonical time -> bandwidth network used across the
+time-dependent API. It supports both the legacy ``output_dim`` interface and
+the edge-aware ``n_edges`` interface used by ``TimeDependentVine``.
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from typing import Optional, Tuple, List
+from typing import Optional, List
 import math
 
 
 class TimeBandwidthFlow(nn.Module):
     """
-    Normalizing Flow for Time-Dependent Bandwidth Parameters.
-    
-    This neural network maps time indices to bandwidth parameters for 
-    local likelihood estimation in vine copulas. Based on the TensorFlow
-    implementation in DVC_NF.
-    
-    Architecture:
-    - Input: time index t (normalized to [0,1])
-    - Output: bandwidth parameter b(t) > 0 for each dimension
-    - Constraint: b(t) must be positive for valid kernel estimation
+    Unified time -> bandwidth network.
+
+    Two constructor modes are supported:
+    - Legacy mode: ``hidden_dim``/``output_dim``/``n_layers`` with softplus outputs.
+    - Edge-aware mode: ``n_edges``/``hidden_dims`` with bounded outputs in
+      ``[min_bandwidth, max_bandwidth]`` for local-likelihood evaluation.
     """
-    
-    def __init__(self, 
-                 hidden_dim: int = 64,
-                 output_dim: int = 2,
-                 n_layers: int = 3,
-                 activation: str = 'relu',
-                 dropout_rate: float = 0.1,
-                 use_batch_norm: bool = True,
-                 name: Optional[str] = None):
-        """
-        Initialize TimeBandwidthFlow.
-        
-        Args:
-            hidden_dim: Hidden layer dimension
-            output_dim: Output dimension (typically 2 for bivariate copulas)
-            n_layers: Number of hidden layers
-            activation: Activation function ('relu', 'elu', 'leaky_relu')
-            dropout_rate: Dropout rate for regularization
-            use_batch_norm: Whether to use batch normalization
-            name: Optional name for the module
-        """
-        super(TimeBandwidthFlow, self).__init__()
-        
-        self.hidden_dim = hidden_dim
-        self.output_dim = output_dim
-        self.n_layers = n_layers
-        self.dropout_rate = dropout_rate
-        self.use_batch_norm = use_batch_norm
-        
-        # Activation function
-        if activation == 'relu':
-            self.activation = nn.ReLU()
-        elif activation == 'elu':
-            self.activation = nn.ELU()
-        elif activation == 'leaky_relu':
-            self.activation = nn.LeakyReLU(0.2)
+
+    def __init__(
+        self,
+        n_edges: Optional[int] = None,
+        hidden_dims: Optional[List[int]] = None,
+        time_embedding_dim: int = 16,
+        activation: str = "relu",
+        dropout_rate: float = 0.1,
+        min_bandwidth: float = 0.01,
+        max_bandwidth: float = 2.0,
+        hidden_dim: int = 64,
+        output_dim: int = 2,
+        n_layers: int = 3,
+        use_batch_norm: Optional[bool] = None,
+        name: Optional[str] = None,
+    ):
+        super().__init__()
+
+        self.name = name
+        self.mode = "edge" if n_edges is not None else "legacy"
+        self.dropout_rate = float(dropout_rate)
+        self.min_bandwidth = float(min_bandwidth)
+        self.max_bandwidth = float(max_bandwidth)
+        self.register_buffer("_time_min", torch.tensor(0.0), persistent=False)
+        self.register_buffer("_time_max", torch.tensor(1.0), persistent=False)
+
+        if self.mode == "edge":
+            self.n_edges = int(max(n_edges, 1))
+            self.output_dim = self.n_edges
+            self.hidden_dims = list(hidden_dims) if hidden_dims is not None else [64, 32]
+            self.time_embedding_dim = int(time_embedding_dim)
+            self.use_batch_norm = False if use_batch_norm is None else bool(use_batch_norm)
+            self.time_embedding = nn.Linear(1, self.time_embedding_dim)
+
+            layers = []
+            input_dim = self.time_embedding_dim
+            for width in self.hidden_dims:
+                layers.append(nn.Linear(input_dim, int(width)))
+                if self.use_batch_norm:
+                    layers.append(nn.BatchNorm1d(int(width)))
+                layers.append(self._get_activation(activation))
+                if self.dropout_rate > 0:
+                    layers.append(nn.Dropout(self.dropout_rate))
+                input_dim = int(width)
+            layers.append(nn.Linear(input_dim, self.n_edges))
+            self.network = nn.Sequential(*layers)
         else:
-            self.activation = nn.ReLU()
-        
-        # Build layers
-        layers = []
-        
-        # Input layer
-        layers.append(nn.Linear(1, hidden_dim))
-        if use_batch_norm:
-            layers.append(nn.BatchNorm1d(hidden_dim))
-        layers.append(self.activation)
-        if dropout_rate > 0:
-            layers.append(nn.Dropout(dropout_rate))
-        
-        # Hidden layers
-        for i in range(n_layers - 1):
-            layers.append(nn.Linear(hidden_dim, hidden_dim))
-            if use_batch_norm:
-                layers.append(nn.BatchNorm1d(hidden_dim))
-            layers.append(self.activation)
-            if dropout_rate > 0:
-                layers.append(nn.Dropout(dropout_rate))
-        
-        # Output layer
-        layers.append(nn.Linear(hidden_dim, output_dim))
-        
-        self.network = nn.Sequential(*layers)
-        
-        # Initialize weights
+            self.hidden_dim = int(hidden_dim)
+            self.output_dim = int(output_dim)
+            self.n_edges = self.output_dim
+            self.n_layers = int(n_layers)
+            self.use_batch_norm = True if use_batch_norm is None else bool(use_batch_norm)
+            self.time_embedding = None
+
+            layers = [nn.Linear(1, self.hidden_dim)]
+            if self.use_batch_norm:
+                layers.append(nn.BatchNorm1d(self.hidden_dim))
+            layers.append(self._get_activation(activation))
+            if self.dropout_rate > 0:
+                layers.append(nn.Dropout(self.dropout_rate))
+
+            for _ in range(self.n_layers - 1):
+                layers.append(nn.Linear(self.hidden_dim, self.hidden_dim))
+                if self.use_batch_norm:
+                    layers.append(nn.BatchNorm1d(self.hidden_dim))
+                layers.append(self._get_activation(activation))
+                if self.dropout_rate > 0:
+                    layers.append(nn.Dropout(self.dropout_rate))
+
+            layers.append(nn.Linear(self.hidden_dim, self.output_dim))
+            self.network = nn.Sequential(*layers)
+
         self._initialize_weights()
-    
+
+    def _get_activation(self, activation: str) -> nn.Module:
+        """Return a fresh activation module by name."""
+        if activation == "relu":
+            return nn.ReLU()
+        if activation == "elu":
+            return nn.ELU()
+        if activation == "tanh":
+            return nn.Tanh()
+        if activation == "leaky_relu":
+            return nn.LeakyReLU(0.2)
+        return nn.ReLU()
+
     def _initialize_weights(self):
         """Initialize network weights using Xavier/Glorot initialization."""
         for module in self.modules():
@@ -100,35 +115,47 @@ class TimeBandwidthFlow(nn.Module):
                 nn.init.xavier_uniform_(module.weight)
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
-    
+
+    def _normalize_time(self, t: torch.Tensor) -> torch.Tensor:
+        """Map absolute time values to [0, 1] for stable network inputs."""
+        denom = (self._time_max - self._time_min).clamp_min(1e-8)
+        return ((t - self._time_min) / denom).clamp(0.0, 1.0)
+
     def forward(self, t: torch.Tensor, training: Optional[bool] = None) -> torch.Tensor:
         """
         Forward pass: time -> bandwidth.
-        
-        Args:
-            t: Time indices, shape (batch_size, 1) or (batch_size,)
-                Should be normalized to [0, 1] range
-            training: Whether in training mode (for dropout/batch_norm)
-                
-        Returns:
-            bandwidth: Positive bandwidth values, shape (batch_size, output_dim)
         """
-        # Ensure proper shape
-        if len(t.shape) == 1:
+        if t.dim() == 1:
             t = t.unsqueeze(-1)
-        
-        # Set training mode if specified
+
+        t = t.to(dtype=torch.float32)
         if training is not None:
             self.train(training)
-        
-        # Forward pass through network
-        x = self.network(t)
-        
-        # Ensure positivity using softplus + small constant
-        # This matches the TensorFlow implementation approach
-        bandwidth = F.softplus(x) + 1e-4
-        
-        return bandwidth
+        t01 = self._normalize_time(t)
+
+        if self.mode == "edge":
+            t_embed = torch.tanh(self.time_embedding(2.0 * t01 - 1.0))
+            raw = self.network(t_embed)
+            bw = torch.sigmoid(raw)
+            return self.min_bandwidth + (self.max_bandwidth - self.min_bandwidth) * bw
+
+        raw = self.network(t01)
+        return F.softplus(raw) + 1e-4
+
+    def set_time_range(self, t_min: float, t_max: float) -> None:
+        """Store the absolute time span used by forward()."""
+        t_lo = float(min(t_min, t_max))
+        t_hi = float(max(t_min, t_max))
+        if abs(t_hi - t_lo) < 1e-8:
+            t_hi = t_lo + 1.0
+        self._time_min = torch.tensor(t_lo, dtype=torch.float32, device=self._time_min.device)
+        self._time_max = torch.tensor(t_hi, dtype=torch.float32, device=self._time_max.device)
+
+    def get_bandwidth_at_time(self, time: float) -> torch.Tensor:
+        """Evaluate the network at a single scalar time."""
+        time_tensor = torch.tensor([[time]], dtype=torch.float32, device=self._time_min.device)
+        with torch.no_grad():
+            return self.forward(time_tensor).squeeze(0)
 
 
 class MLPEdgeFlow(nn.Module):

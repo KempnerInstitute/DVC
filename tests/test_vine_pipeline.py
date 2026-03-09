@@ -12,9 +12,10 @@ import torch
 import numpy as np
 from scipy.stats import norm
 
-from dvc_package.core.vine_factory import create_vine
+from dvc_package.core.vine_factory import create_vine, optimize_vine_type
 from dvc_package.core.objects import vine_obj_bin, margin_obj, cop_par_obj
 from dvc_package.core.vine_model import fit_vine, evaluate_vine, sample_vine
+from dvc_package.core.sampling import vine_cop_par_sample
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +75,33 @@ class TestVineFitting:
 
         assert vine.fitted
         assert len(vine.copulas) == 3  # 4D → 3 levels
+
+    @pytest.mark.parametrize(
+        ("vine_type", "create_kwargs"),
+        [
+            ("d-vine", {"variable_order": [0, 2, 1, 3]}),
+            ("r-vine", {}),
+        ],
+    )
+    def test_fit_generic_parametric_vines(self, vine_type, create_kwargs):
+        """Fit non-C vine types through the same public parametric pipeline."""
+        rho = np.array(
+            [
+                [1.0, 0.6, 0.4, 0.2],
+                [0.6, 1.0, 0.5, 0.3],
+                [0.4, 0.5, 1.0, 0.4],
+                [0.2, 0.3, 0.4, 1.0],
+            ]
+        )
+        x = _make_correlated_gaussian(rho, n=350)
+        vine = create_vine(vine_type, vine_depth=4, **create_kwargs)
+        dicts = _make_default_dicts()
+        fit_vine(vine, x, *dicts)
+
+        assert vine.fitted is True
+        assert vine.param is True
+        assert len(vine.copulas) == 3
+        assert all(len(level) > 0 for level in vine.copulas)
 
     def test_copula_families_are_valid(self):
         """All fitted copulas should have a recognized family."""
@@ -135,6 +163,34 @@ class TestVineEvaluation:
         p_far, _, _ = evaluate_vine(fitted_vine_3d, far_away)
         assert p_near.mean() > p_far.mean()
 
+    @pytest.mark.parametrize(
+        ("vine_type", "create_kwargs"),
+        [
+            ("d-vine", {"variable_order": [0, 2, 1, 3]}),
+            ("r-vine", {}),
+        ],
+    )
+    def test_generic_vine_evaluation_is_finite(self, vine_type, create_kwargs):
+        """D-vine and R-vine fits should evaluate without NaNs."""
+        rho = np.array(
+            [
+                [1.0, 0.6, 0.4, 0.2],
+                [0.6, 1.0, 0.5, 0.3],
+                [0.4, 0.5, 1.0, 0.4],
+                [0.2, 0.3, 0.4, 1.0],
+            ]
+        )
+        x = _make_correlated_gaussian(rho, n=300, seed=7)
+        vine = create_vine(vine_type, vine_depth=4, **create_kwargs)
+        dicts = _make_default_dicts()
+        fit_vine(vine, x, *dicts)
+
+        pts = torch.tensor(x[:24])
+        p, p_cop, log_m = evaluate_vine(vine, pts)
+        assert torch.isfinite(p).all()
+        assert torch.isfinite(p_cop).all()
+        assert torch.isfinite(log_m).all()
+
 
 # ---------------------------------------------------------------------------
 # Sampling tests
@@ -188,6 +244,79 @@ class TestVineSampling:
             assert abs(np.mean(col)) < 0.5, f"Mean of col {j} = {np.mean(col):.2f}"
             assert 0.3 < np.std(col) < 3.0, f"Std of col {j} = {np.std(col):.2f}"
 
+    @pytest.mark.parametrize(
+        ("vine_type", "create_kwargs"),
+        [
+            ("d-vine", {"variable_order": [0, 2, 1, 3]}),
+            ("r-vine", {}),
+        ],
+    )
+    def test_generic_vine_sampling(self, vine_type, create_kwargs):
+        """D-vine and R-vine sampling should return finite arrays."""
+        rho = np.array(
+            [
+                [1.0, 0.6, 0.4, 0.2],
+                [0.6, 1.0, 0.5, 0.3],
+                [0.4, 0.5, 1.0, 0.4],
+                [0.2, 0.3, 0.4, 1.0],
+            ]
+        )
+        x = _make_correlated_gaussian(rho, n=300, seed=11)
+        vine = create_vine(vine_type, vine_depth=4, **create_kwargs)
+        dicts = _make_default_dicts()
+        fit_vine(vine, x, *dicts)
+
+        samples = sample_vine(vine, 128)
+        assert samples.shape == (128, 4)
+        assert np.isfinite(samples).all()
+
+    @pytest.mark.parametrize(
+        ("vine_type", "create_kwargs"),
+        [
+            ("c-vine", {}),
+            ("d-vine", {"variable_order": [0, 2, 1, 3]}),
+            ("r-vine", {}),
+        ],
+    )
+    def test_fast_parametric_sampler_generates_uniform_copula_draws(self, vine_type, create_kwargs):
+        """The direct inverse-Rosenblatt sampler should stay inside (0,1) without collapse."""
+        rho = np.array(
+            [
+                [1.0, 0.6, 0.4, 0.2],
+                [0.6, 1.0, 0.5, 0.3],
+                [0.4, 0.5, 1.0, 0.4],
+                [0.2, 0.3, 0.4, 1.0],
+            ]
+        )
+        x = _make_correlated_gaussian(rho, n=350, seed=17)
+        vine = create_vine(vine_type, vine_depth=4, **create_kwargs)
+        dicts = _make_default_dicts()
+        fit_vine(vine, x, *dicts)
+
+        _samples, u, _, _ = vine_cop_par_sample(vine, 1024)
+        assert u.shape == (1024, 4)
+        assert np.isfinite(u).all()
+        assert np.all((u > 0.0) & (u < 1.0))
+        assert np.all(np.abs(u.mean(axis=0) - 0.5) < 0.08)
+        assert np.all((u.std(axis=0) > 0.24) & (u.std(axis=0) < 0.33))
+        assert np.all(np.mean((u <= 1e-5) | (u >= 1.0 - 1e-5), axis=0) == 0.0)
+
+    def test_fast_parametric_sampler_handles_mixed_family_cvine(self):
+        """A manually specified mixed-family C-vine should sample finite values."""
+        vine = create_vine("c-vine", vine_depth=3)
+        vine.param = True
+        vine.fitted = True
+        vine.copulas = [
+            [cop_par_obj("clayton", 1.2), cop_par_obj("gaussian", 0.45)],
+            [cop_par_obj("frank", 2.5)],
+        ]
+
+        samples, u, _, _ = vine_cop_par_sample(vine, 512)
+        assert samples.shape == (512, 3)
+        assert np.isfinite(samples).all()
+        assert np.isfinite(u).all()
+        assert np.all((u > 0.0) & (u < 1.0))
+
 
 # ---------------------------------------------------------------------------
 # Vine methods on vine_obj_bin
@@ -232,3 +361,35 @@ class TestVineObjectMethods:
         samples = vine.sample(50)
         assert isinstance(samples, np.ndarray)
         assert samples.shape == (50, 2)
+
+
+class TestVineTypeSelection:
+    """Test selecting the best vine family from fitted candidates."""
+
+    def test_optimize_vine_type_returns_fitted_model(self):
+        """The vine-type selector should fit and score real candidate models."""
+        rho = np.array(
+            [
+                [1.0, 0.65, 0.45, 0.25],
+                [0.65, 1.0, 0.55, 0.35],
+                [0.45, 0.55, 1.0, 0.4],
+                [0.25, 0.35, 0.4, 1.0],
+            ]
+        )
+        x = _make_correlated_gaussian(rho, n=320, seed=13)
+        vine = optimize_vine_type(
+            x,
+            selection_criterion="aic",
+            optimize_structure=True,
+            optimization_method="sequential",
+            optimization_criterion="kendall_tau",
+            par_dict={"param_families": ["ind", "gaussian", "clayton"]},
+        )
+
+        assert vine.fitted is True
+        assert vine.vine_family in {"c-vine", "d-vine", "r-vine"}
+        assert hasattr(vine, "selection_score")
+        assert np.isfinite(vine.selection_score)
+        pts = torch.tensor(x[:20])
+        logp = vine.logpdf(pts)
+        assert torch.isfinite(logp).all()

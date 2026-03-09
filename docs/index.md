@@ -4,7 +4,7 @@ DVC provides a PyTorch-based vine copula codebase with:
 
 - static vine fitting/evaluation (`core/`, `optimization/`),
 - information-theoretic analysis (entropy/MI),
-- and research-stage time-dependent extensions (`time/`).
+- and time-dependent modeling modules (`time/`).
 
 ## Documentation Map
 
@@ -15,6 +15,10 @@ DVC provides a PyTorch-based vine copula codebase with:
   - `docs/user-guide/evaluation.md`
   - `docs/user-guide/time-dependent.md`
   - `docs/user-guide/experiments.md`
+- Reference:
+  - `docs/reference/core-api.md`
+  - `docs/reference/time-api.md`
+  - `docs/reference/experiments-api.md`
 - Research:
   - `docs/research/overview.md`
   - `docs/research/metrics.md`

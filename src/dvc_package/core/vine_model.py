@@ -2,13 +2,11 @@
 # src/DVC/vine_model.py
 ###############################################
 """
-A parametric C-vine implementation that:
-1) Fits each "tree level" pair-copula in a partial correlation sense.
-2) For sampling, applies the standard nested formula from Aas (2009).
-3) Preserves correlations among all variables.
+Parametric vine fitting, evaluation, and sampling.
 
-Families handled: 'ind','gaussian','clayton' (extend as needed).
-No non-parametric code or binning is included here (param only).
+The current parametric path works with `C-vine`, `D-vine`, and `R-vine`
+structures through the common `ind_vine` edge representation. The
+nonparametric path is delegated to `nonparametric_vine.py`.
 """
 
 import torch
@@ -30,6 +28,55 @@ if not logger.hasHandlers():
                         format="[%(levelname)s] %(message)s")
 
 
+def _prepare_parametric_internal_structure(vine: vine_obj_bin, d: int) -> None:
+    from .nonparametric_vine import _build_internal_edge_structure, _build_sampling_metadata
+
+    vine._internal_ind_vine = _build_internal_edge_structure(vine, d)
+    sample_order, sample_r_matrix, sample_nodes = _build_sampling_metadata(vine, d)
+    vine._sample_order = sample_order
+    vine._sampling_r_matrix = sample_r_matrix
+    vine._sampling_nodes = sample_nodes
+
+
+def _initialize_parametric_margin_state(
+    vine: vine_obj_bin,
+    x_torch: torch.Tensor,
+    device: torch.device,
+) -> None:
+    n, d = x_torch.shape
+    vine.theta = torch.zeros((n, d, d), dtype=torch.float32, device=device)
+    vine.theta_flip = torch.zeros_like(vine.theta)
+    vine.flip_flag = []
+    vine.ind_edge_rel = []
+    vine.training_data = x_torch.detach().cpu().numpy().astype(np.float32, copy=True)
+
+    for i in range(d):
+        values = x_torch[:, i].contiguous()
+        sorted_col = torch.sort(values)[0]
+        ranks = torch.searchsorted(sorted_col, values).float() + 1.0
+        vine.theta[:, 0, i] = (ranks / (n + 1.0)).clamp(1e-6, 1.0 - 1e-6)
+        if i < len(vine.margin):
+            vine.margin[i].ker = values.detach().cpu().numpy()
+
+
+def _evaluate_parametric_margin_state(vine: vine_obj_bin, points: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    device = points.device
+    n, d = points.shape
+    log_marg = torch.zeros(n, device=device)
+    u_state = torch.zeros((n, d, d), dtype=torch.float32, device=device)
+
+    for i in range(d):
+        if i < len(vine.margin) and vine.margin[i].dist == "norm" and hasattr(vine.margin[i], "theta"):
+            loc, scale = vine.margin[i].theta
+            dist_i = torch.distributions.Normal(float(loc), float(scale))
+        else:
+            dist_i = torch.distributions.Normal(0.0, 1.0)
+        log_marg = log_marg + dist_i.log_prob(points[:, i])
+        u_state[:, 0, i] = dist_i.cdf(points[:, i]).clamp(1e-6, 1.0 - 1e-6)
+
+    return log_marg, u_state
+
+
 def fit_vine(
     vine: vine_obj_bin,
     x: np.ndarray,
@@ -39,23 +86,17 @@ def fit_vine(
     bin_dict: dict,
     cfg: Optional[dict] = None
 ):
-    """
-    Fit a parametric C-vine (only) using partial correlation logic.
-    
-    Steps:
-      (1) Initialize vine.theta[:,0,i] with ranks of X_i.
-      (2) For level=0..(d-2):
-           for each edge => (level, j) with j>level
-               fit pair-copula( U_level, U_j )
-               store best param => cop_par_obj
-               transform => h(U_j| U_level) => vine.theta[:, level+1, j]
-      (3) Done => vine.copulas[level] = list of copulas for edges (level, j).
-    """
+    """Fit a parametric vine using the internal edge-index recursion."""
+    if not bool(gen_dict.get("param", False)):
+        from .nonparametric_vine import fit_nonparametric_vine
+        return fit_nonparametric_vine(vine, x, gen_dict, npc_dict, par_dict, bin_dict, cfg=cfg)
+
+    from .nonparametric_vine import _build_edge_input_pairs
+    from .vine_tree import flip_check_all
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     x_torch = torch.tensor(x, dtype=torch.float32, device=device)
-    
-    # We assume param==True => no non-param
+
     vine.param = True
     vine.binning = False
     vine.fitted = True
@@ -74,66 +115,38 @@ def fit_vine(
     norm2d = biv_norm(x1_s, x2_s).to(device)
     vine.ref_bivnorm = norm2d
 
-    # Initialize vine.theta => shape [N, d, d]
-    N = x_torch.shape[0]
-    vine.theta = torch.zeros((N, d, d), dtype=torch.float32, device=device)
+    _prepare_parametric_internal_structure(vine, d)
+    _initialize_parametric_margin_state(vine, x_torch, device)
 
-    # margins => rank transform => store in vine.theta[:,0,i]
-    for i in range(d):
-        values = x_torch[:, i].contiguous()
-        sorted_col = torch.sort(values)[0]
-        ranks = torch.searchsorted(sorted_col, values).float() + 1
-        vine.theta[:, 0, i] = ranks / (N+1)
-        # store in margin object
-        if i < len(vine.margin):
-            vine.margin[i].ker = x_torch[:, i].cpu().numpy()
-
-    # Build a c-vine structure if not exist: level 0 => edges => (0,1),(0,2)...
-    if not vine.ind_vine or len(vine.ind_vine)==0:
-        vine.ind_vine = []
-        for level in range(d-1):
-            edges_level = []
-            for j in range(level+1, d):
-                edges_level.append([level,j])
-            vine.ind_vine.append(edges_level)
-
-    # We'll store all pair-copulas in vine.copulas => list-of-levels
     vine.copulas = []
     families = par_dict.get("param_families", ["ind","gaussian","clayton"])
 
     logger.info(f"Vine topology (family={vine.vine_family}, method={vine.method}, d={d})")
-    for lv, eds in enumerate(vine.ind_vine):
+    for lv, eds in enumerate(getattr(vine, "_internal_ind_vine", vine.ind_vine)):
         logger.info(f"  Level {lv}: {eds}")
 
-    # Fit each level - generalized for C/D/R-vines
-    for level in range(d-1):
+    for level in range(d - 1):
         logger.info(f"Fitting level {level}/{d-1}...")
-        vine_type = getattr(vine, 'vine_family', 'c-vine')
-        logger.info(f"Using parametric fitting for {vine_type} level {level}")
-
-        edges_now = vine.ind_vine[level] if level<len(vine.ind_vine) else []
+        edges_now = vine._internal_ind_vine[level] if level < len(vine._internal_ind_vine) else []
+        data_u = _build_edge_input_pairs(
+            state=vine.theta,
+            state_flip=vine.theta_flip,
+            edge_refs=vine._internal_ind_vine,
+            level=level,
+            device=device,
+        )
         cop_list_level = []
 
         for edge_idx, edge in enumerate(edges_now):
-            i, j = edge
-            # No assumption about center node - use edges as given by vine structure
-            # This works for C-vine (where center logic was applied during structure creation),
-            # D-vine (path structure), and R-vine (arbitrary valid structure)
-
-            ui = vine.theta[:, level, i]
-            uj = vine.theta[:, level, j]
-            # Keep uniforms in a valid finite range before pair-copula fitting/transform.
-            ui = torch.nan_to_num(ui, nan=0.5, posinf=1 - 1e-6, neginf=1e-6).clamp(1e-6, 1 - 1e-6)
-            uj = torch.nan_to_num(uj, nan=0.5, posinf=1 - 1e-6, neginf=1e-6).clamp(1e-6, 1 - 1e-6)
-            # Stack => shape [N,2,1]
-            data_pair = torch.stack([ui, uj], dim=1).unsqueeze(-1)
-            
-            # Fit param families => parametric_fit => returns (aic2, thetas, logp)
-            data_np = data_pair.cpu().numpy()
+            _ = edge
+            uv = torch.nan_to_num(
+                data_u[:, :, edge_idx],
+                nan=0.5,
+                posinf=1.0 - 1e-6,
+                neginf=1e-6,
+            ).clamp(1e-6, 1.0 - 1e-6)
+            data_np = uv.unsqueeze(-1).detach().cpu().numpy()
             aic2, thetas_list, logp_list = parametric_fit(data_np, families, n_cop=1)
-
-            # optional "independence penalty"
-            # measure correlation
             xvals = data_np[:,0,0]
             yvals = data_np[:,1,0]
             if np.std(xvals)<1e-15 or np.std(yvals)<1e-15:
@@ -160,78 +173,98 @@ def fit_vine(
             best_idx = np.argmin(aic2[0])
             fam_best = families[best_idx]
             par_best = thetas_list[0][best_idx]
-            # build copula object
             cobj = cop_par_obj(fam_best, par_best)
             cop_list_level.append(cobj)
 
-            # Now transform for next level => h(u_j|u_i)
-            if level<(d-1):
-                uv = torch.stack([ui, uj], dim=1)
-                try:
-                    # partial transform => hVal = F_j|i ( uj | ui )
-                    hval = copulaccdf(cobj, uv).clamp(1e-6, 1-1e-6)
-                    hval = torch.where(torch.isfinite(hval), hval, uj)
-                    vine.theta[:, level+1, j] = hval
-                except Exception as e:
-                    logger.error(f"Error partial transform (level={level},edge=({i},{j})): {str(e)}")
-                    vine.theta[:, level+1, j] = uj  # fallback => no transform
-
         vine.copulas.append(cop_list_level)
+        flip_flag1, ind_edge_rel1, _parent_all = flip_check_all(vine._internal_ind_vine, level, False, 1)
+        vine.flip_flag.append(flip_flag1)
+        vine.ind_edge_rel.append(ind_edge_rel1)
+
+        for j, ind_edge in enumerate(ind_edge_rel1):
+            if ind_edge >= len(cop_list_level):
+                continue
+            cobj = cop_list_level[ind_edge]
+            uv = data_u[:, :, ind_edge]
+            try:
+                if flip_flag1[j]:
+                    hval = copulaccdf(cobj, uv[:, [1, 0]]).clamp(1e-6, 1.0 - 1e-6)
+                    hval = torch.where(torch.isfinite(hval), hval, uv[:, 0])
+                    vine.theta_flip[:, level + 1, ind_edge] = hval
+                else:
+                    hval = copulaccdf(cobj, uv).clamp(1e-6, 1.0 - 1e-6)
+                    hval = torch.where(torch.isfinite(hval), hval, uv[:, 1])
+                    vine.theta[:, level + 1, ind_edge] = hval
+            except Exception as exc:
+                logger.error("Error partial transform (level=%d, edge=%d): %s", level, ind_edge, exc)
+                if flip_flag1[j]:
+                    vine.theta_flip[:, level + 1, ind_edge] = uv[:, 0]
+                else:
+                    vine.theta[:, level + 1, ind_edge] = uv[:, 1]
 
     vine.fitted = True
     return vine
 
 
 def evaluate_vine(vine: vine_obj_bin, points: torch.Tensor):
-    """
-    Evaluate pdf for param c-vine. We'll do the same partial logic:
-      1) Convert each col of points to U ~ margin.
-      2) For level=0..(d-2):
-          parse edges => (level,j)
-          multiply logpdf by copula pdf( u_level, u_j ).
-          partial transform => h( u_j| u_level ) => next level
-    """
-    device = points.device
-    N, d = points.shape
-    # margin => standard normal or user
-    log_marg = torch.zeros(N, device=device)
-    u_ = torch.zeros((N,d,d), dtype=torch.float32, device=device)
-    for i in range(d):
-        # margin i
-        if i<len(vine.margin) and vine.margin[i].dist=='norm' and hasattr(vine.margin[i],'theta'):
-            loc, scale = vine.margin[i].theta
-            dist_i = torch.distributions.Normal(loc, scale)
-        else:
-            dist_i = torch.distributions.Normal(0.,1.)
-        lpm = dist_i.log_prob(points[:, i])
-        log_marg += lpm
-        ui_ = dist_i.cdf(points[:, i]).clamp(1e-6, 1-1e-6)
-        u_[:, 0, i] = ui_
+    """Evaluate a fitted parametric vine density."""
+    if not getattr(vine, "param", True):
+        from .nonparametric_vine import evaluate_nonparametric_vine
+        return evaluate_nonparametric_vine(vine, points)
 
-    log_cop = torch.zeros(N, device=device)
-    for level in range(d-1):
-        edges_now = vine.ind_vine[level] if level<len(vine.ind_vine) else []
-        cop_now = vine.copulas[level] if level<len(vine.copulas) else []
-        for e_idx, edge in enumerate(edges_now):
-            if e_idx>=len(cop_now):
+    from .nonparametric_vine import _build_edge_input_pairs
+    from .vine_tree import flip_check_all
+
+    if not isinstance(points, torch.Tensor):
+        points = torch.tensor(points, dtype=torch.float32)
+    points = points.float()
+    device = points.device
+    n, d = points.shape
+
+    edge_refs = getattr(vine, "_internal_ind_vine", None)
+    if edge_refs is None:
+        _prepare_parametric_internal_structure(vine, d)
+        edge_refs = vine._internal_ind_vine
+
+    log_marg, u_state = _evaluate_parametric_margin_state(vine, points)
+    u_state_flip = torch.zeros_like(u_state)
+
+    log_cop = torch.zeros(n, device=device)
+    for level in range(d - 1):
+        if not getattr(vine, "flip_flag", None) or level >= len(vine.flip_flag):
+            flip_flag1, ind_edge_rel1, _parent_all = flip_check_all(edge_refs, level, False, 1)
+        else:
+            flip_flag1 = vine.flip_flag[level]
+            ind_edge_rel1 = vine.ind_edge_rel[level]
+
+        point_u = _build_edge_input_pairs(
+            state=u_state,
+            state_flip=u_state_flip,
+            edge_refs=edge_refs,
+            level=level,
+            device=device,
+        )
+        cop_now = vine.copulas[level] if level < len(vine.copulas) else []
+        for j, ind_edge in enumerate(ind_edge_rel1):
+            if ind_edge >= len(cop_now):
                 continue
-            cobj = cop_now[e_idx]
-            i, j = edge
-            # Use edges as given by vine structure (no center node assumption)
-            ui = u_[:, level, i]
-            uj = u_[:, level, j]
-            uv = torch.stack([ui, uj], dim=1)
-            # compute pdf
+            cobj = cop_now[ind_edge]
+            uv = point_u[:, :, ind_edge]
             pdf_val = copulapdf(cobj, uv).clamp_min(1e-30)
-            log_cop += torch.log(pdf_val)
-            # partial transform => next level
-            if level<(d-1):
-                try:
-                    hval = copulaccdf(cobj, uv).clamp(1e-6,1-1e-6)
-                    u_[:, level+1, j] = hval
-                except Exception as e:
-                    logger.warning(f"Partial transform failed at level={level}, edge=({i},{j}): {e}")
-                    u_[:, level+1, j] = uj
+            log_cop = log_cop + torch.log(pdf_val)
+            try:
+                if flip_flag1[j]:
+                    hval = copulaccdf(cobj, uv[:, [1, 0]]).clamp(1e-6, 1.0 - 1e-6)
+                    u_state_flip[:, level + 1, ind_edge] = torch.where(torch.isfinite(hval), hval, uv[:, 0])
+                else:
+                    hval = copulaccdf(cobj, uv).clamp(1e-6, 1.0 - 1e-6)
+                    u_state[:, level + 1, ind_edge] = torch.where(torch.isfinite(hval), hval, uv[:, 1])
+            except Exception as exc:
+                logger.warning("Partial transform failed at level=%d, edge=%d: %s", level, ind_edge, exc)
+                if flip_flag1[j]:
+                    u_state_flip[:, level + 1, ind_edge] = uv[:, 0]
+                else:
+                    u_state[:, level + 1, ind_edge] = uv[:, 1]
 
     log_p = log_marg + log_cop
     pdf_ = torch.exp(log_p)
@@ -240,7 +273,7 @@ def evaluate_vine(vine: vine_obj_bin, points: torch.Tensor):
 
 def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict]=None):
     """
-    Sample from param c-vine using the standard nested formula:
+    Sample from a fitted parametric vine using the standard nested formula:
       1) sample U[:,0] from uniform => transform to X0 from margin
       2) for edges in level=0 => sample U_j from copulainvccdf( U_center, rand )
          => transform to X_j
@@ -248,9 +281,59 @@ def sample_vine(vine: vine_obj_bin, nsamples: int, cfg: Optional[dict]=None):
       4) move on to level=1 => center=1 => sample the leftover variables
       ...
     """
+    if not getattr(vine, "param", True):
+        from .sampling import vine_copula_sample
+        try:
+            sample1, _u, _sample_pdf, _sample_pds = vine_copula_sample(vine, nsamples)
+            return sample1
+        except Exception as exc:
+            logger.warning("Nonparametric sampler fell back to bootstrap resampling: %s", exc)
+            train = getattr(vine, "training_data", None)
+            if train is None:
+                raise
+            idx = np.random.choice(train.shape[0], size=int(nsamples), replace=True)
+            return np.asarray(train, dtype=np.float32)[idx]
+
+    from .sampling import vine_cop_par_sample
+    d = vine.n_cop
+
+    def _parametric_fast_sampler_is_stable(sample_arr: np.ndarray, u_arr: np.ndarray) -> bool:
+        sample_np = np.asarray(sample_arr, dtype=np.float32)
+        u_np = np.asarray(u_arr, dtype=np.float32)
+        if sample_np.shape != (nsamples, d) or u_np.shape != (nsamples, d):
+            return False
+        if not np.isfinite(sample_np).all() or not np.isfinite(u_np).all():
+            return False
+        if np.any(u_np <= 0.0) or np.any(u_np >= 1.0):
+            return False
+
+        # Uniform marginals should not collapse to the boundaries.
+        boundary_rate = np.mean((u_np <= 1e-5) | (u_np >= 1.0 - 1e-5), axis=0)
+        if np.any(boundary_rate > 0.05):
+            return False
+
+        u_std = np.std(u_np, axis=0)
+        if np.any((u_std < 0.05) | (u_std > 0.40)):
+            return False
+
+        u_mean = np.mean(u_np, axis=0)
+        if np.any(np.abs(u_mean - 0.5) > 0.20):
+            return False
+
+        return True
+
+    try:
+        sample1, _u, _sample_pdf, _sample_pds = vine_cop_par_sample(vine, nsamples)
+        if _parametric_fast_sampler_is_stable(sample1, _u):
+            return sample1
+        logger.warning(
+            "Parametric fast sampler produced unstable uniforms; using recursive/gaussian path."
+        )
+    except Exception as exc:
+        logger.warning("Parametric vine sampler fell back to recursive/gaussian path: %s", exc)
+
     logger.info("Sampling from vine copula")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    d = vine.n_cop
     out_x = torch.zeros((nsamples, d), dtype=torch.float32, device=device)
 
     def _get_margin_dist(var_idx: int):

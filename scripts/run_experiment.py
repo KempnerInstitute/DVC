@@ -36,13 +36,13 @@ def main():
         epilog="""
 Examples:
   # Run probability analysis experiment
-  python scripts/run_experiment.py configs/probability_analysis.yaml
+  python scripts/run_experiment.py drafts/configs/probability_analysis.yaml
 
   # Run entropy analysis with debug logging
-  python scripts/run_experiment.py configs/entropy_analysis.yaml --log-level DEBUG
+  python scripts/run_experiment.py drafts/configs/entropy_analysis.yaml --log-level DEBUG
 
   # Run time-dependent experiment
-  python scripts/run_experiment.py configs/time_dependent.yaml
+  python scripts/run_experiment.py drafts/configs/time_dependent.yaml
 
   # Create example configuration files
   python scripts/run_experiment.py --create-examples
@@ -100,7 +100,7 @@ Examples:
         print("  - entropy_analysis.yaml: Entropy and information estimation")
         print("  - time_dependent.yaml: Time-dependent vine copula modeling")
         print("  - comprehensive_comparison.yaml: Comprehensive comparison study")
-        print("\nUsage: python scripts/run_experiment.py configs/<config_file>.yaml")
+        print("\nUsage: python scripts/run_experiment.py <config_file>.yaml")
         return
     
     if args.list_examples:

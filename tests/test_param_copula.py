@@ -173,6 +173,15 @@ class TestFitFrank:
         theta_hat, _, _ = fit_frank(u)
         assert theta_hat < 0
 
+    def test_near_independence_does_not_crash(self):
+        """Near-independent data should fit without autograd failures."""
+        rng = np.random.default_rng(123)
+        u = torch.tensor(rng.uniform(0.01, 0.99, size=(400, 2)), dtype=torch.float32)
+        theta_hat, ll, aic = fit_frank(u)
+        assert np.isfinite(theta_hat)
+        assert np.isfinite(ll)
+        assert np.isfinite(aic)
+
 
 # ---------------------------------------------------------------------------
 # Gumbel copula fitting

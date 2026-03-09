@@ -8,6 +8,7 @@ Provides a unified interface for instantiating C-vine, D-vine, and R-vine object
 from enum import Enum
 from typing import List, Optional, Union, Dict, Any
 import numpy as np
+import torch
 
 from .objects import vine_obj_bin, margin_obj
 
@@ -109,38 +110,19 @@ class RVine(vine_obj_bin):
         self._build_rvine_structure()
     
     def _generate_random_r_matrix(self):
-        """Generate a random valid R-matrix."""
+        """
+        Generate a valid default R-matrix.
+
+        The previous ad hoc upper-triangular fill frequently violated the
+        proximity condition. The repaired parametric recursion now relies on a
+        valid regular-vine structure, so the default path uses the canonical
+        C-vine matrix expressed in the public upper-triangular convention.
+        """
+        from .vine_tree import prepare_vine
+
         d = self.n_cop
-        r_matrix = np.zeros((d, d), dtype=int)
-        
-        # Fill diagonal with variable indices
-        for i in range(d):
-            r_matrix[i, i] = i + 1
-        
-        # Fill upper triangular part
-        for i in range(d):
-            available = list(range(1, d + 1))
-            available.remove(i + 1)  # Remove diagonal element
-            
-            for j in range(i + 1, d):
-                # Ensure proximity condition is satisfied
-                if j == i + 1:
-                    # First column after diagonal can be any available
-                    choice = np.random.choice(available)
-                else:
-                    # Must share a common element with previous column
-                    prev_col = r_matrix[i:j, j-1]
-                    valid_choices = [x for x in available if x in prev_col or x == r_matrix[i, i]]
-                    if valid_choices:
-                        choice = np.random.choice(valid_choices)
-                    else:
-                        choice = available[0] if available else i + 1
-                
-                r_matrix[i, j] = choice
-                if choice in available:
-                    available.remove(choice)
-        
-        self.r_matrix = r_matrix
+        lower_r_matrix, _ind_vine, _nodes, _matrix_edges = prepare_vine("c-vine", d)
+        self.r_matrix = np.flipud(np.fliplr(np.asarray(lower_r_matrix, dtype=int)))
     
     def _generate_tau_based_r_matrix(self):
         """
@@ -409,49 +391,87 @@ def optimize_vine_type(data: np.ndarray,
     vine_obj_bin
         Best vine model based on selection criterion
     """
+    from ..optimization.structure import optimize_vine_structure
+
     if vine_types is None:
         vine_types = [VineType.C_VINE, VineType.D_VINE, VineType.R_VINE]
-    
+
+    valid_criteria = {"aic", "bic", "loglik"}
+    if selection_criterion not in valid_criteria:
+        raise ValueError(f"selection_criterion must be one of {sorted(valid_criteria)}, got {selection_criterion!r}")
+
     d = data.shape[1]
+    data_t = torch.as_tensor(data, dtype=torch.float32)
     best_vine = None
-    best_score = float('inf') if selection_criterion in ['aic', 'bic'] else float('-inf')
-    
+    best_score = float("inf") if selection_criterion in {"aic", "bic"} else float("-inf")
+
+    gen_dict = fit_kwargs.get("gen_dict", {"param": True, "binning": False, "fitted": False})
+    npc_dict = fit_kwargs.get("npc_dict", {})
+    par_dict = fit_kwargs.get("par_dict", {"param_families": ["ind", "gaussian", "clayton"]})
+    bin_dict = fit_kwargs.get("bin_dict", {})
+    create_kwargs = dict(fit_kwargs.get("vine_kwargs", {}))
+    optimize_structure = bool(fit_kwargs.get("optimize_structure", False))
+    optimization_method = fit_kwargs.get("optimization_method", "sequential")
+    optimization_criterion = fit_kwargs.get("optimization_criterion", "kendall_tau")
+    optimization_verbose = bool(fit_kwargs.get("optimization_verbose", False))
+
+    def _count_vine_parameters(vine: vine_obj_bin) -> int:
+        n_params = 0
+        for level_cops in getattr(vine, "copulas", []):
+            for cop in level_cops:
+                family = getattr(cop, "family", None)
+                if family in {"ind", "independence", None}:
+                    continue
+                theta = getattr(cop, "theta", None)
+                if theta is None:
+                    continue
+                theta_arr = np.atleast_1d(np.asarray(theta, dtype=np.float64))
+                n_params += int(np.isfinite(theta_arr).sum())
+        return n_params
+
     for vine_type in vine_types:
+        vine_type_enum = VineType(vine_type.lower()) if isinstance(vine_type, str) else vine_type
         try:
-            # Create and fit vine
-            vine = create_vine(vine_type, d)
-            
-            # Dummy fit parameters (you'll need to adapt based on your fit_vine function)
-            gen_dict = fit_kwargs.get('gen_dict', {'param': True, 'binning': False})
-            npc_dict = fit_kwargs.get('npc_dict', {})
-            par_dict = fit_kwargs.get('par_dict', {'param_families': ['gaussian', 'clayton']})
-            bin_dict = fit_kwargs.get('bin_dict', {})
-            
+            if optimize_structure:
+                opt_result = optimize_vine_structure(
+                    data=data,
+                    vine_type=vine_type_enum.value,
+                    method=optimization_method,
+                    criterion=optimization_criterion,
+                    verbose=optimization_verbose,
+                )
+                vine = opt_result.best_vine
+            else:
+                if vine_type_enum == VineType.R_VINE and "data" not in create_kwargs:
+                    create_kwargs["data"] = data
+                vine = create_vine(vine_type_enum, d, **create_kwargs)
+
             vine.fit(data, gen_dict, npc_dict, par_dict, bin_dict)
-            
-            # Compute selection criterion
-            if hasattr(vine, 'loglikelihood'):
-                loglik = vine.loglikelihood(data)
-                n_params = len(vine.copulas) * 2  # Rough estimate
-                
-                if selection_criterion == 'aic':
-                    score = -2 * loglik + 2 * n_params
-                elif selection_criterion == 'bic':
-                    score = -2 * loglik + n_params * np.log(data.shape[0])
-                elif selection_criterion == 'loglik':
-                    score = loglik
-                
-                # Update best model
-                is_better = (score < best_score) if selection_criterion in ['aic', 'bic'] else (score > best_score)
-                if is_better:
-                    best_score = score
-                    best_vine = vine
-            
-        except Exception as e:
-            print(f"Failed to fit {vine_type.value}: {e}")
+
+            loglik = float(vine.logpdf(data_t).sum().item())
+            n_params = _count_vine_parameters(vine)
+
+            if selection_criterion == "aic":
+                score = -2.0 * loglik + 2.0 * n_params
+            elif selection_criterion == "bic":
+                score = -2.0 * loglik + float(n_params) * np.log(max(data.shape[0], 2))
+            else:
+                score = loglik
+
+            is_better = (score < best_score) if selection_criterion in {"aic", "bic"} else (score > best_score)
+            if is_better:
+                best_score = score
+                best_vine = vine
+                best_vine.selection_score = float(score)
+                best_vine.selection_criterion = selection_criterion
+                best_vine.selected_vine_type = vine_type_enum.value
+                best_vine.selected_n_params = int(n_params)
+
+        except Exception as exc:
+            print(f"Failed to fit {vine_type_enum.value}: {exc}")
             continue
-    
+
     if best_vine is None:
         raise RuntimeError("Failed to fit any vine type")
-    
+
     return best_vine

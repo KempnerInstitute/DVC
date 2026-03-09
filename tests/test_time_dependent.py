@@ -81,6 +81,16 @@ class TestTimeBandwidthFlow:
             assert out.shape == (5, 2)
             assert (out > 0).all()
 
+    def test_edge_mode_supports_absolute_time_ranges(self):
+        """Edge-aware mode should normalize absolute times internally."""
+        flow = TimeBandwidthFlow(n_edges=3, hidden_dims=[8], dropout_rate=0.0)
+        flow.set_time_range(10.0, 20.0)
+        t = torch.tensor([10.0, 15.0, 20.0])
+        out = flow(t)
+        assert out.shape == (3, 3)
+        assert torch.all(out >= flow.min_bandwidth)
+        assert torch.all(out <= flow.max_bandwidth)
+
 
 # ---------------------------------------------------------------------------
 # MLPEdgeFlow tests

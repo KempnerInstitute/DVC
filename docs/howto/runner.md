@@ -3,19 +3,19 @@
 ## Run One Experiment
 
 ```bash
-python scripts/run_experiment.py configs/probability_analysis.yaml
+python scripts/run_experiment.py drafts/configs/probability_analysis.yaml
 ```
 
 ## Change Logging Verbosity
 
 ```bash
-python scripts/run_experiment.py configs/entropy_analysis.yaml --log-level DEBUG
+python scripts/run_experiment.py drafts/configs/entropy_analysis.yaml --log-level DEBUG
 ```
 
 ## Override Output Directory
 
 ```bash
-python scripts/run_experiment.py configs/time_dependent.yaml --output-dir results/custom_run
+python scripts/run_experiment.py drafts/configs/time_dependent.yaml --output-dir results/custom_run
 ```
 
 ## Generate and Inspect Example Configs
@@ -30,4 +30,3 @@ python scripts/run_experiment.py --list-examples
 - Confirm package import path (`pip install -e .`).
 - Verify config path exists.
 - Start with smaller sample sizes when debugging long runs.
-

@@ -33,7 +33,7 @@ python scripts/test_installation.py
 
 ```bash
 python scripts/run_experiment.py --list-examples
-python scripts/run_experiment.py configs/probability_analysis.yaml
+python scripts/run_experiment.py drafts/configs/probability_analysis.yaml
 ```
 
 ## GPU Notes
@@ -45,4 +45,3 @@ python scripts/run_experiment.py configs/probability_analysis.yaml
 ```bash
 python -c "import torch; print(torch.cuda.is_available())"
 ```
-

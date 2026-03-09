@@ -7,152 +7,16 @@ including bandwidth flows and dynamic entropy estimation.
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Any, Union, Sequence
 import logging
 
 from ..core.objects import vine_obj_bin
-from ..core.info_estimation import vine_entropy, mutual_information
 from ..core.utils_locallik import loclik_batch_eval
+from .flows import TimeBandwidthFlow
+from .trajectory_models import create_trajectory_model
 
 logger = logging.getLogger(__name__)
-
-
-class TimeBandwidthFlow(nn.Module):
-    """
-    Neural network that maps time to bandwidth parameters for vine copulas.
-    
-    This model learns time-dependent bandwidth parameters for each edge
-    in a vine copula structure, enabling dynamic dependency modeling.
-    
-    Parameters
-    ----------
-    n_edges : int
-        Number of edges in the vine structure
-    hidden_dims : list of int
-        Hidden layer dimensions for the MLP
-    time_embedding_dim : int
-        Dimension of time embedding
-    activation : str
-        Activation function ('relu', 'tanh', 'elu')
-    dropout_rate : float
-        Dropout rate for regularization
-    min_bandwidth : float
-        Minimum bandwidth value (for numerical stability)
-    max_bandwidth : float
-        Maximum bandwidth value
-    """
-    
-    def __init__(self,
-                 n_edges: int,
-                 hidden_dims: Optional[List[int]] = None,
-                 time_embedding_dim: int = 16,
-                 activation: str = 'relu',
-                 dropout_rate: float = 0.1,
-                 min_bandwidth: float = 0.01,
-                 max_bandwidth: float = 2.0):
-        super().__init__()
-        if hidden_dims is None:
-            hidden_dims = [64, 32]
-        
-        self.n_edges = n_edges
-        self.min_bandwidth = min_bandwidth
-        self.max_bandwidth = max_bandwidth
-        self.register_buffer("_time_min", torch.tensor(0.0), persistent=False)
-        self.register_buffer("_time_max", torch.tensor(1.0), persistent=False)
-        
-        # Time embedding layer
-        self.time_embedding = nn.Linear(1, time_embedding_dim)
-        
-        # MLP layers
-        layers = []
-        input_dim = time_embedding_dim
-        
-        for hidden_dim in hidden_dims:
-            layers.extend([
-                nn.Linear(input_dim, hidden_dim),
-                self._get_activation(activation),
-                nn.Dropout(dropout_rate)
-            ])
-            input_dim = hidden_dim
-        
-        # Output layer (one bandwidth per edge)
-        layers.append(nn.Linear(input_dim, n_edges))
-        
-        self.mlp = nn.Sequential(*layers)
-        
-        # Initialize weights
-        self._initialize_weights()
-    
-    def _get_activation(self, activation: str) -> nn.Module:
-        """Get activation function by name."""
-        if activation == 'relu':
-            return nn.ReLU()
-        elif activation == 'tanh':
-            return nn.Tanh()
-        elif activation == 'elu':
-            return nn.ELU()
-        elif activation == 'leaky_relu':
-            return nn.LeakyReLU(0.1)
-        else:
-            return nn.ReLU()
-    
-    def _initialize_weights(self):
-        """Initialize network weights."""
-        for module in self.modules():
-            if isinstance(module, nn.Linear):
-                nn.init.xavier_uniform_(module.weight)
-                nn.init.zeros_(module.bias)
-    
-    def forward(self, time: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass: map time to bandwidth parameters.
-        
-        Parameters
-        ----------
-        time : torch.Tensor
-            Time values, shape (batch_size,) or (batch_size, 1)
-            
-        Returns
-        -------
-        torch.Tensor
-            Bandwidth parameters, shape (batch_size, n_edges)
-        """
-        if time.dim() == 1:
-            time = time.unsqueeze(-1)
-        
-        time = time.to(dtype=torch.float32)
-        denom = (self._time_max - self._time_min).clamp_min(1e-8)
-        t01 = ((time - self._time_min) / denom).clamp(0.0, 1.0)
-        time_normalized = 2.0 * t01 - 1.0
-        
-        # Time embedding
-        time_emb = torch.tanh(self.time_embedding(time_normalized))
-        
-        # MLP forward pass
-        raw_bandwidths = self.mlp(time_emb)
-        
-        # Apply sigmoid and scale to [min_bandwidth, max_bandwidth]
-        bandwidths = torch.sigmoid(raw_bandwidths)
-        bandwidths = self.min_bandwidth + (self.max_bandwidth - self.min_bandwidth) * bandwidths
-        
-        return bandwidths
-
-    def set_time_range(self, t_min: float, t_max: float) -> None:
-        """Set absolute time range used for stable normalization in forward()."""
-        t_lo = float(min(t_min, t_max))
-        t_hi = float(max(t_min, t_max))
-        if abs(t_hi - t_lo) < 1e-8:
-            t_hi = t_lo + 1.0
-        self._time_min = torch.tensor(t_lo, dtype=torch.float32, device=self._time_min.device)
-        self._time_max = torch.tensor(t_hi, dtype=torch.float32, device=self._time_max.device)
-    
-    def get_bandwidth_at_time(self, time: float) -> torch.Tensor:
-        """Get bandwidth parameters for a specific time point."""
-        time_tensor = torch.tensor([[time]], dtype=torch.float32, device=self._time_min.device)
-        with torch.no_grad():
-            return self.forward(time_tensor).squeeze(0)
 
 
 class TimeDependentVine(nn.Module):
@@ -256,6 +120,8 @@ class TimeDependentVine(nn.Module):
                 raise ValueError("time_points length must match number of time slices")
 
         self.bandwidth_flow.set_time_range(float(t.min()), float(t.max()))
+        if hasattr(self.bandwidth_flow, "set_reference_time_grid"):
+            self.bandwidth_flow.set_reference_time_grid(torch.tensor(t, dtype=torch.float32, device=self.device))
         self._time_grid = torch.tensor(t, dtype=torch.float32, device=self.device)
         self._fit_pairs_by_time = [self._pairs_from_matrix(self._rank_normal_scores(x_t)) for x_t in x_list]
         self._reference_ready = True
@@ -369,6 +235,8 @@ class TimeDependentVine(nn.Module):
                 raise ValueError("time_points length must match number of time slices")
 
         self.bandwidth_flow.set_time_range(float(t.min()), float(t.max()))
+        if hasattr(self.bandwidth_flow, "set_reference_time_grid"):
+            self.bandwidth_flow.set_reference_time_grid(torch.tensor(t, dtype=torch.float32, device=self.device))
         t_tensor = torch.tensor(t, dtype=torch.float32, device=self.device).unsqueeze(-1)
 
         val_fraction = float(np.clip(val_fraction, 0.05, 0.5))
@@ -408,6 +276,8 @@ class TimeDependentVine(nn.Module):
 
             bw_all = self.bandwidth_flow(t_tensor)
             bw_reg = 1e-3 * torch.mean((bw_all[1:] - bw_all[:-1]) ** 2) if bw_all.shape[0] > 1 else 0.0
+            if hasattr(self.bandwidth_flow, "regularization_loss"):
+                bw_reg = bw_reg + self.bandwidth_flow.regularization_loss()
             loss = loss + bw_reg
             loss.backward()
             opt.step()
@@ -654,6 +524,8 @@ class DynamicEntropyEstimator(nn.Module):
 def create_time_dependent_vine(base_vine: vine_obj_bin,
                              hidden_dims: Optional[List[int]] = None,
                              time_embedding_dim: int = 16,
+                             trajectory_type: str = "mlp",
+                             trajectory_kwargs: Optional[Dict[str, Any]] = None,
                              device: Union[str, torch.device] = 'cpu') -> TimeDependentVine:
     """
     Factory function to create a time-dependent vine copula.
@@ -666,6 +538,11 @@ def create_time_dependent_vine(base_vine: vine_obj_bin,
         Hidden dimensions for bandwidth flow network
     time_embedding_dim : int
         Time embedding dimension
+    trajectory_type : str
+        Temporal parameterization for the bandwidth path. One of
+        ``"mlp"`` (default), ``"basis"``, or ``"state_space"``.
+    trajectory_kwargs : dict
+        Additional keyword arguments forwarded to the chosen trajectory model.
     device : str or torch.device
         Computation device
         
@@ -683,12 +560,32 @@ def create_time_dependent_vine(base_vine: vine_obj_bin,
     else:
         n_edges = max(int(getattr(base_vine, "n_cop", 2)) - 1, 1)
     
-    # Create bandwidth flow
-    bandwidth_flow = TimeBandwidthFlow(
-        n_edges=n_edges,
-        hidden_dims=hidden_dims,
-        time_embedding_dim=time_embedding_dim
-    )
+    trajectory_kwargs = dict(trajectory_kwargs or {})
+    if trajectory_type == "mlp":
+        bandwidth_flow = TimeBandwidthFlow(
+            n_edges=n_edges,
+            hidden_dims=hidden_dims,
+            time_embedding_dim=time_embedding_dim,
+            **trajectory_kwargs,
+        )
+    else:
+        default_kwargs: Dict[str, Any] = {
+            "constraint": "bounded",
+            "min_value": 0.01,
+            "max_value": 2.0,
+        }
+        if trajectory_type == "basis":
+            default_kwargs.setdefault("n_basis", 4)
+        if trajectory_type == "state_space":
+            default_kwargs.setdefault("latent_dim", 3)
+            default_kwargs.setdefault("n_steps", 8)
+            default_kwargs.setdefault("transition_penalty", 1e-2)
+        default_kwargs.update(trajectory_kwargs)
+        bandwidth_flow = create_trajectory_model(
+            trajectory_type,
+            output_dim=n_edges,
+            **default_kwargs,
+        )
     
     # Create time-dependent vine
     time_vine = TimeDependentVine(
