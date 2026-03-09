@@ -1,6 +1,6 @@
 # DVC: Dynamic Vine Copula Library
 
-PyTorch-based tooling for vine copula modeling, information-theoretic analysis, and early-stage time-dependent dependency modeling.
+PyTorch-based tooling for vine copula modeling, information-theoretic analysis, and time-dependent dependency modeling.
 
 ## What This Repository Contains
 
@@ -161,6 +161,9 @@ This writes to:
 ## Documentation Pointers
 
 - Docs index: `docs/index.md`
+- Core API reference: `docs/reference/core-api.md`
+- Time API reference: `docs/reference/time-api.md`
+- Experiment API reference: `docs/reference/experiments-api.md`
 - Time-dependent implementation status: `docs/user-guide/time-dependent.md`
 - Comparable methods and benchmark extensions: `docs/research/comparable_methods.md`
 
