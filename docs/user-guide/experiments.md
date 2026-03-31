@@ -19,6 +19,7 @@ python scripts/run_experiment.py --create-examples
 python scripts/run_experiment.py configs/probability_analysis.yaml
 python scripts/run_experiment.py configs/entropy_analysis.yaml
 python scripts/run_experiment.py configs/time_dependent.yaml
+python scripts/run_finance_crisis_benchmark.py --config configs/finance_crisis_benchmarks.yaml
 ```
 
 ## Config Structure

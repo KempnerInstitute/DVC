@@ -32,6 +32,7 @@ from ..time.data import generate_synthetic_time_series, create_data_loader, prep
 from ..time.models import create_time_dependent_vine
 from ..utils.utils_tensor import replace_nan_inf, handle_small_sample_size
 from .simulation_benchmarks import run_simulation_benchmark_suite
+from .real_world.finance_crisis import run_finance_crisis_benchmark_suite
 
 logger = logging.getLogger("DVC.experiments")
 
@@ -1053,6 +1054,29 @@ class SimulationBenchmarksExperiment(BaseExperiment):
         return results
 
 
+class FinanceCrisisBenchmarksExperiment(BaseExperiment):
+    """Real-world finance benchmark suite over crisis periods."""
+
+    def run(self) -> Dict[str, Any]:
+        self.logger.info(f"Running finance crisis benchmark suite: {self.config.name}")
+
+        scenarios = self.config.analysis_config.get("scenarios", [])
+        if not isinstance(scenarios, list) or not scenarios:
+            scenarios = [{"name": "multi_asset_daily_returns_crises"}]
+
+        results = run_finance_crisis_benchmark_suite(
+            output_dir=self.output_dir,
+            seed=int(self.config.seed or 0),
+            scenarios=scenarios,
+        )
+
+        results["timestamp"] = datetime.now().isoformat()
+        results["config"] = self.config.__dict__
+
+        self.save_results(results)
+        return results
+
+
 class ExperimentRunner:
     """Main class for running experiments from YAML configurations."""
     
@@ -1079,6 +1103,8 @@ class ExperimentRunner:
             experiment = TimeDependentExperiment(config)
         elif experiment_type == 'simulation_benchmarks':
             experiment = SimulationBenchmarksExperiment(config)
+        elif experiment_type == 'finance_crisis_benchmarks':
+            experiment = FinanceCrisisBenchmarksExperiment(config)
         else:
             raise ValueError(f"Unknown experiment type: {experiment_type}")
         

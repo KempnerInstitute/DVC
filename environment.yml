@@ -1,5 +1,5 @@
 # Conda environment file for DVC (Dynamic Vine Copula) project
-name: dvc-env
+name: dvc
 channels:
   - pytorch
   - conda-forge

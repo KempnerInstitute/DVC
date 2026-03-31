@@ -217,10 +217,21 @@ def _mean_copula_nll(vine: vine_obj_bin, x: np.ndarray) -> float:
             ui = u_[:, level, i]
             uj = u_[:, level, j]
             uv = torch.stack([ui, uj], dim=1)
-            pdf_val = copulapdf(cobj, uv).clamp_min(1e-30)
+            pdf_val = torch.nan_to_num(
+                copulapdf(cobj, uv),
+                nan=1e-30,
+                posinf=1e30,
+                neginf=1e-30,
+            ).clamp_min(1e-30)
             log_cop = log_cop + torch.log(pdf_val)
             # forward h-function to build conditional uniforms for higher trees
-            u_[:, level + 1, j] = copulaccdf(cobj, uv).clamp(1e-6, 1.0 - 1e-6)
+            h_val = torch.nan_to_num(
+                copulaccdf(cobj, uv),
+                nan=0.5,
+                posinf=1.0 - 1e-6,
+                neginf=1e-6,
+            ).clamp(1e-6, 1.0 - 1e-6)
+            u_[:, level + 1, j] = h_val
 
     return float((-log_cop).mean().detach().cpu())
 

@@ -86,6 +86,7 @@ python scripts/run_experiment.py --create-examples
 
 # Run one config
 python scripts/run_experiment.py configs/probability_analysis.yaml
+python scripts/run_finance_crisis_benchmark.py --config configs/finance_crisis_benchmarks.yaml
 ```
 
 ## Generate Benchmark Tables
@@ -102,6 +103,7 @@ Outputs are written under `results/benchmark_tables/`:
 - `entropy_method_detail.csv` / `.tex`
 - `time_pair_detail.csv` / `.tex`
 - `simulation_benchmark_detail.csv` / `.tex` (from `configs/simulation_benchmarks.yaml`)
+- `finance_crisis_detail.csv` / `.tex` (when finance crisis results are included)
 
 ## Prepare Standalone Draft Assets
 

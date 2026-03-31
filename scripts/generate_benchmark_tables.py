@@ -222,6 +222,64 @@ def _summarize_simulation_benchmarks(result: Dict[str, Any]) -> Tuple[pd.DataFra
     return detail_df, summary_df
 
 
+def _summarize_finance_crisis_benchmarks(result: Dict[str, Any]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    run_name = result.get("config", {}).get("name", "unknown")
+    scenarios = result.get("scenarios", {})
+    if not isinstance(scenarios, dict):
+        return pd.DataFrame(), pd.DataFrame()
+
+    rows: List[Dict[str, Any]] = []
+    for scenario_name, payload in scenarios.items():
+        if not isinstance(payload, dict):
+            continue
+        summary_rows = payload.get("crisis_summary", [])
+        if isinstance(summary_rows, list) and summary_rows:
+            for row in summary_rows:
+                if not isinstance(row, dict):
+                    continue
+                rows.append(
+                    {
+                        "experiment_name": run_name,
+                        "scenario": str(scenario_name),
+                        **row,
+                    }
+                )
+        else:
+            for key, baseline in {
+                "nll_gap": "Gaussian copula",
+                "nll_gap_truncated_level0": "1-truncated C-vine",
+                "nll_gap_glasso": "Graphical Lasso",
+                "nll_gap_tvgl": "TVGL (Frobenius)",
+                "nll_gap_state_space": "Gaussian SSM",
+            }.items():
+                arr = _as_1d_float_array(payload.get(key))
+                if arr is None:
+                    continue
+                rows.append(
+                    {
+                        "experiment_name": run_name,
+                        "scenario": str(scenario_name),
+                        "baseline": baseline,
+                        "scope": "overall",
+                        "mean_gap": float(np.mean(arr)),
+                        "positive_fraction": float(np.mean(arr > 0.0)),
+                    }
+                )
+
+    detail_df = pd.DataFrame(rows)
+    summary_df = pd.DataFrame(
+        [
+            {
+                "experiment_name": run_name,
+                "experiment_type": "finance_crisis_benchmarks",
+                "n_scenarios": int(detail_df["scenario"].nunique()) if not detail_df.empty else 0,
+                "mean_gap_all_rows": float(detail_df["mean_gap"].mean()) if not detail_df.empty else None,
+            }
+        ]
+    )
+    return detail_df, summary_df
+
+
 def _as_1d_float_array(value: Any) -> Optional[np.ndarray]:
     """Convert scalar/list-like value to a finite 1D float array."""
     if value is None:
@@ -383,6 +441,7 @@ def main():
             "configs/entropy_analysis.yaml",
             "configs/time_dependent.yaml",
             "configs/simulation_benchmarks.yaml",
+            "configs/finance_crisis_benchmarks.yaml",
         ],
         help="YAML configs to include.",
     )
@@ -416,6 +475,7 @@ def main():
     time_details = []
     sim_details = []
     sim_effective_details = []
+    finance_details = []
     summary_rows = []
 
     for result_json in result_jsons:
@@ -448,6 +508,19 @@ def main():
                     eff_df,
                     plots_dir / "effective_behavior_heatmap.png",
                 )
+        elif experiment_type == "finance_crisis_benchmarks":
+            detail_df, summary_df = _summarize_finance_crisis_benchmarks(result)
+            finance_details.append(detail_df)
+            summary_rows.append(summary_df)
+            run_name = result.get("config", {}).get("name", "unknown")
+            eff_df = _extract_effective_behavior_rows(result, run_name=run_name)
+            if not eff_df.empty:
+                sim_effective_details.append(eff_df)
+                plots_dir = result_json.parent / "plots"
+                _plot_effective_behavior_heatmaps(
+                    eff_df,
+                    plots_dir / "effective_behavior_heatmap_finance.png",
+                )
 
     if prob_details:
         prob_df = pd.concat(prob_details, ignore_index=True)
@@ -479,6 +552,14 @@ def main():
             sim_df,
             outdir / "simulation_benchmark_detail.csv",
             outdir / "simulation_benchmark_detail.tex",
+        )
+
+    if finance_details:
+        finance_df = pd.concat(finance_details, ignore_index=True)
+        _write_table(
+            finance_df,
+            outdir / "finance_crisis_detail.csv",
+            outdir / "finance_crisis_detail.tex",
         )
 
     if sim_effective_details:

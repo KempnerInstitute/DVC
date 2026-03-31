@@ -396,6 +396,13 @@ def fit_frank(u: torch.Tensor):
     u_np = u.cpu().numpy()
     tau_kendall, _ = kendalltau(u_np[:, 0], u_np[:, 1])
     theta_init_val = frank_kendalltau_to_theta(tau_kendall)
+    if (not np.isfinite(theta_init_val)) or abs(theta_init_val) < 1e-6:
+        # Near-independence: Frank parameter is effectively zero.
+        theta_final = 0.0
+        ll_val = 0.0
+        k = 1
+        aic = 2 * k - 2 * ll_val
+        return float(theta_final), float(ll_val), float(aic)
     
     theta_init = torch.tensor([theta_init_val], dtype=dtype, device=device, requires_grad=True)
     
@@ -420,8 +427,10 @@ def fit_frank(u: torch.Tensor):
         theta = torch.clamp(theta_init, -20.0, 20.0)
         
         # Handle theta ≈ 0 (independence)
-        if torch.abs(theta) < 1e-6:
-            log_pdf = torch.zeros(u.shape[0], dtype=dtype, device=device)
+        if float(torch.abs(theta).detach().cpu().item()) < 1e-6:
+            # Loss is constant in this regime; stop without autograd step.
+            err = torch.tensor(0.0, dtype=dtype, device=device)
+            break
         else:
             u_clamped = torch.clamp(u, 1e-9, 1-1e-9)
             u1, u2 = u_clamped[:, 0], u_clamped[:, 1]
@@ -449,6 +458,8 @@ def fit_frank(u: torch.Tensor):
             break
             
         err.backward()
+        if theta_init.grad is None:
+            break
         
         # Nadam update
         grad = theta_init.grad
@@ -841,7 +852,8 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
     """
     fam = _normalize_family_name(cop_p.family)
     param = cop_p.theta
-    uv_clamped = torch.clamp(uv, 1e-9, 1 - 1e-9)
+    uv_safe = torch.nan_to_num(uv, nan=0.5, posinf=1.0 - 1e-9, neginf=1e-9)
+    uv_clamped = torch.clamp(uv_safe, 1e-9, 1 - 1e-9)
 
     # Ind
     if fam=='ind':
@@ -854,12 +866,15 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
             rho = float(param[0])
         else:
             rho = float(param)
+        if not math.isfinite(rho):
+            rho = 0.0
         r = max(min(rho,0.999999), -0.999999)
         one_m_r2 = 1.0 - r*r
         if one_m_r2 < 1e-12 or not math.isfinite(one_m_r2):
             one_m_r2 = 1e-12
         normal_dist = torch.distributions.Normal(0.,1.)
         z = normal_dist.icdf(uv_clamped)  # shape [N,2]
+        z = torch.nan_to_num(z, nan=0.0, posinf=8.0, neginf=-8.0)
         z1 = z[:,0]
         z2 = z[:,1]
         # Gaussian copula density:
@@ -868,7 +883,8 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         logc = -0.5 * math.log(denom)
         quad = (2.0 * r * z1 * z2 - (r * r) * (z1 * z1 + z2 * z2)) / (2.0 * denom)
         logc_t = torch.tensor(logc, dtype=uv_clamped.dtype, device=uv_clamped.device)
-        return torch.exp(torch.clamp(logc_t + quad, -30.0, 30.0))
+        out = torch.exp(torch.clamp(logc_t + quad, -30.0, 30.0))
+        return torch.nan_to_num(out, nan=1.0, posinf=1e15, neginf=1e-15).clamp(1e-15, 1e15)
 
     elif fam=='student':
         # param => (rho, df)
@@ -1029,7 +1045,8 @@ def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
     """
     fam = _normalize_family_name(cop_p.family)
     param = cop_p.theta
-    uv_clamped = torch.clamp(uv, 1e-9, 1 - 1e-9)
+    uv_safe = torch.nan_to_num(uv, nan=0.5, posinf=1.0 - 1e-9, neginf=1e-9)
+    uv_clamped = torch.clamp(uv_safe, 1e-9, 1 - 1e-9)
 
     if fam=='ind':
         # Independence: h(v|u) = v.
@@ -1043,20 +1060,25 @@ def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
             rho = float(param[0])
         else:
             rho = float(param)
+        if not math.isfinite(rho):
+            rho = 0.0
         r = max(min(rho, 0.999999), -0.999999)
         normal_dist = torch.distributions.Normal(0., 1.)
 
         # Transform to normal space
         z1 = normal_dist.icdf(uv_clamped[:, 0])
         z2 = normal_dist.icdf(uv_clamped[:, 1])
+        z1 = torch.nan_to_num(z1, nan=0.0, posinf=8.0, neginf=-8.0)
+        z2 = torch.nan_to_num(z2, nan=0.0, posinf=8.0, neginf=-8.0)
 
         # Conditional distribution: Z2|Z1 ~ N(rho*Z1, sqrt(1-rho^2))
         one_minus_r2 = 1.0 - r * r
-        if one_minus_r2 < 1e-12:
+        if (not math.isfinite(one_minus_r2)) or one_minus_r2 < 1e-12:
             one_minus_r2 = 1e-12
         z_std = (z2 - r * z1) / math.sqrt(one_minus_r2)
-
-        return normal_dist.cdf(z_std).clamp(1e-9, 1 - 1e-9)
+        z_std = torch.nan_to_num(z_std, nan=0.0, posinf=12.0, neginf=-12.0)
+        out = normal_dist.cdf(z_std)
+        return torch.nan_to_num(out, nan=0.5, posinf=1.0 - 1e-9, neginf=1e-9).clamp(1e-9, 1 - 1e-9)
 
     elif fam=='student':
         # Student-t copula conditional CDF (h-function):
@@ -1085,7 +1107,8 @@ def copulaccdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
         z = numerator / denominator
         h_val = t.cdf(z, nu + 1)
 
-        return torch.tensor(h_val, dtype=uv.dtype, device=uv.device).clamp(1e-9, 1 - 1e-9)
+        out = torch.tensor(h_val, dtype=uv.dtype, device=uv.device)
+        return torch.nan_to_num(out, nan=0.5, posinf=1.0 - 1e-9, neginf=1e-9).clamp(1e-9, 1 - 1e-9)
 
     elif fam=='clayton':
         # Clayton: C(u,v) = (u^{-a} + v^{-a} - 1)^(-1/a), a>0.

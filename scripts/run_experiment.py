@@ -99,6 +99,7 @@ Examples:
         print("  - probability_analysis.yaml: Probability distribution analysis")
         print("  - entropy_analysis.yaml: Entropy and information estimation")
         print("  - time_dependent.yaml: Time-dependent vine copula modeling")
+        print("  - finance_crisis_benchmarks.yaml: Real-world finance crisis benchmark")
         print("  - comprehensive_comparison.yaml: Comprehensive comparison study")
         print("\nUsage: python scripts/run_experiment.py configs/<config_file>.yaml")
         return
