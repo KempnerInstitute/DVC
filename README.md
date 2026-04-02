@@ -105,6 +105,132 @@ Outputs are written under `results/benchmark_tables/`:
 - `simulation_benchmark_detail.csv` / `.tex` (from `configs/simulation_benchmarks.yaml`)
 - `finance_crisis_detail.csv` / `.tex` (when finance crisis results are included)
 
+## Dalgleish Latent-State Analysis
+
+The repository also contains a real-data analysis pipeline for the Dalgleish et al. photostimulation dataset under `dataset_stimulation/`.
+
+Environment used locally:
+
+```bash
+conda activate dvc
+```
+
+Run the validated latent-state benchmark:
+
+```bash
+MPLCONFIGDIR=/tmp XDG_CACHE_HOME=/tmp \
+python scripts/stimulation_exp_benchmark/build_dalgleish_dvc_dataset.py \
+  --data_root dataset_stimulation \
+  --out_root dvc_ready \
+  --d 10 \
+  --seed 0 \
+  --selection_mode topk_responsive
+```
+
+Run the maintained latent analysis script:
+
+```bash
+MPLCONFIGDIR=/tmp XDG_CACHE_HOME=/tmp \
+python scripts/stimulation_exp_benchmark/run_dalgleish_latent_publication_analysis.py \
+  --data_root dataset_stimulation \
+  --out_root dvc_ready \
+  --results_root results/stimulation_exp_benchmark \
+  --family_variant stable \
+  --seed 0 \
+  --n_repeats 2
+```
+
+Redraw the publication-facing figures from the validated latent publication summaries:
+
+```bash
+MPLCONFIGDIR=/tmp XDG_CACHE_HOME=/tmp \
+python scripts/stimulation_exp_benchmark/refresh_dalgleish_latent_publication_figures.py \
+  --results_root results/stimulation_exp_benchmark \
+  --out_root dvc_ready
+```
+
+Compact run book:
+
+```bash
+bash scripts/stimulation_exp_benchmark/run_stimulation_exp_benchmark.sh
+```
+
+The maintained workflow now uses:
+
+- `scripts/stimulation_exp_benchmark/build_dalgleish_dvc_dataset.py`
+- `scripts/stimulation_exp_benchmark/run_dalgleish_latent_publication_analysis.py`
+- `scripts/stimulation_exp_benchmark/refresh_dalgleish_latent_publication_figures.py`
+
+Older exploratory or intermediate Dalgleish scripts are archived under:
+
+- `scripts/debug_stimulation_exp/`
+
+Main outputs are written to:
+
+- `results/stimulation_exp_benchmark/data/`
+- `results/stimulation_exp_benchmark/plots/`
+- mirrored key CSVs in `dvc_ready/`
+
+Key latent-state outputs:
+
+- `latent_state_source_space_summary.csv`
+  Source-space comparison for targeted, mixed, and non-targeted latent spaces.
+- `latent_state_dose_summary.csv`
+  Dose-conditioned summaries for the chosen latent formulation.
+- `latent_state_dynamic_summary.csv`
+  Exploratory within-session dynamic summaries.
+- `latent_state_interpretability.csv`
+  PCA variance, stability, temporal balance, and target-related summaries.
+- `latent_followup_static_summary.csv`
+  Session-level and pooled static source-space summaries for the publication follow-up.
+- `latent_followup_dose_summary.csv`
+  Session-level and pooled by-dose summaries with bootstrap-ready aggregates.
+- `latent_followup_dynamic_summary.csv`
+  Rolling-window dynamic summaries for both within-window PCA and common-basis sensitivity views.
+- `latent_followup_family_summary.csv`
+  Raw stable-family and grouped family-usage summaries.
+- `latent_followup_pc_summary.csv`
+  PC profile summaries and interpretability associations.
+- `latent_followup_stats_summary.csv`
+  Session-level inference summaries for the main comparisons.
+- `latent_publication_static_summary.csv`
+  Final publication-pass static summary, including source-space sessions, baseline-vs-full comparisons, and Gaussian-to-1-trunc vs 1-trunc-to-full decomposition.
+- `latent_publication_control_summary.csv`
+  Reduced-rank catch/control feasibility screen and any control-session summaries if catch is clean enough.
+- `latent_publication_family_summary.csv`
+  Publication-facing family usage summaries, including raw stable families and grouped dependence classes.
+- `latent_publication_dynamic_summary.csv`
+  Early/middle/late dynamic summaries for both blockwise-basis and common-basis latent views.
+- `latent_publication_pc_summary.csv`
+  Final PCA variance, stability, temporal balance, and target-related interpretability summaries.
+- `latent_publication_stats_summary.csv`
+  Session-level bootstrap/sign-flip summaries for Panels A-D.
+- `latent_publication_baseline_feasibility.csv`
+  Explicit record of which repository baselines ran cleanly in the latent-state publication pass and which did not.
+- `latent_publication_metadata.json`
+  Final figure-panel choice, control feasibility, and paper-decision metadata.
+
+Main figure files:
+
+- `fig_latent_publication_final.png`
+  Final publication-style figure with Panel A baseline comparisons, Panel B pairwise-versus-higher-order decomposition, Panel C source-space biology, and Panel D grouped dependence type.
+- `fig_latent_publication_dose_supplement.png`
+  Supplement figure showing dose robustness for the main non-targeted latent variant.
+- `fig_latent_publication_family_supplement.png`
+  Supplement figure with grouped dependence classes by dose and raw stable-family usage by source space.
+- `fig_latent_publication_dynamic_supplement.png`
+  Earlier exploratory dynamic/history figure retained for reference, but not part of the refreshed main figure set.
+
+Overview markdown:
+
+- `scripts/stimulation_exp_benchmark/DALGLEISH_LATENT_ANALYSIS_OVERVIEW.md`
+  Reader-facing explanation of the dataset, preprocessing, latent-state formulation, hypotheses, main findings, limits, and rerun commands.
+
+Figure/source mapping:
+
+- `latent_publication_figure_panel_map.json`
+  Small manifest that records which source tables feed each refreshed publication figure panel.
+
 ## Prepare Standalone Draft Assets
 
 To generate benchmark artifacts and vendor all paper assets into `drafts/`
