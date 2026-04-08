@@ -131,6 +131,29 @@ def _draw_interval(ax: plt.Axes, x: float, mean_v: float, low: float, high: floa
     ax.scatter([x], [mean_v], color=color, edgecolor="white", linewidth=0.8, s=48, zorder=5)
 
 
+def _resolve_metric_columns(
+    dose_df: pd.DataFrame,
+    session_candidates: list[str],
+    pooled_mean_candidates: list[str],
+    pooled_low_candidates: list[str],
+    pooled_high_candidates: list[str],
+) -> tuple[str, str, str, str]:
+    columns = set(dose_df.columns)
+
+    def first_present(candidates: list[str]) -> str:
+        for candidate in candidates:
+            if candidate in columns:
+                return candidate
+        raise KeyError(f"None of the expected columns were found: {candidates}")
+
+    return (
+        first_present(session_candidates),
+        first_present(pooled_mean_candidates),
+        first_present(pooled_low_candidates),
+        first_present(pooled_high_candidates),
+    )
+
+
 def _plot_panel_a(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame) -> None:
     panel = static_df[static_df["row_type"] == "baseline_session"].copy()
     x = np.arange(len(BASELINE_ORDER))
@@ -310,10 +333,31 @@ def _plot_dose_supplement(dose_df: pd.DataFrame, out_path: Path) -> None:
     session_df = dose_df[dose_df["scope"] == "session"].copy()
     pooled_df = dose_df[dose_df["scope"] == "pooled"].sort_values("dose").copy()
     metrics = [
-        ("full_delta_vs_gaussian", "mean_full_delta_vs_gaussian", "ci_low_full_delta_vs_gaussian", "ci_high_full_delta_vs_gaussian", "Full-vs-Gaussian", PANEL_COLORS["purple"]),
-        ("tc_higher", "mean_tc_higher", "ci_low_tc_higher", "ci_high_tc_higher", "TC_higher", PANEL_COLORS["orange"]),
+        (
+            ["full_vs_gaussian", "full_delta_vs_gaussian"],
+            ["mean_full_vs_gaussian", "mean_full_delta_vs_gaussian"],
+            ["ci_low_full_vs_gaussian", "ci_low_full_delta_vs_gaussian"],
+            ["ci_high_full_vs_gaussian", "ci_high_full_delta_vs_gaussian"],
+            "Full-vs-Gaussian",
+            PANEL_COLORS["purple"],
+        ),
+        (
+            ["tc_higher"],
+            ["mean_tc_higher"],
+            ["ci_low_tc_higher"],
+            ["ci_high_tc_higher"],
+            "TC_higher",
+            PANEL_COLORS["orange"],
+        ),
     ]
-    for ax, (session_key, mean_key, low_key, high_key, ylabel, color) in zip(axes, metrics):
+    for ax, (session_candidates, mean_candidates, low_candidates, high_candidates, ylabel, color) in zip(axes, metrics):
+        session_key, mean_key, low_key, high_key = _resolve_metric_columns(
+            dose_df,
+            session_candidates,
+            mean_candidates,
+            low_candidates,
+            high_candidates,
+        )
         for _, group in session_df.groupby("session_id"):
             group = group.sort_values("dose")
             ax.plot(group["dose"], group[session_key], color="#CFCFCF", linewidth=0.9, alpha=0.75)
