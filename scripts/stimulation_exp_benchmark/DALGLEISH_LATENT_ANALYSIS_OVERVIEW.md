@@ -276,6 +276,7 @@ This is now the single supported analysis entrypoint for the Dalgleish latent-st
 Older intermediate scripts used during model selection, follow-up, and debugging have been archived under:
 
 - `scripts/debug_stimulation_exp/`
+  This directory is only for archived exploratory/debug scripts. The maintained Dalgleish pipeline is self-contained in `scripts/stimulation_exp_benchmark/`.
 
 ### Step 3. Refresh The Publication Figures
 

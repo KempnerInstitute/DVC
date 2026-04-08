@@ -164,6 +164,7 @@ The maintained workflow now uses:
 Older exploratory or intermediate Dalgleish scripts are archived under:
 
 - `scripts/debug_stimulation_exp/`
+  This folder is archival/debug only; the maintained Dalgleish workflow runs entirely from `scripts/stimulation_exp_benchmark/`.
 
 Main outputs are written to:
 

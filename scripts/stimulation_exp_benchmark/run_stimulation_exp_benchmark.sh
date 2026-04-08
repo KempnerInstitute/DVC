@@ -32,6 +32,7 @@ Notes:
   - 1 analysis script
   - 1 figure-refresh script
 - Older exploratory and debugging scripts are archived in `scripts/debug_stimulation_exp/`
+- The maintained runtime pipeline is self-contained under `scripts/stimulation_exp_benchmark/`
 EOF
   echo
 }
