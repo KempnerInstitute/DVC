@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 DATA_ROOT="${DATA_ROOT:-dataset_stimulation}"
 OUT_ROOT="${OUT_ROOT:-dvc_ready}"
-RESULTS_ROOT="${RESULTS_ROOT:-results/stimulation_exp_benchmark}"
+RESULTS_ROOT="${RESULTS_ROOT:-results/stimulation_exp_benchmark_new}"
 MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp}"
 XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp}"
 
@@ -62,6 +62,17 @@ MPLCONFIGDIR=$MPLCONFIGDIR XDG_CACHE_HOME=$XDG_CACHE_HOME \\
 $PYTHON_BIN scripts/stimulation_exp_benchmark/refresh_dalgleish_latent_publication_figures.py \\
   --results_root "$RESULTS_ROOT" \\
   --out_root "$OUT_ROOT"
+
+Execution modes:
+- print   : show this run book only (default)
+- dataset : run only dataset generation
+- analysis: run only the maintained analysis script
+- figures : run only the figure-refresh script
+- all     : run dataset generation, analysis, and figure refresh in sequence
+
+Examples:
+- bash scripts/stimulation_exp_benchmark/run_stimulation_exp_benchmark.sh all
+- bash scripts/stimulation_exp_benchmark/run_stimulation_exp_benchmark.sh analysis
 EOF
   echo
 }

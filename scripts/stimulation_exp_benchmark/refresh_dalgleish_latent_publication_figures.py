@@ -93,6 +93,19 @@ def _set_style() -> None:
     )
 
 
+def _read_dose_summary(data_dir: Path) -> pd.DataFrame:
+    publication_path = data_dir / "latent_publication_dose_summary.csv"
+    followup_path = data_dir / "latent_followup_dose_summary.csv"
+    if publication_path.exists():
+        return pd.read_csv(publication_path)
+    if followup_path.exists():
+        return pd.read_csv(followup_path)
+    raise FileNotFoundError(
+        f"Could not find dose summary in {data_dir}. Expected "
+        f"{publication_path.name} or {followup_path.name}."
+    )
+
+
 def _bootstrap_ci(values: Iterable[float], seed: int, draws: int = 4000) -> tuple[float, float, float]:
     arr = np.asarray([float(v) for v in values if np.isfinite(v)], dtype=float)
     if arr.size == 0:
@@ -402,7 +415,7 @@ def main() -> None:
     static_df = pd.read_csv(data_dir / "latent_publication_static_summary.csv")
     stats_df = pd.read_csv(data_dir / "latent_publication_stats_summary.csv")
     family_df = pd.read_csv(data_dir / "latent_publication_family_summary.csv")
-    dose_df = pd.read_csv(data_dir / "latent_followup_dose_summary.csv")
+    dose_df = _read_dose_summary(data_dir)
 
     main_fig = plots_dir / "fig_latent_publication_final.png"
     dose_fig = plots_dir / "fig_latent_publication_dose_supplement.png"
@@ -449,6 +462,15 @@ def main() -> None:
         "supplement_figures": {
             "dose": str(dose_fig.relative_to(results_root.parent)),
             "family": str(family_fig.relative_to(results_root.parent)),
+        },
+        "supplement_sources": {
+            "dose": [
+                "latent_publication_dose_summary.csv",
+                "latent_followup_dose_summary.csv (legacy fallback)",
+            ],
+            "family": [
+                "latent_publication_family_summary.csv",
+            ],
         },
         "dynamic_note": "Dynamic/time-history panels were intentionally left unchanged in this refresh pass.",
     }

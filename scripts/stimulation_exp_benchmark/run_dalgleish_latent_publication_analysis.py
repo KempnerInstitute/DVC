@@ -64,6 +64,80 @@ BASELINE_LABELS = {
 }
 
 
+def _component_summaries(
+    components: np.ndarray,
+    n_source: int,
+    source_space: str,
+    source_targeted_mask: np.ndarray,
+    roi_lookup: pd.DataFrame,
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    if components.size == 0:
+        return rows
+    source_targeted_mask = np.asarray(source_targeted_mask, dtype=bool)
+    roi_lookup = roi_lookup.reset_index(drop=True)
+    if source_space == "targeted":
+        source_targeted_mask = np.ones(n_source, dtype=bool)
+    elif source_space == "non_targeted":
+        source_targeted_mask = np.zeros(n_source, dtype=bool)
+    for comp_idx in range(components.shape[0]):
+        w = np.asarray(components[comp_idx], dtype=np.float64)
+        delayed_w = w[:n_source]
+        post_w = w[n_source:]
+        delayed_abs = float(np.sum(np.abs(delayed_w)))
+        post_abs = float(np.sum(np.abs(post_w)))
+        total_abs = delayed_abs + post_abs
+        post_weight_fraction = post_abs / total_abs if total_abs > 0 else np.nan
+        per_neuron_abs = np.abs(delayed_w) + np.abs(post_w)
+        total_neuron_abs = float(np.sum(per_neuron_abs))
+        if total_neuron_abs > 0:
+            targeted_weight_fraction = float(np.sum(per_neuron_abs[source_targeted_mask]) / total_neuron_abs)
+        else:
+            targeted_weight_fraction = np.nan
+        targeted_fraction_base = float(np.mean(source_targeted_mask)) if source_targeted_mask.size else np.nan
+        if np.isfinite(targeted_weight_fraction) and np.isfinite(targeted_fraction_base) and targeted_fraction_base > 0:
+            targeted_enrichment = float(targeted_weight_fraction / targeted_fraction_base)
+        else:
+            targeted_enrichment = np.nan
+
+        top_loading_distance_delta = np.nan
+        if source_space in {"non_targeted", "mixed"} and not roi_lookup.empty:
+            target_df = roi_lookup[source_targeted_mask].copy()
+            if not target_df.empty and {"x_center", "y_center"}.issubset(roi_lookup.columns):
+                src_df = roi_lookup.copy()
+                src_xy = src_df[["x_center", "y_center"]].to_numpy(dtype=float)
+                target_xy = target_df[["x_center", "y_center"]].to_numpy(dtype=float)
+                if np.isfinite(src_xy).all() and np.isfinite(target_xy).all():
+                    diff = src_xy[:, None, :] - target_xy[None, :, :]
+                    min_dist = np.sqrt(np.sum(diff ** 2, axis=2)).min(axis=1)
+                    k_top = min(max(10, int(math.ceil(0.05 * n_source))), n_source)
+                    top_idx = np.argsort(per_neuron_abs)[::-1][:k_top]
+                    top_loading_distance_delta = float(np.mean(min_dist[top_idx]) - np.mean(min_dist))
+
+        rows.append(
+            {
+                "pc_index": int(comp_idx + 1),
+                "post_weight_fraction": post_weight_fraction,
+                "targeted_weight_fraction": targeted_weight_fraction,
+                "targeted_enrichment": targeted_enrichment,
+                "top_loading_distance_delta_px": top_loading_distance_delta,
+            }
+        )
+    return rows
+
+
+def _component_stability(components_a: np.ndarray, components_b: np.ndarray) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    k = min(components_a.shape[0], components_b.shape[0])
+    for comp_idx in range(k):
+        a = np.asarray(components_a[comp_idx], dtype=np.float64)
+        b = np.asarray(components_b[comp_idx], dtype=np.float64)
+        denom = np.linalg.norm(a) * np.linalg.norm(b)
+        sim = np.nan if denom <= 0 else float(np.abs(np.dot(a, b) / denom))
+        rows.append({"pc_index": int(comp_idx + 1), "loading_stability_abs_cosine": sim})
+    return rows
+
+
 def _source_indices(targeted_mask: np.ndarray, source_space: str) -> np.ndarray:
     if source_space == "non_targeted":
         return np.flatnonzero(~targeted_mask).astype(int)
@@ -513,6 +587,7 @@ def main() -> None:
 
     static_rows: List[Dict[str, Any]] = []
     family_rows: List[Dict[str, Any]] = []
+    loadings_meta: List[Dict[str, Any]] = []
     baseline_notes = {
         "gaussian_copula": "Validated Gaussian copula baseline used in the latent benchmark path.",
         "truncated_vine": "Validated 1-truncated vine baseline used in the latent benchmark path.",
@@ -543,7 +618,7 @@ def main() -> None:
                 train_idx = np.asarray(split["train_idx"], dtype=int)
                 test_idx = np.asarray(split["test_idx"], dtype=int)
                 try:
-                    train_scores, test_scores, explained, _components = _fit_pca_with_components(
+                    train_scores, test_scores, explained, components = _fit_pca_with_components(
                         train_x=source_matrix[train_idx],
                         test_x=source_matrix[test_idx],
                         n_components=n_components,
@@ -598,6 +673,36 @@ def main() -> None:
                     "slice_key": str(split["slice_key"]),
                 }
                 family_rows.extend(_iter_family_rows(scored["full_vine"], fam_common))
+                source_targeted_mask = np.asarray(cache["targeted_mask"][source_idx], dtype=bool)
+                comp_rows = _component_summaries(
+                    components=components,
+                    n_source=source_idx.size,
+                    source_space=source_space,
+                    source_targeted_mask=source_targeted_mask,
+                    roi_lookup=cache["roi_lookup"].iloc[source_idx].reset_index(drop=True),
+                )
+                slice_base_key = f"{session_id}__dose_{int(round(float(split['dose']))):03d}"
+                for row in comp_rows:
+                    loadings_meta.append(
+                        {
+                            "variant": variant,
+                            "source_space": source_space,
+                            "n_components": n_components,
+                            "session_id": session_id,
+                            "dose": float(split["dose"]),
+                            "repeat_id": int(split["repeat_id"]),
+                            "slice_base_key": slice_base_key,
+                            "split_id": f"{variant}__{split['slice_key']}",
+                            "pc_index": row["pc_index"],
+                            "explained_variance": float(explained[row["pc_index"] - 1]),
+                            "cumulative_variance_retained": float(np.sum(explained[: row["pc_index"]])),
+                            "post_weight_fraction": row["post_weight_fraction"],
+                            "targeted_weight_fraction": row["targeted_weight_fraction"],
+                            "targeted_enrichment": row["targeted_enrichment"],
+                            "top_loading_distance_delta_px": row["top_loading_distance_delta_px"],
+                            "components": components[row["pc_index"] - 1].tolist(),
+                        }
+                    )
 
     static_df = pd.DataFrame(static_rows)
 
@@ -893,8 +998,53 @@ def main() -> None:
             family_summary_frames.append(_family_mix_summary(dynfam, ["analysis_scope", "summary_level", "basis_mode", "block_id"]))
     family_summary_df = pd.concat(family_summary_frames, ignore_index=True) if family_summary_frames else pd.DataFrame()
 
-    # PC interpretability summary from existing validated follow-up outputs.
-    latent_interpret = pd.read_csv(data_dir / "latent_state_interpretability.csv")
+    # PC interpretability summary computed within this publication analysis.
+    latent_interpret_rows: List[Dict[str, Any]] = []
+    component_store: Dict[Tuple[str, str, float, int], Dict[int, np.ndarray]] = {}
+    for row in loadings_meta:
+        key = (str(row["variant"]), str(row["session_id"]), float(row["dose"]), int(row["repeat_id"]))
+        component_store.setdefault(key, {})[int(row["pc_index"])] = np.asarray(row["components"], dtype=np.float64)
+    loading_df = pd.DataFrame(loadings_meta)
+    if not loading_df.empty:
+        for variant in sorted(loading_df["variant"].unique().tolist()):
+            var_rows = loading_df[loading_df["variant"] == variant].copy()
+            if var_rows.empty:
+                continue
+            src = str(var_rows["source_space"].iloc[0])
+            n_comp = int(var_rows["n_components"].iloc[0])
+            for (session_id, dose), group in var_rows.groupby(["session_id", "dose"]):
+                reps = sorted(group["repeat_id"].unique().tolist())
+                if len(reps) < 2:
+                    continue
+                key_a = (variant, str(session_id), float(dose), int(reps[0]))
+                key_b = (variant, str(session_id), float(dose), int(reps[1]))
+                if key_a not in component_store or key_b not in component_store:
+                    continue
+                if any(pc not in component_store[key_a] or pc not in component_store[key_b] for pc in range(1, n_comp + 1)):
+                    continue
+                comps_a = np.vstack([component_store[key_a][pc] for pc in range(1, n_comp + 1)])
+                comps_b = np.vstack([component_store[key_b][pc] for pc in range(1, n_comp + 1)])
+                stability = _component_stability(comps_a, comps_b)
+                for item in stability:
+                    group_pc = group[group["pc_index"] == item["pc_index"]]
+                    latent_interpret_rows.append(
+                        {
+                            "variant": variant,
+                            "source_space": src,
+                            "n_components": n_comp,
+                            "session_id": session_id,
+                            "dose": float(dose),
+                            "pc_index": int(item["pc_index"]),
+                            "explained_variance": float(group_pc["explained_variance"].mean()),
+                            "cumulative_variance_retained": float(group_pc["cumulative_variance_retained"].mean()),
+                            "loading_stability_abs_cosine": item["loading_stability_abs_cosine"],
+                            "post_weight_fraction": float(group_pc["post_weight_fraction"].mean()),
+                            "targeted_weight_fraction": float(group_pc["targeted_weight_fraction"].mean()) if group_pc["targeted_weight_fraction"].notna().any() else np.nan,
+                            "targeted_enrichment": float(group_pc["targeted_enrichment"].mean()) if group_pc["targeted_enrichment"].notna().any() else np.nan,
+                            "top_loading_distance_delta_px": float(group_pc["top_loading_distance_delta_px"].mean()) if group_pc["top_loading_distance_delta_px"].notna().any() else np.nan,
+                        }
+                    )
+    latent_interpret = pd.DataFrame(latent_interpret_rows)
     pc_main = latent_interpret[latent_interpret["variant"] == MAIN_VARIANT].copy()
     pc_mixed = latent_interpret[latent_interpret["variant"] == "mixed_2bin_pca6"].copy()
     pc_rows: List[Dict[str, Any]] = []
@@ -1060,12 +1210,14 @@ def main() -> None:
 
     for name, frame in {
         "latent_publication_static_summary.csv": static_out,
+        "latent_publication_dose_summary.csv": dose_summary_df,
         "latent_publication_control_summary.csv": control_out,
         "latent_publication_family_summary.csv": family_summary_df,
         "latent_publication_dynamic_summary.csv": dynamic_out,
         "latent_publication_pc_summary.csv": pc_summary_df,
         "latent_publication_stats_summary.csv": stats_df,
         "latent_publication_baseline_feasibility.csv": pd.DataFrame(baseline_feasibility),
+        "latent_state_interpretability.csv": latent_interpret,
     }.items():
         frame.to_csv(data_dir / name, index=False)
         frame.to_csv(out_root / name, index=False)
