@@ -428,8 +428,6 @@ def run_benchmark_suite(vine_methods: List[str],
             dataset_key = f"{dataset.scenario}_{dataset.metadata['dimension']}d"
             
             try:
-                # This is a placeholder for actual method evaluation
-                # In practice, you'd fit the vine method and evaluate metrics
                 method_result = _evaluate_method_on_dataset(method, dataset)
                 method_results[dataset_key] = method_result
                 
@@ -509,17 +507,13 @@ def _evaluate_method_on_dataset(method: str, dataset: BenchmarkDataset) -> Dict[
 
 
 def load_real_world_datasets() -> List[BenchmarkDataset]:
-    """Load real-world datasets for benchmarking."""
-    
-    datasets = []
-    
-    # This is a placeholder for loading real datasets
-    # In practice, you might load:
-    # - Financial time series
-    # - Climate data
-    # - Biological measurements
-    # - etc.
-    
-    logger.info("Real-world dataset loading not implemented yet")
-    
-    return datasets
+    """Load real-world datasets for benchmarking.
+
+    Real-data loaders live in dedicated modules:
+    - ``dvc_package.experiments.real_world.finance_crisis`` (FRED cross-asset panel)
+    - ``dvc_package.real_data.allen_vbn`` (Allen Visual Behavior Neuropixels)
+
+    This helper remains as a hook for adding generic loaders in the future and
+    currently returns an empty list.
+    """
+    return []
