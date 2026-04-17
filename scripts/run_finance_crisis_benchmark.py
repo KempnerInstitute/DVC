@@ -4,16 +4,18 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from dvc_package.experiments.experiment_framework import ExperimentRunner
+from dvc_package.experiments.real_world import run_finance_crisis_benchmark_suite
 
 
-def _print_summary(results: dict) -> None:
-    outdir = Path(results.get("config", {}).get("output_dir", "results"))
+def _print_summary(results: dict, output_dir: Path) -> None:
     scenarios = results.get("scenarios", {})
     if not isinstance(scenarios, dict):
         return
@@ -29,9 +31,9 @@ def _print_summary(results: dict) -> None:
             roots = payload.get("root_unique", [])
             print(f"  root changes: {int(payload.get('root_change_count', 0))} (unique roots: {roots})")
         print("  figures:")
-        print(f"    - {outdir / 'plots' / f'{scenario_name}_nll_gap_panel.png'}")
-        print(f"    - {outdir / 'plots' / f'{scenario_name}_tail_dependence_panel.png'}")
-        print(f"    - {outdir / 'plots' / f'{scenario_name}_family_heatmap.png'}")
+        print(f"    - {output_dir / 'plots' / f'{scenario_name}_nll_gap_panel.png'}")
+        print(f"    - {output_dir / 'plots' / f'{scenario_name}_tail_dependence_panel.png'}")
+        print(f"    - {output_dir / 'plots' / f'{scenario_name}_family_heatmap.png'}")
         flags = payload.get("outperformance_flags", {})
         if isinstance(flags, dict):
             print("  crisis outperformance flags (mean gap > 0):")
@@ -48,14 +50,31 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    cfg = Path(args.config)
-    if not cfg.exists():
-        raise FileNotFoundError(f"Config not found: {cfg}")
+    cfg_path = Path(args.config)
+    if not cfg_path.exists():
+        raise FileNotFoundError(f"Config not found: {cfg_path}")
 
-    runner = ExperimentRunner()
-    results = runner.run_from_config(str(cfg))
-    _print_summary(results)
-    print(f"\nResults written to: {results.get('config', {}).get('output_dir', 'results')}")
+    with open(cfg_path) as fh:
+        cfg = yaml.safe_load(fh)
+
+    output_dir = Path(cfg.get("output_dir", "results/finance_crisis_benchmarks"))
+    seed = int(cfg.get("seed", 2026))
+    scenarios = cfg.get("analysis_config", {}).get("scenarios", [])
+
+    results = run_finance_crisis_benchmark_suite(
+        output_dir=output_dir,
+        seed=seed,
+        scenarios=scenarios,
+    )
+
+    summary_path = output_dir / "summary.json"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with open(summary_path, "w") as fh:
+        json.dump(results, fh, indent=2, default=str)
+
+    _print_summary(results, output_dir)
+    print(f"\nResults written to: {output_dir}")
+    print(f"Summary JSON: {summary_path}")
 
 
 if __name__ == "__main__":
