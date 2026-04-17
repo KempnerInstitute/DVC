@@ -26,6 +26,7 @@ import seaborn as sns
 from scipy.stats import norm
 
 from ...baselines.gaussian_state_space import gaussian_copula_state_space_nll_fit_eval
+from ...baselines.nf_copula import nf_copula_nll_fit_eval
 from ..simulation_benchmarks import (
     _empirical_tail_dependence,
     _fit_parametric_vine,
@@ -47,6 +48,7 @@ GAP_FIELDS = {
     "nll_gap_glasso": "Graphical Lasso",
     "nll_gap_tvgl": "TVGL (Frobenius)",
     "nll_gap_state_space": "Gaussian SSM",
+    "nll_gap_nf_copula": "NF copula (Real-NVP)",
 }
 
 
@@ -625,6 +627,7 @@ def _run_finance_scenario(
     gauss_nll: List[float] = []
     trunc_nll: List[float] = []
     glasso_nll: List[float] = []
+    nf_copula_nll: List[float] = []
 
     tau_mean_abs: List[float] = []
     tail_emp_upper: List[float] = []
@@ -669,6 +672,18 @@ def _run_finance_scenario(
                     alpha=float(scenario.get("glasso_alpha", 0.02)),
                 )
             )
+            try:
+                nf_nll_value = nf_copula_nll_fit_eval(
+                    tr,
+                    te,
+                    n_epochs=int(scenario.get("nf_copula_epochs", 50)),
+                    hidden_dim=int(scenario.get("nf_copula_hidden_dim", 32)),
+                    n_blocks=int(scenario.get("nf_copula_n_blocks", 4)),
+                    seed=int(seed) + 7 * t,
+                )
+            except Exception:
+                nf_nll_value = float("nan")
+            nf_copula_nll.append(nf_nll_value)
 
             level0_edges = vine.ind_vine[0] if getattr(vine, "ind_vine", None) else []
             level0_cops = vine.copulas[0] if getattr(vine, "copulas", None) else []
@@ -766,6 +781,7 @@ def _run_finance_scenario(
         "nll_gap_glasso": np.asarray(glasso_nll, dtype=np.float64) - dvc_arr,
         "nll_gap_tvgl": np.asarray(tvgl_nll, dtype=np.float64) - dvc_arr,
         "nll_gap_state_space": np.asarray(ssm_nll, dtype=np.float64) - dvc_arr,
+        "nll_gap_nf_copula": np.asarray(nf_copula_nll, dtype=np.float64) - dvc_arr,
     }
 
     crisis_summary = _build_crisis_summary_rows(end_dates_used, gaps, crisis_periods)
@@ -793,11 +809,13 @@ def _run_finance_scenario(
             "glasso_gaussian_nll": np.asarray(glasso_nll, dtype=np.float64),
             "tvgl_gaussian_nll": np.asarray(tvgl_nll, dtype=np.float64),
             "state_space_gaussian_nll": np.asarray(ssm_nll, dtype=np.float64),
+            "nf_copula_nll": np.asarray(nf_copula_nll, dtype=np.float64),
             "nll_gap": gaps["nll_gap"],
             "nll_gap_truncated_level0": gaps["nll_gap_truncated_level0"],
             "nll_gap_glasso": gaps["nll_gap_glasso"],
             "nll_gap_tvgl": gaps["nll_gap_tvgl"],
             "nll_gap_state_space": gaps["nll_gap_state_space"],
+            "nll_gap_nf_copula": gaps["nll_gap_nf_copula"],
             "tau_mean_abs_level0": np.asarray(tau_mean_abs, dtype=np.float64),
             "tail_emp_upper_q95_mean": np.asarray(tail_emp_upper, dtype=np.float64),
             "tail_emp_lower_q05_mean": np.asarray(tail_emp_lower, dtype=np.float64),
@@ -866,11 +884,13 @@ def _run_finance_scenario(
         "glasso_gaussian_nll": np.asarray(glasso_nll, dtype=np.float64).tolist(),
         "tvgl_gaussian_nll": np.asarray(tvgl_nll, dtype=np.float64).tolist(),
         "state_space_gaussian_nll": np.asarray(ssm_nll, dtype=np.float64).tolist(),
+        "nf_copula_nll": np.asarray(nf_copula_nll, dtype=np.float64).tolist(),
         "nll_gap": gaps["nll_gap"].tolist(),
         "nll_gap_truncated_level0": gaps["nll_gap_truncated_level0"].tolist(),
         "nll_gap_glasso": gaps["nll_gap_glasso"].tolist(),
         "nll_gap_tvgl": gaps["nll_gap_tvgl"].tolist(),
         "nll_gap_state_space": gaps["nll_gap_state_space"].tolist(),
+        "nll_gap_nf_copula": gaps["nll_gap_nf_copula"].tolist(),
         "state_space_process_variance": ssm_q,
         "tau_mean_abs_level0": np.asarray(tau_mean_abs, dtype=np.float64).tolist(),
         "tail_emp_upper_q95_mean": np.asarray(tail_emp_upper, dtype=np.float64).tolist(),
