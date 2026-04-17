@@ -1,0 +1,79 @@
+# Real-world finance benchmark (multi-asset daily returns around crises)
+name: "finance_crisis_benchmarks"
+description: "Rolling-window multi-asset crisis benchmark for non-Gaussian dependence over time"
+output_dir: "results/finance_crisis_benchmarks"
+seed: 2026
+
+analysis_config:
+  experiment_type: "finance_crisis_benchmarks"
+  scenarios:
+    - name: "multi_asset_daily_returns_crises"
+      # Data panel (Stooq + FRED).
+      assets:
+        - name: "SPY"
+          source: "stooq"
+          symbol: "spy.us"
+          price_column: "Close"
+        - name: "TLT"
+          source: "stooq"
+          symbol: "tlt.us"
+          price_column: "Close"
+        - name: "GLD"
+          source: "stooq"
+          symbol: "gld.us"
+          price_column: "Close"
+        - name: "USO"
+          source: "stooq"
+          symbol: "uso.us"
+          price_column: "Close"
+        - name: "UUP"
+          source: "stooq"
+          symbol: "uup.us"
+          price_column: "Close"
+        - name: "VIX"
+          source: "fred"
+          symbol: "VIXCLS"
+
+      start_date: "2006-01-01"
+      end_date: null
+      refresh_data: false
+      min_assets: 5
+
+      # Rolling window setup.
+      window: 120
+      stride: 10
+      train_fraction: 0.7
+
+      # DVC pair-copula candidates.
+      families:
+        - "gaussian"
+        - "student"
+        - "clayton"
+        - "gumbel"
+        - "independence"
+      drop_brittle_families: true
+      tail_q_upper: 0.90
+      tail_q_lower: 0.10
+      optimize_structure: true
+      temporal_baseline_mode: "causal_rolling"
+      temporal_baseline_history_windows: 24
+
+      # Crisis windows for diagnostics.
+      crisis_periods:
+        - name: "GFC"
+          start: "2008-09-01"
+          end: "2009-06-30"
+        - name: "COVID"
+          start: "2020-02-15"
+          end: "2020-06-30"
+
+      # Baseline hyperparameters.
+      glasso_alpha: 0.02
+      tvgl_alpha: 0.02
+      tvgl_beta: 1.0
+      tvgl_max_iter: 200
+      tvgl_step_size: 0.05
+      tvgl_eps: 1e-4
+
+plot_config:
+  create_plots: true
