@@ -253,7 +253,7 @@ def _plot_panel_d(ax: plt.Axes, family_df: pd.DataFrame) -> None:
     ax.set_yticks(y, ["Targeted", "Mixed", "Non-targeted"])
     ax.set_xlim(0.0, 1.0)
     ax.set_xlabel("Fraction of fitted pair-copula edges")
-    ax.set_title("D. Dependence is heavy-tailed and asymmetric", loc="left")
+    ax.set_title("D. Heavy-tailed, asymmetric dependence", loc="left")
     ax.grid(axis="x", alpha=0.4)
     ax.legend(loc="lower right", fontsize=8)
 

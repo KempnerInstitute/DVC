@@ -19,9 +19,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-
-RESULTS = Path("results/showcase")
-OUT_DIR = Path("drafts/figures/paper")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RESULTS = PROJECT_ROOT / "results" / "showcase"
+OUT_DIR = PROJECT_ROOT / "drafts" / "figures" / "paper"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 PHASE_COLORS = {
@@ -90,7 +90,7 @@ def main() -> None:
 
     # Regenerate minimal data for Kendall estimates.
     import sys
-    sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+    sys.path.insert(0, str(PROJECT_ROOT / "src"))
     from scripts.run_showcase_benchmark import _generate_window  # type: ignore  # noqa: E402
 
     rng = np.random.default_rng(2026)
@@ -117,9 +117,9 @@ def main() -> None:
     mid_points = [(boundaries[i] + boundaries[i + 1]) / 2 for i in range(len(boundaries) - 1)]
     labels = [
         "independent",
-        "pairwise block (vars 1--5)",
-        "pairwise + higher-order triplet (vars 6--8)",
-        "Clayton tail block (vars 1--4)",
+        r"pairwise block $(X_0\!-\!X_4)$",
+        r"pairwise + XOR triplet $(X_5\!-\!X_7)$",
+        r"Clayton tail block $(X_0\!-\!X_3)$",
     ]
     for x_mid, lab in zip(mid_points, labels):
         ax.text(x_mid, 0.5, lab, ha="center", va="center", fontsize=9)
