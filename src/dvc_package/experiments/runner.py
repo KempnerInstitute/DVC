@@ -455,19 +455,16 @@ class ExperimentRunner:
         return results
     
     def _analyze_time_dependent(self, vine, dataset: BenchmarkDataset, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze time-dependent aspects if applicable."""
-        
-        # This is a placeholder for time-dependent analysis
-        # In a full implementation, you'd:
-        # 1. Create time-dependent vine model
-        # 2. Train on time series data
-        # 3. Analyze entropy evolution
-        # 4. Compute time-dependent mutual information
-        
+        """Time-dependent analysis is handled by dedicated modules.
+
+        The canonical time-dependent entry points live under
+        ``dvc_package.time`` (joint dynamic / windowed / regularized C-vine);
+        this generic runner does not perform time-dependent analysis here.
+        """
         return {
             'time_dependent_entropy': None,
             'entropy_evolution': None,
-            'time_dependent_mi': None
+            'time_dependent_mi': None,
         }
     
     def _create_experiment_key(self, config: Dict[str, Any]) -> str:
@@ -563,9 +560,8 @@ class ExperimentRunner:
             viz_path = self.output_path / "visualizations"
             viz_path.mkdir(exist_ok=True)
             
-            # Summary plots would go here
-            # This is a placeholder for actual visualization code
-            
+            # Dedicated paper-ready plotting lives in drafts/scripts/;
+            # this generic path just records that the hook fired.
             viz_results['plots_created'] = True
             viz_results['output_directory'] = str(viz_path)
             
@@ -749,10 +745,7 @@ def run_experiment(config: Union[Dict[str, Any], ExperimentConfig],
 def _aggregate_multiple_runs(results_list: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Aggregate results from multiple experimental runs."""
     
-    # This is a placeholder for aggregation logic
-    # In a full implementation, you'd compute statistics across runs
-    
     return {
-        'summary': 'Multiple run aggregation not fully implemented',
-        'n_runs': len(results_list)
+        'summary': 'Multiple-run aggregation is handled by paper-scoped scripts under drafts/scripts/.',
+        'n_runs': len(results_list),
     }

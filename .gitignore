@@ -66,6 +66,10 @@ drafts/
 # Logs
 *.log
 
+# Local research notes
+scripts/stimulation_exp_benchmark/DALGLEISH_LATENT_ANALYSIS_OVERVIEW.md
+scripts/stimulation_exp_benchmark/real_data_progress.md
+
 # IDE specific files
 .idea/
 .vscode/

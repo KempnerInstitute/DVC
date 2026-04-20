@@ -1,0 +1,72 @@
+# Real-world finance benchmark using FRED-only series (no API key required).
+# Assets span equity, oil, FX, bonds, and volatility, with pre-2008 history
+# so both the GFC (2008-09 to 2009-06) and COVID (2020-02 to 2020-06) crises
+# are inside the rolling-window evaluation period.
+name: "finance_crisis_fred"
+description: "Rolling-window cross-asset crisis benchmark (FRED data) for non-Gaussian temporal dependence"
+output_dir: "results/finance_crisis_fred"
+seed: 2026
+
+analysis_config:
+  experiment_type: "finance_crisis_benchmarks"
+  scenarios:
+    - name: "fred_cross_asset_crises"
+      assets:
+        - name: "NASDAQ"
+          source: "fred"
+          symbol: "NASDAQCOM"
+        - name: "OIL_WTI"
+          source: "fred"
+          symbol: "DCOILWTICO"
+        - name: "VIX"
+          source: "fred"
+          symbol: "VIXCLS"
+        - name: "DGS10"
+          source: "fred"
+          symbol: "DGS10"
+        - name: "EURUSD"
+          source: "fred"
+          symbol: "DEXUSEU"
+        - name: "JPYUSD"
+          source: "fred"
+          symbol: "DEXJPUS"
+
+      start_date: "2006-01-01"
+      end_date: null
+      refresh_data: false
+      min_assets: 5
+
+      window: 120
+      stride: 10
+      train_fraction: 0.7
+
+      families:
+        - "gaussian"
+        - "student"
+        - "clayton"
+        - "gumbel"
+        - "independence"
+      drop_brittle_families: true
+      tail_q_upper: 0.90
+      tail_q_lower: 0.10
+      optimize_structure: true
+      temporal_baseline_mode: "causal_rolling"
+      temporal_baseline_history_windows: 24
+
+      crisis_periods:
+        - name: "GFC"
+          start: "2008-09-01"
+          end: "2009-06-30"
+        - name: "COVID"
+          start: "2020-02-15"
+          end: "2020-06-30"
+
+      glasso_alpha: 0.02
+      tvgl_alpha: 0.02
+      tvgl_beta: 1.0
+      tvgl_max_iter: 200
+      tvgl_step_size: 0.05
+      tvgl_eps: 1e-4
+
+plot_config:
+  create_plots: true
