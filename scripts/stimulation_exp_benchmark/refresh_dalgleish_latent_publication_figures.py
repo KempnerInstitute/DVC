@@ -2,14 +2,21 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 import json
+import shutil
+import sys
 from pathlib import Path
 from typing import Iterable
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+from dvc_package.visualization.paper_style import COLORS, TEXTWIDTH, apply_style
 
 
 BASELINE_ORDER = ["graphical_lasso", "gaussian_ssm", "gaussian_copula", "truncated_vine"]
@@ -45,11 +52,11 @@ FAMILY_RAW_LABELS = {
     "clayton": "clayton",
 }
 PANEL_COLORS = {
-    "blue": "#2B6CB0",
-    "red": "#C53030",
-    "green": "#2F855A",
-    "purple": "#6B46C1",
-    "orange": "#C05621",
+    "blue": COLORS["blue"],
+    "red": COLORS["red"],
+    "green": COLORS["green"],
+    "purple": COLORS["purple"],
+    "orange": COLORS["orange"],
     "gray": "#B8B8B8",
     "dark": "#2D3748",
 }
@@ -68,29 +75,20 @@ FAMILY_COLORS = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Refresh Dalgleish latent publication figures from existing outputs.")
     parser.add_argument("--results_root", type=Path, default=Path("results/stimulation_exp_benchmark"))
-    parser.add_argument("--out_root", type=Path, default=Path("dvc_ready"))
+    parser.add_argument("--out_root", type=Path, default=None)
     parser.add_argument("--draft_figures_dir", type=Path, default=Path("drafts/figures/dalgleish"))
     parser.add_argument("--seed", type=int, default=0)
     return parser.parse_args()
 
 
 def _set_style() -> None:
+    apply_style()
     plt.rcParams.update(
         {
-            "figure.facecolor": "white",
-            "axes.facecolor": "white",
-            "savefig.facecolor": "white",
-            "axes.edgecolor": "#444444",
-            "axes.labelcolor": "#222222",
-            "xtick.color": "#222222",
-            "ytick.color": "#222222",
-            "font.size": 10.5,
-            "axes.titlesize": 12,
-            "axes.titleweight": "bold",
-            "axes.labelsize": 10.5,
             "legend.frameon": False,
             "grid.color": "#E6E6E6",
-            "grid.linewidth": 0.8,
+            "grid.linewidth": 0.5,
+            "axes.titleweight": "bold",
         }
     )
 
@@ -148,7 +146,7 @@ def _plot_panel_a(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame)
     ax.grid(axis="y", alpha=0.5)
     ax.set_xticks(x, [BASELINE_LABELS[b] for b in BASELINE_ORDER])
     ax.set_ylabel("Baseline NLL - Full-vine NLL")
-    ax.set_title("A. Full vine outperforms all usable baselines", loc="left")
+    ax.set_title("A. Full vine outperforms usable baselines", loc="left")
     ax.text(
         0.99,
         0.02,
@@ -191,7 +189,7 @@ def _plot_panel_b(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame)
     ax.grid(axis="y", alpha=0.5)
     ax.set_xticks(x, labels)
     ax.set_ylabel("Held-out NLL gain")
-    ax.set_title("B. Gain includes a higher-order component", loc="left")
+    ax.set_title("B. Higher-order gain is positive on average", loc="left")
 
 
 def _plot_source_metric(ax: plt.Axes, source_df: pd.DataFrame, metric: str, title: str, color: str) -> None:
@@ -221,7 +219,7 @@ def _plot_source_metric(ax: plt.Axes, source_df: pd.DataFrame, metric: str, titl
     ax.axhline(0.0, color="#444444", linewidth=1.0)
     ax.grid(axis="y", alpha=0.5)
     ax.set_xticks(x, [SOURCE_LABELS[v] for v in SOURCE_ORDER])
-    ax.set_title(title, fontsize=11)
+    ax.set_title(title, fontsize=10)
 
 
 def _plot_panel_d(ax: plt.Axes, family_df: pd.DataFrame) -> None:
@@ -253,13 +251,13 @@ def _plot_panel_d(ax: plt.Axes, family_df: pd.DataFrame) -> None:
     ax.set_yticks(y, ["Targeted", "Mixed", "Non-targeted"])
     ax.set_xlim(0.0, 1.0)
     ax.set_xlabel("Fraction of fitted pair-copula edges")
-    ax.set_title("D. Heavy-tailed, asymmetric dependence", loc="left")
+    ax.set_title("D. Heavy-tailed and asymmetric dependence", loc="left")
     ax.grid(axis="x", alpha=0.4)
     ax.legend(loc="lower right", fontsize=8)
 
 
 def _plot_main_figure(static_df: pd.DataFrame, stats_df: pd.DataFrame, family_df: pd.DataFrame, out_path: Path) -> None:
-    fig = plt.figure(figsize=(14.2, 8.8))
+    fig = plt.figure(figsize=(TEXTWIDTH * 2.2, TEXTWIDTH * 1.4))
     gs = fig.add_gridspec(2, 6, hspace=0.42, wspace=0.58)
     ax_a = fig.add_subplot(gs[0, 0:3])
     ax_b = fig.add_subplot(gs[0, 3:6])
@@ -275,14 +273,14 @@ def _plot_main_figure(static_df: pd.DataFrame, stats_df: pd.DataFrame, family_df
         ax_c1,
         source_df,
         "full_vs_gaussian",
-        "C. Strongest signal in recruited/non-targeted space",
+        "C. Strongest signal in recruited /\nnon-targeted space",
         PANEL_COLORS["green"],
     )
     _plot_source_metric(
         ax_c2,
         source_df,
         "tc_higher",
-        "Higher-order gain by source space",
+        "Higher-order gain\nby source space",
         PANEL_COLORS["orange"],
     )
     ax_c1.set_ylabel("Full-vs-Gaussian")
@@ -290,7 +288,8 @@ def _plot_main_figure(static_df: pd.DataFrame, stats_df: pd.DataFrame, family_df
     _plot_panel_d(ax_d, family_df)
 
     fig.subplots_adjust(left=0.06, right=0.985, bottom=0.08, top=0.95, wspace=0.78, hspace=0.55)
-    fig.savefig(out_path, dpi=220)
+    fig.savefig(out_path, dpi=600)
+    fig.savefig(out_path.with_suffix(".pdf"))
     plt.close(fig)
 
 
@@ -330,12 +329,13 @@ def _plot_dynamic_supplement(dynamic_df: pd.DataFrame, out_path: Path) -> None:
     axes[0].set_title("Dynamic gain by block", loc="left")
     axes[1].set_title("Dynamic higher-order gain by block", loc="left")
     fig.tight_layout()
-    fig.savefig(out_path, dpi=220, bbox_inches="tight")
+    fig.savefig(out_path, dpi=600, bbox_inches="tight")
+    fig.savefig(out_path.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
 
 
 def _plot_family_supplement(family_df: pd.DataFrame, out_path: Path) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(13.2, 4.8))
+    fig, axes = plt.subplots(1, 2, figsize=(TEXTWIDTH * 2.0, TEXTWIDTH * 0.95))
 
     # Left: grouped family classes by dose for main variant.
     grouped = family_df[
@@ -400,7 +400,8 @@ def _plot_family_supplement(family_df: pd.DataFrame, out_path: Path) -> None:
     axes[1].legend(fontsize=8, ncol=2, loc="lower right")
 
     fig.tight_layout()
-    fig.savefig(out_path, dpi=220, bbox_inches="tight")
+    fig.savefig(out_path, dpi=600, bbox_inches="tight")
+    fig.savefig(out_path.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
 
 
@@ -411,6 +412,14 @@ def _mirror_to_drafts(files: Iterable[Path], draft_figures_dir: Path) -> None:
             shutil.copy2(src, draft_figures_dir / src.name)
 
 
+def _mirror_with_suffix(files: Iterable[Path], draft_figures_dir: Path, suffix: str) -> None:
+    draft_figures_dir.mkdir(parents=True, exist_ok=True)
+    for src in files:
+        if src.exists():
+            target = draft_figures_dir / f"{src.stem}{suffix}{src.suffix}"
+            shutil.copy2(src, target)
+
+
 def main() -> None:
     args = parse_args()
     _set_style()
@@ -419,7 +428,7 @@ def main() -> None:
     data_dir = results_root / "data"
     plots_dir = results_root / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
-    out_root = args.out_root.resolve()
+    out_root = (args.out_root.resolve() if args.out_root is not None else data_dir)
     out_root.mkdir(parents=True, exist_ok=True)
     draft_figures_dir = args.draft_figures_dir.resolve()
 
@@ -435,7 +444,17 @@ def main() -> None:
     _plot_main_figure(static_df, stats_df, family_df, main_fig)
     _plot_dynamic_supplement(dynamic_df, dynamic_fig)
     _plot_family_supplement(family_df, family_fig)
-    _mirror_to_drafts([main_fig, dynamic_fig, family_fig], draft_figures_dir)
+    generated = [
+        main_fig,
+        main_fig.with_suffix(".pdf"),
+        dynamic_fig,
+        dynamic_fig.with_suffix(".pdf"),
+        family_fig,
+        family_fig.with_suffix(".pdf"),
+    ]
+    _mirror_to_drafts(generated, draft_figures_dir)
+    if "stim_post" in results_root.name:
+        _mirror_with_suffix(generated, draft_figures_dir, "_stim_post")
 
     panel_map = {
         "main_figure": {
@@ -450,7 +469,7 @@ def main() -> None:
                     ],
                 },
                 "B": {
-                    "message": "Gain includes a higher-order component",
+                    "message": "Estimated higher-order gain is positive on average",
                     "source_tables": [
                         "latent_publication_static_summary.csv",
                         "latent_publication_stats_summary.csv",
