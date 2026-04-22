@@ -8,6 +8,7 @@ Provides a consistent NeurIPS-quality visual identity:
 
 from __future__ import annotations
 
+import logging
 from typing import Dict, Optional
 
 import matplotlib.pyplot as plt
@@ -26,14 +27,14 @@ RCPARAMS: Dict[str, object] = {
     # Fonts
     "font.family": "serif",
     "font.serif": ["Times New Roman", "DejaVu Serif", "Computer Modern Roman"],
-    "font.size": 8.2,
+    "font.size": 8.4,
     "mathtext.fontset": "dejavuserif",
     "pdf.fonttype": 42,
     "ps.fonttype": 42,
     # Axes
     "axes.labelsize": 8,
     "axes.titlesize": 8.8,
-    "axes.linewidth": 0.6,
+    "axes.linewidth": 0.7,
     "axes.grid": False,
     "axes.spines.top": False,
     "axes.spines.right": False,
@@ -52,13 +53,13 @@ RCPARAMS: Dict[str, object] = {
     "legend.fontsize": 7,
     "legend.title_fontsize": 7,
     "legend.frameon": True,
-    "legend.framealpha": 0.96,
+    "legend.framealpha": 0.98,
     "legend.edgecolor": "0.75",
     "legend.fancybox": False,
     "legend.borderpad": 0.35,
     "legend.borderaxespad": 0.35,
     # Lines / markers
-    "lines.linewidth": 1.8,
+    "lines.linewidth": 2.0,
     "lines.markersize": 4,
     "patch.linewidth": 0.6,
     # Grid
@@ -103,6 +104,7 @@ COLOR_CYCLE = [
 # Method styling — consistent across ALL benchmark figures
 # ---------------------------------------------------------------------------
 METHOD_STYLES: Dict[str, Dict[str, object]] = {
+    "DVC":                {"color": COLORS["black"],  "ls": "-",                "lw": 2.3, "marker": "o", "ms": 2.6},
     "Gaussian copula":    {"color": COLORS["blue"],   "ls": "-",                "lw": 1.9, "marker": "o", "ms": 2.5},
     "1-truncated C-vine": {"color": COLORS["cyan"],   "ls": (0, (4, 2)),        "lw": 2.0, "marker": "s", "ms": 2.5},
     "Graphical Lasso":    {"color": COLORS["green"],  "ls": (0, (1, 1.5)),      "lw": 1.9, "marker": "^", "ms": 2.5},
@@ -110,7 +112,7 @@ METHOD_STYLES: Dict[str, Dict[str, object]] = {
     "Gaussian SSM":       {"color": COLORS["purple"], "ls": (0, (7, 2)),        "lw": 2.0, "marker": "D", "ms": 2.5},
     "KDE-flow (time BW)": {"color": COLORS["orange"], "ls": (0, (2, 1.5)),      "lw": 2.1, "marker": "x", "ms": 2.7},
     "Regularized DVC":    {"color": "#8C510A",        "ls": (0, (6, 2, 1, 2)),  "lw": 2.2, "marker": "P", "ms": 2.7},
-    "Joint Dynamic DVC":  {"color": COLORS["black"],  "ls": "-",                "lw": 2.2, "marker": "o", "ms": 2.6},
+    "Joint Dynamic DVC":  {"color": "#B2182B",        "ls": (0, (8, 2)),        "lw": 2.2, "marker": "o", "ms": 2.6},
     "Latent-State DVC":   {"color": COLORS["purple"], "ls": (0, (3, 1.5)),      "lw": 2.1, "marker": "D", "ms": 2.6},
 }
 
@@ -187,6 +189,7 @@ FAMILY_COLORS = {
 def apply_style() -> None:
     """Apply NeurIPS publication rcParams globally."""
     plt.rcParams.update(RCPARAMS)
+    logging.getLogger("fontTools.subset").setLevel(logging.ERROR)
 
 
 def add_panel_label(
