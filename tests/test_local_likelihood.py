@@ -7,11 +7,12 @@ Tests:
 - loclik_batch_eval end-to-end
 """
 
+import numpy as np
 import pytest
 import torch
-import numpy as np
 
 from dvc_package.core.utils_locallik import dense_naive_batch, kern_LL, loclik_batch_eval
+from dvc_package.core.transformation import Transform
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +91,17 @@ class TestDenseNaiveBatch:
         k1_narrow, _, _, _, _ = dense_naive_batch(B_narrow, data, grid)
         k1_wide, _, _, _, _ = dense_naive_batch(B_wide, data, grid)
         assert k1_narrow.max() > k1_wide.max()
+
+    def test_extreme_bandwidths_remain_finite(self):
+        """Very small and very large bandwidths should still stay finite."""
+        n_cop = 1
+        data = torch.rand(120, 2, n_cop)
+        grid = torch.rand(36, 2, n_cop)
+        for bw_val in [0.05, 0.25, 1.5, 3.0]:
+            B = _make_bandwidth(n_cop, bw_val=bw_val)
+            outputs = dense_naive_batch(B, data, grid)
+            for out in outputs:
+                assert torch.isfinite(out).all()
 
 
 # ---------------------------------------------------------------------------
@@ -210,3 +222,24 @@ class TestLoclikBatchEval:
         out = loclik_batch_eval(B, data, grid, n_cop, batch_size=1)
         assert out.shape == (M, n_cop)
         assert torch.isfinite(out).all()
+
+    def test_rotated_x_space_inputs_produce_nontrivial_density_grid(self):
+        """Archive parity: the estimator should work on rotated x-space inputs."""
+        rng = np.random.default_rng(7)
+        u = rng.uniform(0.02, 0.98, size=(96, 2, 1)).astype(np.float32)
+        u_t = torch.tensor(u)
+        transform = Transform(1)
+        data_s = transform.forward_u(u_t)
+        data_x = transform.forward_s(data_s)
+
+        grid_lin = torch.linspace(0.02, 0.98, 9)
+        uu, vv = torch.meshgrid(grid_lin, grid_lin, indexing="ij")
+        grid_u = torch.stack([uu.reshape(-1), vv.reshape(-1)], dim=1).unsqueeze(-1)
+        grid_s = transform.forward_u(grid_u)
+        grid_x = transform.forward_s(grid_s)
+
+        B = torch.full((2, 1), 0.25, dtype=torch.float32)
+        out = loclik_batch_eval(B, data_x, grid_x, n_cop=1, batch_size=3)
+        assert out.shape == (grid_x.shape[0], 1)
+        assert torch.isfinite(out).all()
+        assert float(out.max().item()) > float(out.min().item())

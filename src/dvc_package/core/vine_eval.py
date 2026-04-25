@@ -52,6 +52,9 @@ def evaluate_fit(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[torc
     batch_size = par_dict['batch']
     grad_precompute = par_dict.get('grad_precompute', False)
     normalization_iters = int(par_dict.get('normalization_iters', 500))
+    data_space = str(par_dict.get('data_space', 'x')).lower().strip()
+    if data_space not in {"s", "x"}:
+        raise ValueError(f"Unsupported nonparametric data_space: {data_space!r}")
     
     # If bw is already correct shape, use it directly
     if isinstance(bw, torch.Tensor) and bw.dim() == 2 and bw.shape[1] == n_cop:
@@ -86,7 +89,8 @@ def evaluate_fit(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[torc
     NORM = NORM.repeat(1, 1, n_cop).to(device)
 
     # Local likelihood evaluation
-    ker_grid_fin = loclik_batch_eval(B, data_s, grid_x, n_cop, batch_size)
+    edge_data = data_x if data_space == "x" else data_s
+    ker_grid_fin = loclik_batch_eval(B, edge_data, grid_x, n_cop, batch_size)
     
     ker_grid_all = ker_grid_fin.reshape(adu11.shape[0], adu11.shape[0], n_cop).permute(1, 0, 2)
     

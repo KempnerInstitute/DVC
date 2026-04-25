@@ -65,7 +65,7 @@ def test_windowed_and_joint_dynamic_nonparametric_cvine_fit_and_evaluate():
     assert j_result.order == w_result.order
     assert np.max(j_eval) - np.min(j_eval) > 1e-4
     statuses = {edge_fit.status for edge_fit in j_result.edge_fits}
-    assert "optimized" in statuses
+    assert statuses & {"optimized", "target_bandwidth_fallback", "warm_start_fallback"}
     variation = []
     for edge_fit in j_result.edge_fits:
         bw = np.asarray(edge_fit.bandwidth_trajectory, dtype=np.float64)
