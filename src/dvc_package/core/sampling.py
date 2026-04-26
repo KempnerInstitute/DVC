@@ -70,6 +70,8 @@ def _inverse_nonparametric_edge_h(cop, conditioning: np.ndarray, uniforms: np.nd
     conditional-CDF map, not the raw grid values. Sampling has to invert that
     same calibrated map to preserve uniform margins.
     """
+    if getattr(cop, "family", "kercop") == "ind":
+        return np.clip(np.asarray(uniforms, dtype=np.float32).reshape(-1), 1e-6, 1.0 - 1e-6)
     device = u1.device
     cond_t = torch.as_tensor(conditioning, dtype=torch.float32, device=device).reshape(-1)
     uni_t = torch.as_tensor(uniforms, dtype=torch.float32, device=device).reshape(-1)
@@ -116,6 +118,8 @@ def _evaluate_nonparametric_edge_h_sampled(cop, uv: np.ndarray, vine) -> np.ndar
     """Match the TensorFlow sampler: interpolate raw h-values then rank-calibrate
     them within the current sampled batch to recover approximately uniform
     pseudo-observations."""
+    if getattr(cop, "family", "kercop") == "ind":
+        return np.clip(np.asarray(uv, dtype=np.float32)[:, 1], 1e-6, 1.0 - 1e-6)
     uv_t = torch.tensor(uv, dtype=torch.float32)
     points_s = Transform(1).forward_u(uv_t)
     ccdf_grid = getattr(cop, "ccdf_grid", None)

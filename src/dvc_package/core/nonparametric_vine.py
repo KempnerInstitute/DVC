@@ -14,14 +14,16 @@ The dynamic/nonparametric extensions can build on top of these primitives.
 
 from __future__ import annotations
 
+import copy
 import logging
+import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 
-from .cop_eval import normalize_pdf_grid
+from .cop_eval import cdf_grid_fun, normalize_pdf_grid
 from .grid_ops import grid_obj
 from .objects import copula_obj, vine_obj_bin
 from .transformation import Transform
@@ -32,7 +34,7 @@ from .utils_bandwidth import (
     check_bound_bw,
 )
 from .utils_interpolation import interp_regular_nd_grid, interp1d_linear_gpu, nearestInterp2d
-from .utils_locallik import loclik_batch_eval
+from .utils_locallik import dense_naive_batch, loclik_batch_eval
 from .utils_prob import biv_norm, kernel_cdf
 from .vine_tree import parent_var, flip_check_all
 
@@ -49,6 +51,20 @@ class _EdgeContext:
     grid_x: grid_obj
     transformer: Transform
     base_bw: torch.Tensor
+
+
+def _resolve_nonparametric_data_space(data_space: str) -> str:
+    space = str(data_space).lower().strip()
+    if space not in {"s", "x"}:
+        raise ValueError(f"Unsupported nonparametric data_space: {data_space!r}")
+    return space
+
+
+def _edge_data_tensor(ctx: _EdgeContext, data_space: str) -> torch.Tensor:
+    space = _resolve_nonparametric_data_space(data_space)
+    if space == "x":
+        return ctx.data_x
+    return ctx.data_s
 
 
 def _project_monotone_ccdf_grid(ccdf_grid: torch.Tensor) -> torch.Tensor:
@@ -75,6 +91,84 @@ def _validate_nonparametric_edge(cop: copula_obj) -> Dict[str, float]:
         "ccdf_max": float(torch.max(ccdf).item()),
         "ccdf_monotone_violation": float(torch.clamp(-row_diffs, min=0.0).max().item() if row_diffs.numel() else 0.0),
     }
+
+
+def _augment_validation(cop: copula_obj, extra: Optional[Dict[str, Any]]) -> None:
+    if not extra:
+        return
+    merged = dict(getattr(cop, "validation", {}) or {})
+    merged.update(extra)
+    cop.validation = merged
+
+
+def build_independence_edge_copula(ctx: _EdgeContext) -> copula_obj:
+    pdf = torch.ones((ctx.grid_u.ax1.shape[0], ctx.grid_u.ax1.shape[0], 1), dtype=torch.float32)
+    adu11, adu22 = ctx.grid_u.diff()
+    ccdf = cdf_grid_fun(pdf, ctx.grid_u.ex, adu11, adu22, 1)[:, :, 0]
+
+    cop = copula_obj(ctx.base_bw.detach().cpu())
+    cop.family = "ind"
+    cop.pd_grid_uv = pdf[:, :, 0].detach().cpu()
+    cop.ccdf_grid = ccdf.detach().cpu()
+    cop.cdf = cop.ccdf_grid
+    cop.normalization_iterations = 0
+    raw = ctx.data_u[:, 1, 0].detach().cpu()
+    raw_u = torch.tensor(
+        kernel_cdf(
+            raw.numpy(),
+            raw.numpy(),
+            ctx.grid_u.ex.detach().cpu().numpy(),
+        )[0],
+        dtype=torch.float32,
+    )
+    order = torch.argsort(raw)
+    cop.ccdf_train_raw = raw[order]
+    cop.ccdf_train_u = raw_u[order]
+    cop.grid_s_min = ctx.grid_s.min.detach().cpu()
+    cop.grid_s_max = ctx.grid_s.max.detach().cpu()
+    cop.validation = _validate_nonparametric_edge(cop)
+    _augment_validation(
+        cop,
+        {
+            "selected_model": "independence",
+            "selection_reason": "baseline",
+        },
+    )
+    return cop
+
+
+def _subset_edge_context(ctx: _EdgeContext, idx: torch.Tensor) -> _EdgeContext:
+    return _EdgeContext(
+        data_u=ctx.data_u[idx],
+        data_s=ctx.data_s[idx],
+        data_x=ctx.data_x[idx],
+        grid_u=ctx.grid_u,
+        grid_s=ctx.grid_s,
+        grid_x=ctx.grid_x,
+        transformer=ctx.transformer,
+        base_bw=ctx.base_bw,
+    )
+
+
+def _make_validation_split(
+    ctx: _EdgeContext,
+    validation_fraction: float,
+) -> Optional[Tuple[_EdgeContext, torch.Tensor]]:
+    n = ctx.data_s.shape[0]
+    if n < 16:
+        return None
+    n_val = max(int(round(n * validation_fraction)), 4)
+    perm = torch.randperm(n, device=ctx.data_s.device)
+    val_idx = perm[:n_val]
+    train_idx = perm[n_val:]
+    if train_idx.numel() < 8:
+        return None
+    return _subset_edge_context(ctx, train_idx), ctx.data_u[val_idx][:, :, 0]
+
+
+def _evaluate_edge_validation_nll(cop: copula_obj, uv: torch.Tensor, grid_s: grid_obj) -> float:
+    pdf = evaluate_nonparametric_edge_pdf(cop, uv, grid_s).clamp_min(1e-12)
+    return float((-torch.log(pdf)).mean().detach().cpu())
 
 
 def _infer_cvine_order_from_structure(vine: vine_obj_bin, d: int) -> List[int]:
@@ -251,6 +345,120 @@ def _build_edge_input_pairs(
     return data_u.clamp(1e-6, 1.0 - 1e-6)
 
 
+def _boundary_fraction(x: torch.Tensor, eps: float = 1e-3) -> float:
+    flat = x.reshape(-1)
+    mask = ((flat < float(eps)) | (flat > 1.0 - float(eps))).float()
+    return float(torch.mean(mask).item()) if mask.numel() else 0.0
+
+
+def _tree_edge_mean_loglik(
+    level_cops: Sequence[copula_obj],
+    inputs_u: torch.Tensor,
+    flip_flag1: Sequence[bool],
+    ind_edge_rel1: Sequence[int],
+    grid_s: grid_obj,
+    *,
+    permute_second: bool = False,
+    rng: Optional[np.random.Generator] = None,
+) -> Tuple[float, List[float]]:
+    edge_vals: List[float] = []
+    for j, ind_edge in enumerate(ind_edge_rel1):
+        if ind_edge >= len(level_cops):
+            continue
+        cop = level_cops[ind_edge]
+        uv = inputs_u[:, :, ind_edge]
+        pdf_uv = uv[:, [1, 0]] if flip_flag1[j] else uv
+        if permute_second:
+            pdf_uv = pdf_uv.clone()
+            if rng is None:
+                perm = torch.randperm(pdf_uv.shape[0], device=pdf_uv.device)
+            else:
+                perm = torch.as_tensor(
+                    rng.permutation(int(pdf_uv.shape[0])),
+                    dtype=torch.long,
+                    device=pdf_uv.device,
+                )
+            pdf_uv[:, 1] = pdf_uv[perm, 1]
+        if hasattr(cop, "pdf"):
+            pdf_vals = cop.pdf(pdf_uv)
+        else:
+            pdf_vals = evaluate_nonparametric_edge_pdf(cop, pdf_uv, grid_s)
+        ll = torch.mean(torch.log(pdf_vals.clamp_min(1e-12)))
+        edge_vals.append(float(ll.detach().cpu()))
+    return float(sum(edge_vals)), edge_vals
+
+
+def _init_margin_u_state(vine: vine_obj_bin,
+                         points: np.ndarray,
+                         device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
+    pts = torch.tensor(np.asarray(points, dtype=np.float32), dtype=torch.float32, device=device)
+    n, d = pts.shape
+    u_state = torch.zeros((n, d, d), dtype=torch.float32, device=device)
+    u_state_flip = torch.zeros_like(u_state)
+    grid_u_ex = vine.grid_u.ex.detach().cpu().numpy()
+    for i in range(d):
+        if vine.margin and i < len(vine.margin) and getattr(vine.margin[i], "ker", None) is not None:
+            cdf_query, _mar_s, _mar_p = kernel_cdf(
+                np.asarray(vine.margin[i].ker),
+                pts[:, i].detach().cpu().numpy(),
+                grid_u_ex,
+            )
+            u_state[:, 0, i] = torch.tensor(cdf_query, dtype=torch.float32, device=device)
+        else:
+            u_state[:, 0, i] = pts[:, i].clamp(1e-6, 1.0 - 1e-6)
+    return u_state, u_state_flip
+
+
+def _propagated_inputs_for_level(vine: vine_obj_bin,
+                                 points: np.ndarray,
+                                 edge_refs: List[List[List[int]]],
+                                 target_level: int,
+                                 device: torch.device) -> torch.Tensor:
+    u_state, u_state_flip = _init_margin_u_state(vine, points, device=device)
+    if target_level <= 0:
+        return _build_edge_input_pairs(
+            state=u_state,
+            state_flip=u_state_flip,
+            edge_refs=edge_refs,
+            level=0,
+            device=device,
+        )
+
+    for level in range(min(target_level, len(getattr(vine, "copulas", [])))):
+        if not getattr(vine, "flip_flag", None) or level >= len(vine.flip_flag):
+            flip_flag1, ind_edge_rel1, _parent_all = flip_check_all(edge_refs, level, False, 1)
+        else:
+            flip_flag1 = vine.flip_flag[level]
+            ind_edge_rel1 = vine.ind_edge_rel[level]
+        point_u = _build_edge_input_pairs(
+            state=u_state,
+            state_flip=u_state_flip,
+            edge_refs=edge_refs,
+            level=level,
+            device=device,
+        )
+        cops_now = vine.copulas[level] if level < len(vine.copulas) else []
+        for j, ind_edge in enumerate(ind_edge_rel1):
+            if ind_edge >= len(cops_now):
+                continue
+            cop = cops_now[ind_edge]
+            uv = point_u[:, :, ind_edge]
+            uv_h = uv if flip_flag1[j] else uv[:, [1, 0]]
+            hval = evaluate_nonparametric_edge_h(cop, uv_h, vine.grid_s)
+            if flip_flag1[j]:
+                u_state_flip[:, level + 1, ind_edge] = hval
+            else:
+                u_state[:, level + 1, ind_edge] = hval
+
+    return _build_edge_input_pairs(
+        state=u_state,
+        state_flip=u_state_flip,
+        edge_refs=edge_refs,
+        level=target_level,
+        device=device,
+    )
+
+
 def _device_for_tensor_like(x: np.ndarray) -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -331,22 +539,31 @@ def prepare_nonparametric_edge_context(u_pair: torch.Tensor,
 def _pdf_grid_from_bandwidth(B: torch.Tensor,
                              ctx: _EdgeContext,
                              batch_size: int,
-                             normalization_iters: int) -> torch.Tensor:
+                             normalization_iters: int,
+                             estimator: str = "ll",
+                             data_space: str = "x") -> torch.Tensor:
     n_cop = ctx.data_x.shape[2]
     adu11, adu22 = ctx.grid_u.diff()
     x1_s, x2_s = ctx.grid_s.axis()
     norm_ref = biv_norm(x1_s, x2_s).unsqueeze(-1).repeat(1, 1, n_cop).to(B.device)
+    edge_data = _edge_data_tensor(ctx, data_space)
 
     grid_x = ctx.grid_x.ex
     if grid_x.dim() == 2:
         grid_x = grid_x.unsqueeze(-1)
-    ker_grid_fin = loclik_batch_eval(
-        B,
-        ctx.data_s,
-        grid_x,
-        n_cop=n_cop,
-        batch_size=batch_size,
-    )
+    estimator = str(estimator).lower().strip()
+    if estimator == "ll":
+        ker_grid_fin = loclik_batch_eval(
+            B,
+            edge_data,
+            grid_x,
+            n_cop=n_cop,
+            batch_size=batch_size,
+        )
+    elif estimator == "kde":
+        ker_grid_fin, _k2, _k3, _k4, _k5 = dense_naive_batch(B, edge_data, grid_x)
+    else:
+        raise ValueError(f"Unknown nonparametric edge estimator: {estimator}")
     knots = ctx.grid_u.ax1.shape[0]
     ker_grid_all = ker_grid_fin.reshape(knots, knots, n_cop).permute(1, 0, 2)
     ker_grid_all = ker_grid_all + 1e-15 * norm_ref
@@ -370,49 +587,39 @@ def _fit_bandwidth_multiplier(ctx: _EdgeContext,
                               max_iter_phase2: int,
                               lr_phase2: float,
                               tol_phase2: float,
-                              validation_fraction: float = 0.15,
                               normal_iters_phase1: int = 25,
-                              normal_iters_phase2: int = 50) -> torch.Tensor:
-    n = ctx.data_s.shape[0]
-    if n < 16:
-        return ctx.base_bw
-
-    n_val = max(int(round(n * validation_fraction)), 4)
-    perm = torch.randperm(n, device=ctx.data_s.device)
-    val_idx = perm[:n_val]
-    train_idx = perm[n_val:]
-    if train_idx.numel() < 8:
-        return ctx.base_bw
-
-    def subset_context(idx: torch.Tensor) -> _EdgeContext:
-        return _EdgeContext(
-            data_u=ctx.data_u[idx],
-            data_s=ctx.data_s[idx],
-            data_x=ctx.data_x[idx],
-            grid_u=ctx.grid_u,
-            grid_s=ctx.grid_s,
-            grid_x=ctx.grid_x,
-            transformer=ctx.transformer,
-            base_bw=ctx.base_bw,
-        )
-
-    train_ctx = subset_context(train_idx)
-    val_s = ctx.data_s[val_idx][:, :, 0]
+                              normal_iters_phase2: int = 50,
+                              train_ctx: Optional[_EdgeContext] = None,
+                              val_uv: Optional[torch.Tensor] = None,
+                              estimator: str = "ll",
+                              data_space: str = "x") -> torch.Tensor:
+    train_ctx = ctx if train_ctx is None else train_ctx
+    val_uv = train_ctx.data_u[:, :, 0] if val_uv is None else val_uv
 
     def objective(multiplier: torch.Tensor, normal_iters: int) -> torch.Tensor:
-        bw = check_bound_bw(multiplier * ctx.base_bw)
+        bw = check_bound_bw(multiplier * train_ctx.base_bw)
         pd_grid_uv = _pdf_grid_from_bandwidth(
             bw,
             train_ctx,
             batch_size=max(1, batch_size),
             normalization_iters=normal_iters,
+            estimator=estimator,
+            data_space=data_space,
         )[:, :, 0]
-        pd_points = nearestInterp2d(val_s, ctx.grid_s.ax1, ctx.grid_s.ax2, pd_grid_uv)
+        val_s = train_ctx.transformer.forward_u(val_uv.unsqueeze(-1))[:, :, 0]
+        pd_points = nearestInterp2d(val_s, train_ctx.grid_s.ax1, train_ctx.grid_s.ax2, pd_grid_uv)
         pd_points = pd_points.clamp_min(1e-12)
         return -torch.log(pd_points).mean()
 
     mult_shape = (1, 1) if opt_method.upper() == "LL1" else (2, 1)
-    mult = torch.full(mult_shape, 1.0, dtype=ctx.base_bw.dtype, device=ctx.base_bw.device, requires_grad=True)
+    raw_init = float(torch.log(torch.expm1(torch.tensor(1.0))).item())
+    mult = torch.full(
+        mult_shape,
+        raw_init,
+        dtype=train_ctx.base_bw.dtype,
+        device=train_ctx.base_bw.device,
+        requires_grad=True,
+    )
 
     def run_phase(num_iter: int, lr: float, tol: float, normal_iters: int) -> None:
         opt = torch.optim.Adam([mult], lr=float(lr))
@@ -428,14 +635,16 @@ def _fit_bandwidth_multiplier(ctx: _EdgeContext,
 
     run_phase(max_iter_phase1, lr_phase1, tol_phase1, normal_iters=normal_iters_phase1)
     run_phase(max_iter_phase2, lr_phase2, tol_phase2, normal_iters=normal_iters_phase2)
-    return check_bound_bw(torch.nn.functional.softplus(mult.detach()) * ctx.base_bw)
+    return check_bound_bw(torch.nn.functional.softplus(mult.detach()) * train_ctx.base_bw)
 
 
 def build_nonparametric_edge_copula(ctx: _EdgeContext,
                                     bw: torch.Tensor,
                                     *,
                                     batch_size: int = 3,
-                                    normalization_iters: int = 50) -> copula_obj:
+                                    normalization_iters: int = 50,
+                                    estimator: str = "ll",
+                                    data_space: str = "x") -> copula_obj:
     from .vine_eval import evaluate_fit
 
     data_dict = {
@@ -452,8 +661,20 @@ def build_nonparametric_edge_copula(ctx: _EdgeContext,
         "n_cop": 1,
         "batch": max(1, int(batch_size)),
         "normalization_iters": int(normalization_iters),
+        "data_space": _resolve_nonparametric_data_space(data_space),
     }
-    pd_grid_uv, ccdf_grid, _theta_unused, _grad_u, _grad_v = evaluate_fit(data_dict, grid_dict, par_dict)
+    if str(estimator).lower().strip() == "ll":
+        pd_grid_uv, ccdf_grid, _theta_unused, _grad_u, _grad_v = evaluate_fit(data_dict, grid_dict, par_dict)
+    else:
+        pd_grid_uv = _pdf_grid_from_bandwidth(
+            bw,
+            ctx,
+            batch_size=max(1, int(batch_size)),
+            normalization_iters=int(normalization_iters),
+            estimator=estimator,
+            data_space=data_space,
+        )
+        ccdf_grid = cdf_grid_fun(pd_grid_uv, ctx.grid_u.ex, *ctx.grid_u.diff(), 1)
 
     cop = copula_obj(bw.detach().cpu())
     cop.pd_grid_uv = torch.clamp(pd_grid_uv[:, :, 0], min=1e-12).detach().cpu()
@@ -484,6 +705,13 @@ def build_nonparametric_edge_copula(ctx: _EdgeContext,
     cop.grid_s_min = ctx.grid_s.min.detach().cpu()
     cop.grid_s_max = ctx.grid_s.max.detach().cpu()
     cop.validation = _validate_nonparametric_edge(cop)
+    _augment_validation(
+        cop,
+        {
+            "edge_estimator": str(estimator).lower().strip(),
+            "data_space": _resolve_nonparametric_data_space(data_space),
+        },
+    )
     return cop
 
 
@@ -502,33 +730,165 @@ def _fit_nonparametric_edge(ctx: _EdgeContext,
     normal_iters_phase1 = int(npc_dict.get("normal_iters_phase1", 25))
     normal_iters_phase2 = int(npc_dict.get("normal_iters_phase2", 50))
     validation_fraction = float(npc_dict.get("validation_fraction", 0.15))
+    final_normalization_iters = int(npc_dict.get("final_normalization_iters", 50))
+    scale_grid = npc_dict.get("bandwidth_scale_grid", [0.5, 1.0, 2.0, 4.0])
+    edge_estimators = [str(v).lower().strip() for v in npc_dict.get("edge_estimators", ["ll", "kde"])]
+    min_validation_improvement = float(npc_dict.get("min_validation_improvement", 0.02))
+    minimum_kernel_gain = float(npc_dict.get("minimum_kernel_gain", min_validation_improvement))
+    independence_margin = float(npc_dict.get("independence_margin", 0.0))
+    prefer_kernel_on_tie = bool(npc_dict.get("prefer_kernel_on_tie", False))
+    allow_independence_fallback = bool(npc_dict.get("allow_independence_fallback", True))
+    # Archive parity: the TensorFlow implementation fits/evaluates kernel edges
+    # in rotated x-space against grid_x. Keep explicit overrides for diagnostics,
+    # but default to x-space in the main fitter.
+    data_space = _resolve_nonparametric_data_space(npc_dict.get("data_space", "x"))
 
-    bw = _fit_bandwidth_multiplier(
-        ctx,
-        batch_size=batch_size,
-        opt_method=opt_method,
-        max_iter_phase1=max_iter_phase1,
-        lr_phase1=lr_phase1,
-        tol_phase1=tol_phase1,
-        max_iter_phase2=max_iter_phase2,
-        lr_phase2=lr_phase2,
-        tol_phase2=tol_phase2,
-        validation_fraction=validation_fraction,
-        normal_iters_phase1=normal_iters_phase1,
-        normal_iters_phase2=normal_iters_phase2,
+    split = _make_validation_split(ctx, validation_fraction=validation_fraction)
+    train_ctx: Optional[_EdgeContext] = None
+    val_uv: Optional[torch.Tensor] = None
+    if split is not None:
+        train_ctx, val_uv = split
+
+    candidate_specs: List[Tuple[str, str, torch.Tensor]] = []
+    seen_labels = set()
+    for estimator in edge_estimators:
+        for scale in scale_grid:
+            label = f"{estimator}_scale_{float(scale):g}"
+            if label in seen_labels:
+                continue
+            seen_labels.add(label)
+            candidate_specs.append((label, estimator, check_bound_bw(float(scale) * ctx.base_bw)))
+
+        optimized_bw = _fit_bandwidth_multiplier(
+            ctx,
+            batch_size=batch_size,
+            opt_method=opt_method,
+            max_iter_phase1=max_iter_phase1,
+            lr_phase1=lr_phase1,
+            tol_phase1=tol_phase1,
+            max_iter_phase2=max_iter_phase2,
+            lr_phase2=lr_phase2,
+            tol_phase2=tol_phase2,
+            normal_iters_phase1=normal_iters_phase1,
+            normal_iters_phase2=normal_iters_phase2,
+            train_ctx=train_ctx,
+            val_uv=val_uv,
+            estimator=estimator,
+            data_space=data_space,
+        )
+        candidate_specs.append((f"{estimator}_optimized", estimator, optimized_bw))
+
+    if train_ctx is None or val_uv is None:
+        default_estimator = edge_estimators[0] if edge_estimators else "ll"
+        default_bw = next(
+            bw for label, estimator, bw in candidate_specs if label == f"{default_estimator}_optimized"
+        )
+        cop = build_nonparametric_edge_copula(
+            ctx,
+            default_bw,
+            batch_size=batch_size,
+            normalization_iters=final_normalization_iters,
+            estimator=default_estimator,
+            data_space=data_space,
+        )
+        _augment_validation(
+            cop,
+            {
+                "selected_model": "kernel",
+                "selection_reason": "no_validation_split",
+                "selected_bandwidth": default_bw.detach().cpu().tolist(),
+                "selected_bandwidth_label": f"{default_estimator}_optimized",
+                "minimum_kernel_gain": minimum_kernel_gain,
+                "independence_margin": independence_margin,
+                "prefer_kernel_on_tie": prefer_kernel_on_tie,
+                "data_space": data_space,
+            },
+        )
+        return cop
+
+    scores: Dict[str, float] = {"independence": 0.0}
+    best_label = ""
+    best_score = float("inf")
+    best_estimator = ""
+    best_bw = None
+    for label, estimator, bw in candidate_specs:
+        train_cop = build_nonparametric_edge_copula(
+            train_ctx,
+            bw,
+            batch_size=batch_size,
+            normalization_iters=final_normalization_iters,
+            estimator=estimator,
+            data_space=data_space,
+        )
+        score = _evaluate_edge_validation_nll(train_cop, val_uv, train_ctx.grid_s)
+        scores[label] = score
+        if score < best_score:
+            best_score = score
+            best_label = label
+            best_estimator = estimator
+            best_bw = bw
+
+    kernel_gain = float(-best_score)
+    effective_kernel_threshold = float(max(0.0, minimum_kernel_gain - independence_margin))
+    kernel_clears_threshold = kernel_gain > effective_kernel_threshold or (
+        prefer_kernel_on_tie and math.isclose(kernel_gain, effective_kernel_threshold, rel_tol=0.0, abs_tol=1e-12)
     )
 
-    return build_nonparametric_edge_copula(
+    if allow_independence_fallback and not kernel_clears_threshold:
+        cop = build_independence_edge_copula(ctx)
+        _augment_validation(
+            cop,
+            {
+                "validation_nll": 0.0,
+                "candidate_validation_nlls": scores,
+                "min_validation_improvement": min_validation_improvement,
+                "minimum_kernel_gain": minimum_kernel_gain,
+                "independence_margin": independence_margin,
+                "prefer_kernel_on_tie": prefer_kernel_on_tie,
+                "kernel_gain_over_independence": kernel_gain,
+                "effective_kernel_threshold": effective_kernel_threshold,
+                "selection_reason": "independence_threshold",
+                "data_space": data_space,
+            },
+        )
+        return cop
+
+    assert best_bw is not None
+    cop = build_nonparametric_edge_copula(
         ctx,
-        bw,
+        best_bw,
         batch_size=batch_size,
-        normalization_iters=int(npc_dict.get("final_normalization_iters", 50)),
+        normalization_iters=final_normalization_iters,
+        estimator=best_estimator,
+        data_space=data_space,
     )
+    _augment_validation(
+        cop,
+        {
+            "selected_model": "kernel",
+            "edge_estimator": best_estimator,
+            "selected_bandwidth_label": best_label,
+            "selected_bandwidth": best_bw.detach().cpu().tolist(),
+            "validation_nll": float(best_score),
+            "candidate_validation_nlls": scores,
+            "min_validation_improvement": min_validation_improvement,
+            "minimum_kernel_gain": minimum_kernel_gain,
+            "independence_margin": independence_margin,
+            "prefer_kernel_on_tie": prefer_kernel_on_tie,
+            "kernel_gain_over_independence": kernel_gain,
+            "effective_kernel_threshold": effective_kernel_threshold,
+            "selection_reason": "kernel_threshold",
+            "data_space": data_space,
+        },
+    )
+    return cop
 
 
 def evaluate_nonparametric_edge_pdf(cop: copula_obj,
                                     uv: torch.Tensor,
                                     grid_s: grid_obj) -> torch.Tensor:
+    if getattr(cop, "family", "kercop") == "ind":
+        return torch.ones(uv.shape[0], dtype=torch.float32, device=uv.device)
     points_s = Transform(1).forward_u(uv)
     pd_grid_uv = cop.pd_grid_uv.to(points_s.device)
     return nearestInterp2d(points_s, grid_s.ax1.to(points_s.device), grid_s.ax2.to(points_s.device), pd_grid_uv)
@@ -537,6 +897,8 @@ def evaluate_nonparametric_edge_pdf(cop: copula_obj,
 def evaluate_nonparametric_edge_h(cop: copula_obj,
                                   uv: torch.Tensor,
                                   grid_s: grid_obj) -> torch.Tensor:
+    if getattr(cop, "family", "kercop") == "ind":
+        return uv[:, 1].clamp(1e-6, 1.0 - 1e-6)
     points_s = Transform(1).forward_u(uv)
     ccdf_grid = getattr(cop, "ccdf_grid", None)
     if ccdf_grid is None:
@@ -566,13 +928,56 @@ def fit_nonparametric_vine(
     x_np = np.asarray(x, dtype=np.float32)
     n, d = x_np.shape
 
+    depth_selection_enabled = bool(npc_dict.get("select_depth", True))
+    depth_selection_min_d = int(npc_dict.get("depth_selection_min_d", 3))
+    depth_validation_fraction = float(npc_dict.get("depth_validation_fraction", npc_dict.get("validation_fraction", 0.15)))
+    depth_patience = int(npc_dict.get("depth_patience", 1))
+    depth_improvement_tol = float(npc_dict.get("depth_improvement_tol", 0.01))
+    apply_higher_tree_margin_from_level = int(npc_dict.get("apply_higher_tree_margin_from_level", 2))
+    higher_tree_validation_margin = float(npc_dict.get("higher_tree_validation_margin", 0.05))
+    higher_tree_margin_per_edge = float(npc_dict.get("higher_tree_margin_per_edge", 0.0))
+    higher_tree_min_gain_cfg = npc_dict.get("higher_tree_min_gain", None)
+    higher_tree_min_gain = (
+        float(higher_tree_min_gain_cfg)
+        if higher_tree_min_gain_cfg is not None
+        else None
+    )
+    higher_tree_boundary_frac_threshold_cfg = npc_dict.get("higher_tree_boundary_frac_threshold", None)
+    higher_tree_boundary_frac_threshold = (
+        None
+        if higher_tree_boundary_frac_threshold_cfg is None
+        else float(higher_tree_boundary_frac_threshold_cfg)
+    )
+    higher_tree_null_adjusted_validation = bool(npc_dict.get("higher_tree_null_adjusted_validation", False))
+    higher_tree_null_permutations = int(npc_dict.get("higher_tree_null_permutations", 3))
+    higher_tree_null_adjusted_margin = float(npc_dict.get("higher_tree_null_adjusted_margin", 0.0))
+    higher_tree_null_seed = int(npc_dict.get("higher_tree_null_seed", 0))
+    use_depth_selection = depth_selection_enabled and d >= depth_selection_min_d and n >= 32
+
+    x_fit = x_np
+    x_val: Optional[np.ndarray] = None
+    if use_depth_selection:
+        n_val = max(int(round(n * depth_validation_fraction)), 8)
+        n_val = min(n_val, max(n - 16, 0))
+        if n_val >= 8:
+            perm = np.random.permutation(n)
+            val_idx = perm[:n_val]
+            fit_idx = perm[n_val:]
+            if fit_idx.shape[0] >= 16:
+                x_fit = x_np[fit_idx].astype(np.float32, copy=False)
+                x_val = x_np[val_idx].astype(np.float32, copy=False)
+            else:
+                use_depth_selection = False
+        else:
+            use_depth_selection = False
+
     vine.param = False
     vine.binning = bool(gen_dict.get("binning", False))
     if vine.binning:
         raise NotImplementedError("Binned nonparametric vine fitting is not implemented in the PyTorch path yet.")
     vine.fitted = True
     vine.n_cop = d
-    vine.training_data = x_np.copy()
+    vine.training_data = x_fit.copy()
     vine._internal_ind_vine = _build_internal_edge_structure(vine, d)
     sample_order, sample_r_matrix, sample_nodes = _build_sampling_metadata(vine, d)
     vine._sample_order = sample_order
@@ -582,7 +987,7 @@ def fit_nonparametric_vine(
     ex_u = make_nonparametric_uniform_grid(vine.knots, device=device)
     vine.grid_u = _ensure_grid_metadata(grid_obj(ex_u))
     vine.grid_s = _ensure_grid_metadata(grid_obj(Transform(1).forward_u(ex_u)))
-    vine.theta = prepare_nonparametric_margin_pseudo_obs(vine, x_np, ex_u.detach().cpu().numpy(), device)
+    vine.theta = prepare_nonparametric_margin_pseudo_obs(vine, x_fit, ex_u.detach().cpu().numpy(), device)
     vine.theta_flip = torch.zeros_like(vine.theta)
     vine.flip_flag = []
     vine.ind_edge_rel = []
@@ -592,8 +997,62 @@ def fit_nonparametric_vine(
     knn_k = int(bandwidth_cfg.get("knn_k", 10))
 
     vine.copulas = []
+    best_snapshot = None
+    best_val_nll = float("inf")
+    current_val_nll = float("inf")
+    levels_without_improvement = 0
+    selected_depth = d - 1
+    higher_tree_diagnostics: List[Dict[str, Any]] = []
+    previous_tree_gain = float("nan")
+
     for level in range(d - 1):
         edges_now = vine._internal_ind_vine[level] if level < len(vine._internal_ind_vine) else []
+        tree_number = level + 1
+        if (
+            use_depth_selection
+            and x_val is not None
+            and tree_number >= apply_higher_tree_margin_from_level
+            and higher_tree_boundary_frac_threshold is not None
+        ):
+            val_inputs = _propagated_inputs_for_level(
+                vine,
+                x_val,
+                edge_refs=vine._internal_ind_vine,
+                target_level=level,
+                device=device,
+            )
+            boundary_frac = _boundary_fraction(val_inputs, eps=1e-3)
+            higher_tree_diagnostics.append(
+                {
+                    "tree": int(tree_number),
+                    "n_edges": int(len(edges_now)),
+                    "candidate_input_boundary_frac": float(boundary_frac),
+                    "boundary_threshold": float(higher_tree_boundary_frac_threshold),
+                    "decision": "truncate_pre_fit" if boundary_frac > higher_tree_boundary_frac_threshold else "continue",
+                }
+            )
+            if boundary_frac > higher_tree_boundary_frac_threshold:
+                selected_depth = max(len(vine.copulas), 0)
+                break
+        if (
+            use_depth_selection
+            and x_val is not None
+            and tree_number >= apply_higher_tree_margin_from_level
+            and np.isfinite(previous_tree_gain)
+            and previous_tree_gain <= higher_tree_validation_margin
+        ):
+            higher_tree_diagnostics.append(
+                {
+                    "tree": int(tree_number),
+                    "n_edges": int(len(edges_now)),
+                    "previous_tree_gain": float(previous_tree_gain),
+                    "required_previous_gain": float(higher_tree_validation_margin),
+                    "decision": "truncate_on_previous_tree_gain",
+                }
+            )
+            selected_depth = max(len(vine.copulas), 0)
+            break
+
         data_u = _build_edge_input_pairs(
             state=vine.theta,
             state_flip=vine.theta_flip,
@@ -628,6 +1087,130 @@ def fit_nonparametric_vine(
                 hval = evaluate_nonparametric_edge_h(level_cops[ind_edge], uv[:, [1, 0]], vine.grid_s)
                 vine.theta[:, level + 1, ind_edge] = hval
 
+        if use_depth_selection and x_val is not None:
+            val_nll = float((-vine.logpdf(torch.tensor(x_val, dtype=torch.float32, device=device))).mean().detach().cpu())
+            tree_gain = float(current_val_nll - val_nll) if np.isfinite(current_val_nll) else float("inf")
+            null_adjusted_tree_gain = None
+            null_tree_gain = None
+            if tree_number >= apply_higher_tree_margin_from_level and higher_tree_null_adjusted_validation:
+                val_inputs = _propagated_inputs_for_level(
+                    vine,
+                    x_val,
+                    edge_refs=vine._internal_ind_vine,
+                    target_level=level,
+                    device=device,
+                )
+                raw_tree_edge_gain, raw_tree_edge_gains = _tree_edge_mean_loglik(
+                    level_cops,
+                    val_inputs,
+                    flip_flag1,
+                    ind_edge_rel1,
+                    vine.grid_s,
+                    permute_second=False,
+                )
+                null_tree_gain_vals: List[float] = []
+                null_tree_edge_gains: List[List[float]] = []
+                for perm_idx in range(max(higher_tree_null_permutations, 1)):
+                    rng = np.random.default_rng(
+                        higher_tree_null_seed + 1009 * tree_number + 65537 * perm_idx + 17 * d + n
+                    )
+                    perm_gain, perm_edge_gains = _tree_edge_mean_loglik(
+                        level_cops,
+                        val_inputs,
+                        flip_flag1,
+                        ind_edge_rel1,
+                        vine.grid_s,
+                        permute_second=True,
+                        rng=rng,
+                    )
+                    null_tree_gain_vals.append(float(perm_gain))
+                    null_tree_edge_gains.append([float(v) for v in perm_edge_gains])
+                null_tree_gain = float(np.mean(null_tree_gain_vals)) if null_tree_gain_vals else 0.0
+                null_adjusted_tree_gain = float(raw_tree_edge_gain - null_tree_gain)
+                higher_tree_diagnostics.append(
+                    {
+                        "tree": int(tree_number),
+                        "n_edges": int(len(edges_now)),
+                        "raw_tree_edge_gain": float(raw_tree_edge_gain),
+                        "raw_tree_edge_gains": [float(v) for v in raw_tree_edge_gains],
+                        "null_tree_gain": float(null_tree_gain),
+                        "null_tree_gain_permutation_values": [float(v) for v in null_tree_gain_vals],
+                        "null_tree_edge_gains_permutation_values": null_tree_edge_gains,
+                        "null_adjusted_tree_gain": float(null_adjusted_tree_gain),
+                        "null_adjusted_margin": float(higher_tree_null_adjusted_margin),
+                    }
+                )
+            if tree_number >= apply_higher_tree_margin_from_level:
+                min_gain_required = float(
+                    max(
+                        higher_tree_validation_margin,
+                        higher_tree_margin_per_edge * len(edges_now),
+                        higher_tree_min_gain if higher_tree_min_gain is not None else float("-inf"),
+                    )
+                )
+                higher_tree_diagnostics.append(
+                    {
+                        "tree": int(tree_number),
+                        "n_edges": int(len(edges_now)),
+                        "tree_val_gain": float(tree_gain),
+                        "null_tree_gain": None if null_tree_gain is None else float(null_tree_gain),
+                        "null_adjusted_tree_gain": None if null_adjusted_tree_gain is None else float(null_adjusted_tree_gain),
+                        "min_gain_required": float(min_gain_required),
+                        "decision": "accept" if tree_gain > min_gain_required else "truncate_on_gain",
+                    }
+                )
+                if not np.isfinite(tree_gain) or tree_gain <= min_gain_required:
+                    selected_depth = max(level, 0)
+                    break
+                if higher_tree_null_adjusted_validation:
+                    higher_tree_diagnostics.append(
+                        {
+                            "tree": int(tree_number),
+                            "n_edges": int(len(edges_now)),
+                            "tree_val_gain": float(tree_gain),
+                            "null_tree_gain": None if null_tree_gain is None else float(null_tree_gain),
+                            "null_adjusted_tree_gain": None if null_adjusted_tree_gain is None else float(null_adjusted_tree_gain),
+                            "min_null_adjusted_gain_required": float(higher_tree_null_adjusted_margin),
+                            "decision": (
+                                "accept"
+                                if (
+                                    null_adjusted_tree_gain is not None
+                                    and np.isfinite(null_adjusted_tree_gain)
+                                    and null_adjusted_tree_gain > higher_tree_null_adjusted_margin
+                                )
+                                else "truncate_on_null_adjusted_gain"
+                            ),
+                        }
+                    )
+                    if (
+                        null_adjusted_tree_gain is None
+                        or not np.isfinite(null_adjusted_tree_gain)
+                        or null_adjusted_tree_gain <= higher_tree_null_adjusted_margin
+                    ):
+                        selected_depth = max(level, 0)
+                        break
+
+            if val_nll < best_val_nll - depth_improvement_tol:
+                best_val_nll = val_nll
+                levels_without_improvement = 0
+                selected_depth = level + 1
+                best_snapshot = {
+                    "copulas": copy.deepcopy(vine.copulas),
+                    "flip_flag": copy.deepcopy(vine.flip_flag),
+                    "ind_edge_rel": copy.deepcopy(vine.ind_edge_rel),
+                }
+            else:
+                levels_without_improvement += 1
+                if levels_without_improvement > depth_patience:
+                    break
+            current_val_nll = val_nll
+            previous_tree_gain = float(-val_nll) if tree_number == 1 else float(tree_gain)
+
+    if use_depth_selection and best_snapshot is not None:
+        vine.copulas = best_snapshot["copulas"]
+        vine.flip_flag = best_snapshot["flip_flag"]
+        vine.ind_edge_rel = best_snapshot["ind_edge_rel"]
+
     edge_diagnostics = [
         cop.validation
         for level in vine.copulas
@@ -641,6 +1224,19 @@ def fit_nonparametric_vine(
             max((diag["ccdf_monotone_violation"] for diag in edge_diagnostics), default=0.0)
         ),
         "max_pdf_value": float(max((diag["pdf_max"] for diag in edge_diagnostics), default=0.0)),
+        "selected_depth": int(selected_depth),
+        "depth_selection_enabled": bool(use_depth_selection),
+        "depth_validation_nll": float(best_val_nll) if np.isfinite(best_val_nll) else float("nan"),
+        "apply_higher_tree_margin_from_level": int(apply_higher_tree_margin_from_level),
+        "higher_tree_validation_margin": float(higher_tree_validation_margin),
+        "higher_tree_margin_per_edge": float(higher_tree_margin_per_edge),
+        "higher_tree_min_gain": None if higher_tree_min_gain is None else float(higher_tree_min_gain),
+        "higher_tree_boundary_frac_threshold": None if higher_tree_boundary_frac_threshold is None else float(higher_tree_boundary_frac_threshold),
+        "higher_tree_null_adjusted_validation": bool(higher_tree_null_adjusted_validation),
+        "higher_tree_null_permutations": int(higher_tree_null_permutations),
+        "higher_tree_null_adjusted_margin": float(higher_tree_null_adjusted_margin),
+        "higher_tree_null_seed": int(higher_tree_null_seed),
+        "higher_tree_diagnostics": higher_tree_diagnostics,
     }
 
     return vine
@@ -694,12 +1290,15 @@ def evaluate_nonparametric_vine(vine: vine_obj_bin, points: torch.Tensor):
                 continue
             cop = cops_now[ind_edge]
             uv = point_u[:, :, ind_edge]
-            if flip_flag1[j]:
-                uv = uv[:, [1, 0]]
-            pdf_val = evaluate_nonparametric_edge_pdf(cop, uv, vine.grid_s).clamp_min(1e-12)
+            uv_pdf = uv[:, [1, 0]] if flip_flag1[j] else uv
+            pdf_val = evaluate_nonparametric_edge_pdf(cop, uv_pdf, vine.grid_s).clamp_min(1e-12)
             log_cop = log_cop + torch.log(pdf_val)
             if level < d - 1:
-                hval = evaluate_nonparametric_edge_h(cop, uv, vine.grid_s)
+                # Keep higher-tree propagation consistent with fit_nonparametric_vine:
+                # non-flipped edges propagate h(v|u), while flipped edges propagate
+                # the opposite conditional using the unreversed pair.
+                uv_h = uv if flip_flag1[j] else uv[:, [1, 0]]
+                hval = evaluate_nonparametric_edge_h(cop, uv_h, vine.grid_s)
                 if flip_flag1[j]:
                     u_state_flip[:, level + 1, ind_edge] = hval
                 else:
