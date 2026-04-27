@@ -58,8 +58,8 @@ def test_agent_interactions_expose_higher_order_signal_and_ranking_metrics(tmp_p
     assert dvc_metrics["auroc"] >= 0.90
     assert reg_metrics["auroc"] is not None
     assert reg_metrics["average_precision"] is not None
-    assert payload["order_classification_accuracy"] >= 0.60
-    assert payload["regularized_order_classification_accuracy"] >= 0.60
+    assert payload["order_classification_accuracy"] >= 0.90
+    assert payload["regularized_order_classification_accuracy"] >= 0.85
 
     pairwise_mean = payload["tc_higher_pairwise_mean"]
     higher_mean = payload["tc_higher_higher_order_mean"]

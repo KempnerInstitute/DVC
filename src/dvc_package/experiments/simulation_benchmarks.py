@@ -3051,18 +3051,25 @@ def run_simulation_benchmark_suite(
                 }
 
             # DVC 3-class detection (independence / pairwise / higher-order).
+            # Use total-correlation evidence to detect *any* interaction: a
+            # Gaussian-compatible pairwise episode should not disappear simply
+            # because the Gaussian copula is also a strong fit. Then use the
+            # full-vs-1-truncated gap to decide whether the signal is higher
+            # tree rather than level-0 pairwise.
+            total_tc = -_dvc_arr
+            reg_total_tc = -np.asarray(reg_dvc_nll, dtype=np.float64)
             if np.any(indep_mask):
-                indep_gap = ep_nll_gaps["nll_gap"][indep_mask]
-                thresh_nll = float(np.mean(indep_gap) + 2.0 * max(np.std(indep_gap), 0.01))
+                indep_tc = total_tc[indep_mask]
+                thresh_tc = float(np.mean(indep_tc) + 2.0 * max(np.std(indep_tc), 0.01))
                 indep_trunc = tc_higher_order[indep_mask]
                 thresh_higher = float(np.mean(indep_trunc) + 2.0 * max(np.std(indep_trunc), 0.005))
             else:
-                thresh_nll = 0.02
+                thresh_tc = 0.02
                 thresh_higher = 0.01
 
             detected = np.zeros(len(time), dtype=np.int32)
             for t_idx in range(len(time)):
-                if ep_nll_gaps["nll_gap"][t_idx] < thresh_nll:
+                if total_tc[t_idx] < thresh_tc:
                     detected[t_idx] = 0  # independence
                 elif tc_higher_order[t_idx] < thresh_higher:
                     detected[t_idx] = 1  # pairwise
@@ -3073,17 +3080,16 @@ def run_simulation_benchmark_suite(
             gt_collapsed = np.where(ep_labels == 3, 2, ep_labels)
             ep_detect_acc = float(np.mean(detected == gt_collapsed))
             reg_detected = np.zeros(len(time), dtype=np.int32)
-            reg_ep_nll_gap = np.asarray(gauss_nll, dtype=np.float64) - np.asarray(reg_dvc_nll, dtype=np.float64)
             if np.any(indep_mask):
-                reg_indep_gap = reg_ep_nll_gap[indep_mask]
-                reg_thresh_nll = float(np.mean(reg_indep_gap) + 2.0 * max(np.std(reg_indep_gap), 0.01))
+                reg_indep_tc = reg_total_tc[indep_mask]
+                reg_thresh_tc = float(np.mean(reg_indep_tc) + 2.0 * max(np.std(reg_indep_tc), 0.01))
                 reg_indep_trunc = reg_tc_higher_order[indep_mask]
                 reg_thresh_higher = float(np.mean(reg_indep_trunc) + 2.0 * max(np.std(reg_indep_trunc), 0.005))
             else:
-                reg_thresh_nll = 0.02
+                reg_thresh_tc = 0.02
                 reg_thresh_higher = 0.01
             for t_idx in range(len(time)):
-                if reg_ep_nll_gap[t_idx] < reg_thresh_nll:
+                if reg_total_tc[t_idx] < reg_thresh_tc:
                     reg_detected[t_idx] = 0
                 elif reg_tc_higher_order[t_idx] < reg_thresh_higher:
                     reg_detected[t_idx] = 1
@@ -3125,9 +3131,11 @@ def run_simulation_benchmark_suite(
                 "order_classification_accuracy": ep_detect_acc,
                 "regularized_order_classification_accuracy": reg_ep_detect_acc,
                 "method_detection_metrics": method_detections,
-                "detection_threshold_nll": thresh_nll,
+                "detection_threshold_nll": thresh_tc,
+                "detection_threshold_total_tc": thresh_tc,
                 "detection_threshold_higher": thresh_higher,
-                "regularized_detection_threshold_nll": reg_thresh_nll,
+                "regularized_detection_threshold_nll": reg_thresh_tc,
+                "regularized_detection_threshold_total_tc": reg_thresh_tc,
                 "regularized_detection_threshold_higher": reg_thresh_higher,
                 "tc_higher_pairwise_mean": tc_higher_pairwise_mean,
                 "tc_higher_higher_order_mean": tc_higher_higher_order_mean,
