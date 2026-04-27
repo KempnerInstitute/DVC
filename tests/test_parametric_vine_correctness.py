@@ -9,7 +9,12 @@ from scipy.stats import norm
 from dvc_package.core.objects import cop_par_obj
 from dvc_package.core.param_copula import copulaccdf
 from dvc_package.core.vine_factory import create_vine
-from dvc_package.experiments.simulation_benchmarks import _mean_copula_nll
+from dvc_package.experiments.simulation_benchmarks import (
+    _fit_parametric_vine,
+    _fit_truncated_cvine_level0,
+    _make_levelwise_cvine,
+    _mean_copula_nll,
+)
 
 
 def test_gaussian_parametric_h_function_removes_conditioning_signal():
@@ -56,3 +61,32 @@ def test_parametric_dvine_matches_gaussian_ar1_ground_truth_tc():
     assert selected_families[0] == ["gaussian", "gaussian", "gaussian"]
     assert selected_families[1] == ["independence", "independence"]
     assert selected_families[2] == ["independence"]
+
+
+def test_parametric_cvine_recovers_non_gaussian_higher_tree_likelihood_gain():
+    """A correctly specified non-Gaussian C-vine should beat its 1-truncated fit."""
+    rng = np.random.default_rng(321)
+    generator = _make_levelwise_cvine(
+        3,
+        order=[0, 1, 2],
+        level_families=["student", "clayton"],
+        level_thetas=[(0.55, 4.0), 2.0],
+    )
+    x = generator.sample(3_500).astype(np.float32)
+    idx = rng.permutation(x.shape[0])
+    tr = x[idx[:2_500]]
+    te = x[idx[2_500:]]
+    families = ["independence", "gaussian", "student", "clayton", "gumbel", "frank"]
+
+    vine = _fit_parametric_vine(tr, families=families, optimize_structure=False, seed=321)
+    trunc_vine = _fit_truncated_cvine_level0(tr, families=families, order=[0, 1, 2])
+
+    full_nll = float(_mean_copula_nll(vine, te))
+    trunc_nll = float(_mean_copula_nll(trunc_vine, te))
+    selected_families = [[cop.family for cop in level] for level in vine.copulas]
+
+    assert np.isfinite(full_nll)
+    assert np.isfinite(trunc_nll)
+    assert trunc_nll - full_nll > 1.0
+    assert len(selected_families[1]) == 1
+    assert selected_families[1][0] != "ind"

@@ -16,21 +16,33 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from dvc_package.visualization.paper_style import COLORS, TEXTWIDTH, apply_style
+from dvc_package.visualization.paper_style import (
+    COLORS,
+    METHOD_STYLES,
+    TEXTWIDTH,
+    add_panel_label,
+    apply_style,
+)
 
 
 BASELINE_ORDER = ["graphical_lasso", "gaussian_ssm", "gaussian_copula", "truncated_vine"]
+BASELINE_METHOD_NAMES = {
+    "graphical_lasso": "Graphical Lasso",
+    "gaussian_ssm": "Gaussian SSM",
+    "gaussian_copula": "Gaussian copula",
+    "truncated_vine": "1-truncated C-vine",
+}
 BASELINE_LABELS = {
-    "graphical_lasso": "Graphical\nLasso",
-    "gaussian_ssm": "Gaussian\nSSM",
-    "gaussian_copula": "Gaussian\ncopula",
-    "truncated_vine": "1-trunc\nvine",
+    "graphical_lasso": "GLasso",
+    "gaussian_ssm": "Gauss.\nSSM",
+    "gaussian_copula": "Gauss.\ncop.",
+    "truncated_vine": "1-trunc.",
 }
 SOURCE_ORDER = ["targeted_2bin_pca4", "mixed_2bin_pca6", "non_targeted_2bin_pca6"]
 SOURCE_LABELS = {
     "targeted_2bin_pca4": "Targeted",
     "mixed_2bin_pca6": "Mixed",
-    "non_targeted_2bin_pca6": "Non-targeted",
+    "non_targeted_2bin_pca6": "Non-\ntargeted",
 }
 FAMILY_GROUP_ORDER = [
     "independence",
@@ -39,10 +51,10 @@ FAMILY_GROUP_ORDER = [
     "lower_tail_asymmetric",
 ]
 FAMILY_GROUP_LABELS = {
-    "independence": "Independence",
-    "gaussian_like_elliptical": "Gaussian-like\nelliptical",
-    "heavy_tailed_elliptical": "Heavy-tailed\nelliptical",
-    "lower_tail_asymmetric": "Lower-tail\nasymmetric",
+    "independence": "Indep.",
+    "gaussian_like_elliptical": "Gauss.-like",
+    "heavy_tailed_elliptical": "Heavy-tail",
+    "lower_tail_asymmetric": "Lower-tail",
 }
 FAMILY_RAW_ORDER = ["ind", "gaussian", "student", "clayton"]
 FAMILY_RAW_LABELS = {
@@ -114,8 +126,8 @@ def _jitter(n: int, width: float = 0.10) -> np.ndarray:
 
 
 def _draw_interval(ax: plt.Axes, x: float, mean_v: float, low: float, high: float, color: str) -> None:
-    ax.vlines(x, low, high, color=color, linewidth=2.2, zorder=4)
-    ax.scatter([x], [mean_v], color=color, edgecolor="white", linewidth=0.8, s=48, zorder=5)
+    ax.vlines(x, low, high, color=color, linewidth=1.8, zorder=4)
+    ax.scatter([x], [mean_v], color=color, edgecolor="white", linewidth=0.6, s=28, zorder=5)
 
 
 def _plot_panel_a(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame) -> None:
@@ -124,37 +136,51 @@ def _plot_panel_a(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame)
     for xpos, baseline in zip(x, BASELINE_ORDER):
         vals = panel.loc[panel["baseline"] == baseline, ["session_id", "delta_vs_full"]].sort_values("session_id")
         jit = _jitter(len(vals), width=0.11)
+        method_name = BASELINE_METHOD_NAMES[baseline]
+        color = str(METHOD_STYLES.get(method_name, {}).get("color", PANEL_COLORS["blue"]))
         ax.scatter(
             np.full(len(vals), xpos) + jit,
             vals["delta_vs_full"].to_numpy(dtype=float),
             color=PANEL_COLORS["gray"],
-            s=16,
-            alpha=0.85,
+            s=10,
+            alpha=0.78,
             zorder=2,
         )
         stat = stats_df[(stats_df["analysis_scope"] == "panel_a_baseline") & (stats_df["comparison"] == f"full vine vs {baseline}")]
         if not stat.empty and np.isfinite(stat["estimate"].iloc[0]):
+            mean_v = float(stat["estimate"].iloc[0])
+            high = float(stat["ci_high"].iloc[0])
             _draw_interval(
                 ax,
                 xpos,
-                float(stat["estimate"].iloc[0]),
+                mean_v,
                 float(stat["ci_low"].iloc[0]),
-                float(stat["ci_high"].iloc[0]),
-                PANEL_COLORS["blue"],
+                high,
+                color,
+            )
+            ax.text(
+                xpos,
+                high + 0.008,
+                f"{mean_v:+.2f}",
+                ha="center",
+                va="bottom",
+                fontsize=4.7,
+                color=color,
             )
     ax.axhline(0.0, color="#444444", linewidth=1.0)
     ax.grid(axis="y", alpha=0.5)
     ax.set_xticks(x, [BASELINE_LABELS[b] for b in BASELINE_ORDER])
-    ax.set_ylabel("Baseline NLL - Full-vine NLL")
-    ax.set_title("A. Full vine outperforms usable baselines", loc="left")
+    ax.tick_params(axis="x", labelsize=4.8)
+    ax.set_ylabel(r"$\Delta$NLL vs DVC")
+    ax.set_title("Baseline benchmark", fontsize=6.5)
     ax.text(
-        0.99,
+        0.98,
         0.02,
-        "TVGL attempted but no usable\nsession-level latent-static output",
+        "TVGL: no usable\nlatent-static output",
         transform=ax.transAxes,
         ha="right",
         va="bottom",
-        fontsize=5.8,
+        fontsize=4.8,
         color="#666666",
     )
 
@@ -162,7 +188,7 @@ def _plot_panel_a(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame)
 def _plot_panel_b(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame) -> None:
     decomp = static_df[static_df["row_type"] == "decomposition_session"].copy()
     order = ["low_level_pairwise_gain", "higher_order_gain"]
-    labels = ["Pairwise non-\nGaussian gain", "Higher-order\ngain"]
+    labels = ["Pairwise\nnon-Gauss.", "Higher\norder"]
     x = np.arange(len(order))
     for xpos, component in zip(x, order):
         vals = decomp.loc[decomp["component"] == component, ["session_id", "value"]].sort_values("session_id")
@@ -171,8 +197,8 @@ def _plot_panel_b(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame)
             np.full(len(vals), xpos) + jit,
             vals["value"].to_numpy(dtype=float),
             color=PANEL_COLORS["gray"],
-            s=18,
-            alpha=0.9,
+            s=11,
+            alpha=0.78,
             zorder=2,
         )
         stat = stats_df[(stats_df["analysis_scope"] == "panel_b_decomposition") & (stats_df["comparison"] == component)]
@@ -188,8 +214,9 @@ def _plot_panel_b(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame)
     ax.axhline(0.0, color="#444444", linewidth=1.0)
     ax.grid(axis="y", alpha=0.5)
     ax.set_xticks(x, labels)
-    ax.set_ylabel("Held-out NLL gain")
-    ax.set_title("B. Higher-order gain is positive on average", loc="left")
+    ax.tick_params(axis="x", labelsize=4.8)
+    ax.set_ylabel("NLL gain")
+    ax.set_title("Decomposition", fontsize=6.5)
 
 
 def _plot_source_metric(ax: plt.Axes, source_df: pd.DataFrame, metric: str, title: str, color: str) -> None:
@@ -238,7 +265,7 @@ def _plot_panel_c(ax: plt.Axes, source_df: pd.DataFrame) -> None:
                     np.full(vals.size, xpos + offset) + _jitter(vals.size, width=0.035),
                     vals,
                     color=PANEL_COLORS["gray"],
-                    s=10,
+                    s=8,
                     alpha=0.62,
                     zorder=1,
                 )
@@ -248,9 +275,10 @@ def _plot_panel_c(ax: plt.Axes, source_df: pd.DataFrame) -> None:
     ax.axhline(0.0, color="#444444", linewidth=1.0)
     ax.grid(axis="y", alpha=0.5)
     ax.set_xticks(x, [SOURCE_LABELS[v] for v in SOURCE_ORDER])
-    ax.set_ylabel("Held-out gain (nats)")
-    ax.set_title("C. Strongest signal in non-targeted space", loc="left")
-    ax.legend(loc="upper left", fontsize=7.0, handlelength=1.2, borderpad=0.25)
+    ax.tick_params(axis="x", labelsize=4.8)
+    ax.set_ylabel("NLL gain")
+    ax.set_title("Latent source space", fontsize=6.5)
+    ax.legend(loc="upper left", fontsize=4.8, handlelength=1.0, borderpad=0.20, labelspacing=0.18)
 
 
 def _plot_panel_d(ax: plt.Axes, family_df: pd.DataFrame) -> None:
@@ -281,15 +309,24 @@ def _plot_panel_d(ax: plt.Axes, family_df: pd.DataFrame) -> None:
         left += vals
     ax.set_yticks(y, ["Targeted", "Mixed", "Non-targeted"])
     ax.set_xlim(0.0, 1.0)
-    ax.set_xlabel("Fraction of fitted pair-copula edges")
-    ax.set_title("D. Heavy-tailed and asymmetric dependence", loc="left")
+    ax.set_xlabel("Edge fraction")
+    ax.set_title("Selected families", fontsize=6.5)
     ax.grid(axis="x", alpha=0.4)
-    ax.legend(loc="lower right", fontsize=5.6, handlelength=1.0, borderpad=0.25, labelspacing=0.25)
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.32),
+        ncol=2,
+        fontsize=4.5,
+        handlelength=0.85,
+        borderpad=0.12,
+        labelspacing=0.16,
+        columnspacing=0.7,
+    )
 
 
 def _plot_main_figure(static_df: pd.DataFrame, stats_df: pd.DataFrame, family_df: pd.DataFrame, out_path: Path) -> None:
-    fig = plt.figure(figsize=(TEXTWIDTH * 2.05, TEXTWIDTH * 0.58))
-    gs = fig.add_gridspec(1, 4, wspace=0.48, width_ratios=[1.08, 0.95, 1.08, 1.15])
+    fig = plt.figure(figsize=(TEXTWIDTH, 2.62))
+    gs = fig.add_gridspec(1, 4, wspace=0.56, width_ratios=[1.08, 0.82, 1.08, 1.12])
     ax_a = fig.add_subplot(gs[0, 0])
     ax_b = fig.add_subplot(gs[0, 1])
     ax_c = fig.add_subplot(gs[0, 2])
@@ -302,10 +339,13 @@ def _plot_main_figure(static_df: pd.DataFrame, stats_df: pd.DataFrame, family_df
     _plot_panel_c(ax_c, source_df)
     _plot_panel_d(ax_d, family_df)
 
-    for ax in [ax_a, ax_b, ax_c, ax_d]:
-        ax.tick_params(labelsize=7)
-        ax.title.set_fontsize(8)
-    fig.subplots_adjust(left=0.055, right=0.99, bottom=0.24, top=0.86)
+    for label, ax in zip("ABCD", [ax_a, ax_b, ax_c, ax_d]):
+        ax.tick_params(labelsize=5.2)
+        ax.title.set_fontsize(6.5)
+        ax.xaxis.label.set_size(6.0)
+        ax.yaxis.label.set_size(6.0)
+        add_panel_label(ax, label, x=-0.14, y=1.18, fontsize=8)
+    fig.subplots_adjust(left=0.075, right=0.985, bottom=0.34, top=0.82)
     fig.savefig(out_path, dpi=600)
     fig.savefig(out_path.with_suffix(".pdf"))
     plt.close(fig)

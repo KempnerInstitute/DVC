@@ -728,14 +728,18 @@ def generate_agent_interaction_episodes(
 ) -> Dict[str, Any]:
     """Generate time series with episodic interaction bursts among agents.
 
-    Background state is independence.  Four interaction episodes are embedded:
-    1. Pairwise (agents 0,1) — Gaussian copula
-    2. Higher-order (agents 2,3,4) — Student-t + Clayton 2-level C-vine
-    3. Mixed (agents 0,1 pairwise + agents 3,4,5 higher-order)
+    Background state is independence. Several separated interaction episodes
+    are embedded so the benchmark tests recurrence across the same motifs:
+    1. Pairwise Gaussian-copula bursts
+    2. Higher-order Student-t/Clayton C-vine bursts
+    3. Mixed bursts with disjoint pairwise and higher-order groups
 
     The key demonstration: a 1-truncated vine suffices for pairwise episodes,
     but higher-order episodes require the full vine (deeper tree levels).
     """
+    if n_agents < 6:
+        raise ValueError("agent interaction episodes require n_agents >= 6")
+
     rng = np.random.default_rng(seed)
     time_idx = np.arange(n_time_steps, dtype=np.float32)
 
@@ -743,33 +747,61 @@ def generate_agent_interaction_episodes(
     # label codes: 0=independence, 1=pairwise, 2=higher_order, 3=mixed
     episode_labels = np.zeros(n_time_steps, dtype=np.int32)
     episode_agents: List[List[int]] = [[] for _ in range(n_time_steps)]
+    episode_specs: List[Optional[Dict[str, Any]]] = [None for _ in range(n_time_steps)]
     episode_schedule: List[Dict[str, Any]] = []
 
-    # Derive episode boundaries from n_time_steps (proportional to T=28 design)
-    # The schedule divides the time axis into 5 segments:
-    # [0, b1) indep | [b1, b2) pairwise | [b2, b3) indep | [b3, b4) higher | [b4, b5) indep | [b5, T) mixed
-    frac = np.array([5, 5, 4, 6, 3, 5], dtype=np.float64)
-    frac = frac / frac.sum()
-    cum = np.round(np.cumsum(frac) * n_time_steps).astype(int)
-    cum[-1] = n_time_steps  # ensure last boundary == T
-    b = np.concatenate([[0], cum])  # boundaries: b[0], b[1], ..., b[6]
-
-    for t in range(b[1], b[2]):
-        episode_labels[t] = 1
-        episode_agents[t] = [0, 1]
-    for t in range(b[3], b[4]):
-        episode_labels[t] = 2
-        episode_agents[t] = [2, 3, 4]
-    for t in range(b[5], b[6]):
-        episode_labels[t] = 3
-        episode_agents[t] = [0, 1, 3, 4, 5]
-
-    episode_schedule = [
-        {"t_start": int(b[1]), "t_end": int(b[2]), "type": "pairwise", "agents": [0, 1]},
-        {"t_start": int(b[3]), "t_end": int(b[4]), "type": "higher_order", "agents": [2, 3, 4]},
-        {"t_start": int(b[5]), "t_end": int(b[6]), "type": "mixed",
-         "agents_pairwise": [0, 1], "agents_higher": [3, 4, 5]},
+    # Duration weights are scaled to n_time_steps. Short unit tests keep the
+    # older compact schedule; paper-scale runs use recurrent episodes.
+    legacy_template: List[Dict[str, Any]] = [
+        {"weight": 5.0, "type": "independence"},
+        {"weight": 5.0, "type": "pairwise", "agents": [0, 1]},
+        {"weight": 4.0, "type": "independence"},
+        {"weight": 6.0, "type": "higher_order", "agents": [2, 3, 4]},
+        {"weight": 3.0, "type": "independence"},
+        {"weight": 5.0, "type": "mixed", "agents_pairwise": [0, 1], "agents_higher": [3, 4, 5]},
     ]
+    recurrent_template: List[Dict[str, Any]] = [
+        {"weight": 5.0, "type": "independence"},
+        {"weight": 6.0, "type": "pairwise", "agents": [0, 1]},
+        {"weight": 4.0, "type": "independence"},
+        {"weight": 7.0, "type": "higher_order", "agents": [2, 3, 4]},
+        {"weight": 4.0, "type": "independence"},
+        {"weight": 6.0, "type": "mixed", "agents_pairwise": [0, 1], "agents_higher": [3, 4, 5]},
+        {"weight": 4.0, "type": "independence"},
+        {"weight": 6.0, "type": "pairwise", "agents": [0, 1]},
+        {"weight": 7.0, "type": "higher_order", "agents": [2, 3, 4]},
+        {"weight": 5.0, "type": "mixed", "agents_pairwise": [0, 1], "agents_higher": [3, 4, 5]},
+        {"weight": 4.0, "type": "independence"},
+    ]
+    schedule_template = recurrent_template if n_time_steps >= 36 else legacy_template
+    weights = np.asarray([float(entry["weight"]) for entry in schedule_template], dtype=np.float64)
+    cum = np.round(np.cumsum(weights / np.sum(weights)) * n_time_steps).astype(int)
+    cum[-1] = n_time_steps
+    boundaries = np.concatenate([[0], cum])
+
+    label_code = {"pairwise": 1, "higher_order": 2, "mixed": 3}
+
+    for seg_idx, spec in enumerate(schedule_template):
+        t_start = int(boundaries[seg_idx])
+        t_end = int(boundaries[seg_idx + 1])
+        if t_end <= t_start or spec["type"] == "independence":
+            continue
+
+        spec_clean = {k: v for k, v in spec.items() if k != "weight"}
+        spec_clean["t_start"] = t_start
+        spec_clean["t_end"] = t_end
+        episode_schedule.append(spec_clean)
+
+        label = label_code[str(spec["type"])]
+        if spec["type"] == "mixed":
+            agents = sorted(set(spec["agents_pairwise"]) | set(spec["agents_higher"]))
+        else:
+            agents = list(spec["agents"])
+
+        for t in range(t_start, t_end):
+            episode_labels[t] = label
+            episode_agents[t] = agents
+            episode_specs[t] = spec_clean
 
     # ----- data generation ---------------------------------------------------
     eps = 1e-6
@@ -786,25 +818,28 @@ def generate_agent_interaction_episodes(
             pass
 
         elif label == 1:
-            # Pairwise interaction: agents 0, 1 via Gaussian copula.
+            # Pairwise interaction via Gaussian copula.
+            spec = episode_specs[t] or {"agents": [0, 1]}
             data[t] = _embed_pairwise(
-                data[t], agents=[0, 1], rho=rho_pairwise, rng=rng, eps=eps,
+                data[t], agents=spec["agents"], rho=rho_pairwise, rng=rng, eps=eps,
             )
 
         elif label == 2:
-            # Higher-order interaction: agents 2,3,4 via 2-level C-vine.
+            # Higher-order interaction via 2-level C-vine.
+            spec = episode_specs[t] or {"agents": [2, 3, 4]}
             data[t] = _embed_higher_order_vine(
-                data[t], agents=[2, 3, 4],
+                data[t], agents=spec["agents"],
                 rho=rho_higher, nu=nu_higher, rng=rng, eps=eps,
             )
 
         elif label == 3:
-            # Mixed: pairwise (0,1) + higher-order (3,4,5) on disjoint subsets.
+            # Mixed: pairwise + higher-order on disjoint subsets.
+            spec = episode_specs[t] or {"agents_pairwise": [0, 1], "agents_higher": [3, 4, 5]}
             data[t] = _embed_pairwise(
-                data[t], agents=[0, 1], rho=rho_pairwise, rng=rng, eps=eps,
+                data[t], agents=spec["agents_pairwise"], rho=rho_pairwise, rng=rng, eps=eps,
             )
             data[t] = _embed_higher_order_vine(
-                data[t], agents=[3, 4, 5],
+                data[t], agents=spec["agents_higher"],
                 rho=rho_higher, nu=nu_higher, rng=rng, eps=eps,
             )
 
@@ -2928,11 +2963,14 @@ def run_simulation_benchmark_suite(
                 "nll_gap_regularized_dvc": np.asarray(reg_dvc_nll) - _dvc_arr,
             }
 
-            # TC decomposition: pairwise contribution from 1-truncated vine,
-            # higher-order residual from full vine minus truncated.
-            tc_pairwise = np.asarray(gauss_nll) - np.asarray(trunc_nll)
+            # TC decomposition relative to the independence copula.  Since
+            # copula NLL is the negative log-density contribution, the
+            # 1-truncated vine gives the pairwise contribution and the
+            # full-vs-truncated gap gives the higher-tree residual.
+            tc_pairwise = -np.asarray(trunc_nll)
             tc_higher_order = np.asarray(trunc_nll) - _dvc_arr
             reg_tc_higher_order = np.asarray(trunc_nll) - np.asarray(reg_dvc_nll)
+            tc_pairwise_flexible_over_gaussian = np.asarray(gauss_nll) - np.asarray(trunc_nll)
 
             # --- Episode detection across all methods ---
             # For each method, compute per-time NLL and detect episodes via
@@ -3013,18 +3051,25 @@ def run_simulation_benchmark_suite(
                 }
 
             # DVC 3-class detection (independence / pairwise / higher-order).
+            # Use total-correlation evidence to detect *any* interaction: a
+            # Gaussian-compatible pairwise episode should not disappear simply
+            # because the Gaussian copula is also a strong fit. Then use the
+            # full-vs-1-truncated gap to decide whether the signal is higher
+            # tree rather than level-0 pairwise.
+            total_tc = -_dvc_arr
+            reg_total_tc = -np.asarray(reg_dvc_nll, dtype=np.float64)
             if np.any(indep_mask):
-                indep_gap = ep_nll_gaps["nll_gap"][indep_mask]
-                thresh_nll = float(np.mean(indep_gap) + 2.0 * max(np.std(indep_gap), 0.01))
+                indep_tc = total_tc[indep_mask]
+                thresh_tc = float(np.mean(indep_tc) + 2.0 * max(np.std(indep_tc), 0.01))
                 indep_trunc = tc_higher_order[indep_mask]
                 thresh_higher = float(np.mean(indep_trunc) + 2.0 * max(np.std(indep_trunc), 0.005))
             else:
-                thresh_nll = 0.02
+                thresh_tc = 0.02
                 thresh_higher = 0.01
 
             detected = np.zeros(len(time), dtype=np.int32)
             for t_idx in range(len(time)):
-                if ep_nll_gaps["nll_gap"][t_idx] < thresh_nll:
+                if total_tc[t_idx] < thresh_tc:
                     detected[t_idx] = 0  # independence
                 elif tc_higher_order[t_idx] < thresh_higher:
                     detected[t_idx] = 1  # pairwise
@@ -3035,17 +3080,16 @@ def run_simulation_benchmark_suite(
             gt_collapsed = np.where(ep_labels == 3, 2, ep_labels)
             ep_detect_acc = float(np.mean(detected == gt_collapsed))
             reg_detected = np.zeros(len(time), dtype=np.int32)
-            reg_ep_nll_gap = np.asarray(gauss_nll, dtype=np.float64) - np.asarray(reg_dvc_nll, dtype=np.float64)
             if np.any(indep_mask):
-                reg_indep_gap = reg_ep_nll_gap[indep_mask]
-                reg_thresh_nll = float(np.mean(reg_indep_gap) + 2.0 * max(np.std(reg_indep_gap), 0.01))
+                reg_indep_tc = reg_total_tc[indep_mask]
+                reg_thresh_tc = float(np.mean(reg_indep_tc) + 2.0 * max(np.std(reg_indep_tc), 0.01))
                 reg_indep_trunc = reg_tc_higher_order[indep_mask]
                 reg_thresh_higher = float(np.mean(reg_indep_trunc) + 2.0 * max(np.std(reg_indep_trunc), 0.005))
             else:
-                reg_thresh_nll = 0.02
+                reg_thresh_tc = 0.02
                 reg_thresh_higher = 0.01
             for t_idx in range(len(time)):
-                if reg_ep_nll_gap[t_idx] < reg_thresh_nll:
+                if reg_total_tc[t_idx] < reg_thresh_tc:
                     reg_detected[t_idx] = 0
                 elif reg_tc_higher_order[t_idx] < reg_thresh_higher:
                     reg_detected[t_idx] = 1
@@ -3087,9 +3131,11 @@ def run_simulation_benchmark_suite(
                 "order_classification_accuracy": ep_detect_acc,
                 "regularized_order_classification_accuracy": reg_ep_detect_acc,
                 "method_detection_metrics": method_detections,
-                "detection_threshold_nll": thresh_nll,
+                "detection_threshold_nll": thresh_tc,
+                "detection_threshold_total_tc": thresh_tc,
                 "detection_threshold_higher": thresh_higher,
-                "regularized_detection_threshold_nll": reg_thresh_nll,
+                "regularized_detection_threshold_nll": reg_thresh_tc,
+                "regularized_detection_threshold_total_tc": reg_thresh_tc,
                 "regularized_detection_threshold_higher": reg_thresh_higher,
                 "tc_higher_pairwise_mean": tc_higher_pairwise_mean,
                 "tc_higher_higher_order_mean": tc_higher_higher_order_mean,
@@ -3098,6 +3144,7 @@ def run_simulation_benchmark_suite(
                 "regularized_tc_higher_higher_order_mean": reg_tc_higher_higher_order_mean,
                 "regularized_tc_higher_mixed_mean": reg_tc_higher_mixed_mean,
                 "tc_pairwise": tc_pairwise.tolist(),
+                "tc_pairwise_flexible_over_gaussian": tc_pairwise_flexible_over_gaussian.tolist(),
                 "tc_higher_order": tc_higher_order.tolist(),
                 "dvc_nll": dvc_nll,
                 "regularized_dvc_nll": reg_dvc_nll,
