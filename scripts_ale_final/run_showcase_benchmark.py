@@ -101,6 +101,18 @@ def parse_args() -> argparse.Namespace:
         help="Override samples per window.",
     )
     parser.add_argument(
+        "--phase-duration",
+        type=int,
+        default=None,
+        help="Windows per phase. Defaults to the preset's original 15-window phases.",
+    )
+    parser.add_argument(
+        "--cycle-repeats",
+        type=int,
+        default=1,
+        help="Repeat the independent/pairwise/higher-order/tail cycle this many times.",
+    )
+    parser.add_argument(
         "--triplet-rho",
         type=float,
         default=None,
@@ -239,6 +251,22 @@ def build_benchmark_setup(args: argparse.Namespace) -> Tuple[ShowcaseConfig, str
 
     if args.n_per_time is not None:
         config = replace(config, n_per_time=int(args.n_per_time))
+    if args.phase_duration is not None or int(args.cycle_repeats) != 1:
+        phase_duration = int(args.phase_duration or 15)
+        cycle_repeats = int(args.cycle_repeats)
+        if phase_duration <= 0:
+            raise ValueError("--phase-duration must be positive.")
+        if cycle_repeats <= 0:
+            raise ValueError("--cycle-repeats must be positive.")
+        base_cycle = ("independent", "pairwise-block", "pairwise+higher-order", "tail-block")
+        phases = tuple(base_cycle * cycle_repeats)
+        boundaries = tuple(i * phase_duration for i in range(len(phases) + 1))
+        config = replace(
+            config,
+            t=int(boundaries[-1]),
+            phase_boundaries=boundaries,
+            phases=phases,
+        )
     if args.triplet_rho is not None:
         config = replace(config, triplet_rho=float(args.triplet_rho))
     if args.triplet_nu is not None:
