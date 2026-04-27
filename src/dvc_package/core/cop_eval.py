@@ -103,7 +103,8 @@ def cdf_grid_fun(pd_grid_uv: torch.Tensor,
                  ex_u: torch.Tensor,
                  u1d: torch.Tensor,
                  u2d: torch.Tensor,
-                 n_cop: int) -> torch.Tensor:
+                 n_cop: int,
+                 axis: int = 1) -> torch.Tensor:
     """
     Compute the conditional CDF / h-function grid from a copula PDF grid.
 
@@ -118,27 +119,30 @@ def cdf_grid_fun(pd_grid_uv: torch.Tensor,
         u1d: Grid differences dim 1
         u2d: Grid differences dim 2
         n_cop: Number of copulas
+        axis: Integration axis for the conditional target. The default
+            ``axis=1`` returns h(v|u), matching the parametric
+            ``copulaccdf`` convention. ``axis=0`` returns h(u|v).
         
     Returns:
         Conditional CDF values on the grid
     """
-    device = pd_grid_uv.device
     knots = pd_grid_uv.shape[0]
-    
-    u2d_tile = u2d.view(knots, 1, 1).expand(-1, knots, n_cop)
-    
-    pd_grid_uv_transp = pd_grid_uv.permute(1, 0, 2)
-    
-    integ = torch.cumsum(pd_grid_uv_transp * u2d_tile, dim=0)
-    
-    norm_p = torch.sum(pd_grid_uv * u2d_tile, dim=0)
-    
+
+    if int(axis) == 1:
+        weights = u2d.to(pd_grid_uv.device).view(1, knots, 1).expand(knots, -1, n_cop)
+        weighted = pd_grid_uv * weights
+        integ = torch.cumsum(weighted, dim=1)
+        norm_p = torch.sum(weighted, dim=1, keepdim=True)
+    elif int(axis) == 0:
+        weights = u1d.to(pd_grid_uv.device).view(knots, 1, 1).expand(-1, knots, n_cop)
+        weighted = pd_grid_uv * weights
+        integ = torch.cumsum(weighted, dim=0)
+        norm_p = torch.sum(weighted, dim=0, keepdim=True)
+    else:
+        raise ValueError(f"axis must be 0 or 1, got {axis!r}")
+
     norm_p = torch.where(norm_p == 0, torch.ones_like(norm_p), norm_p)
-    
-    cdf1 = integ / norm_p.unsqueeze(0)
-    
-    cdf1 = cdf1.permute(1, 0, 2)
-    
+    cdf1 = integ / norm_p
     cdf1 = torch.clamp(cdf1, 0.0, 1.0)
 
     return cdf1

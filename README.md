@@ -118,6 +118,25 @@ python scripts/run_dynamic_cvine_example.py --output-dir results/dynamic_cvine_e
 This saves a small synthetic benchmark figure and a JSON summary comparing
 windowed, joint, and latent-state dynamic C-vine fits.
 
+## Final Showcase Benchmark
+
+The paper-facing four-phase benchmark lives in `scripts_ale_final/`. The
+recommended parametric run is:
+
+```bash
+python scripts_ale_final/run_final_showcase_benchmark.py --mode parametric
+python scripts_ale_final/generate_fig7_showcase.py
+```
+
+Use `--mode with_np` only for the repaired nonparametric DVC supplementary
+comparison. That mode enables conservative coupled log-density smoothing across
+neighboring time windows via `--np-temporal-smoothing 0.12`.
+
+The showcase `summary.json` includes oracle ground-truth fields for total TC,
+pairwise TC, higher-order TC, representative pairwise MI, and Clayton
+lower-tail dependence, so benchmark claims can be reported against known
+targets rather than only against model-to-model gaps.
+
 ## Generate Benchmark Tables
 
 Run benchmark configs and generate CSV/LaTeX tables for the paper:

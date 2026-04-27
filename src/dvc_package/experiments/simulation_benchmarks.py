@@ -272,13 +272,16 @@ def _mean_copula_nll(vine: vine_obj_bin, x: np.ndarray) -> float:
             device=device,
         )
         cops_now = vine.copulas[level] if level < len(vine.copulas) else []
+        density_edges_seen = set()
         for j, ind_edge in enumerate(ind_edge_rel1):
             if ind_edge >= len(cops_now):
                 continue
             cobj = cops_now[ind_edge]
             uv = point_u[:, :, ind_edge]
-            pdf_val = copulapdf(cobj, uv).clamp_min(1e-30)
-            log_cop = log_cop + torch.log(pdf_val)
+            if int(ind_edge) not in density_edges_seen:
+                density_edges_seen.add(int(ind_edge))
+                pdf_val = copulapdf(cobj, uv).clamp_min(1e-30)
+                log_cop = log_cop + torch.log(pdf_val)
             if flip_flag1[j]:
                 hval = copulaccdf(cobj, uv[:, [1, 0]]).clamp(1e-6, 1.0 - 1e-6)
                 u_state_flip[:, level + 1, ind_edge] = torch.where(torch.isfinite(hval), hval, uv[:, 0])
@@ -1090,6 +1093,7 @@ def _fit_windowed_nonparametric_cvine_from_splits(
     order: Optional[List[int]] = None,
     knots: int = 9,
     npc_dict: Optional[Dict[str, Any]] = None,
+    temporal_smoothing_bandwidth: float = 0.0,
 ) -> Tuple[WindowedNonparametricCVineResult, List[float]]:
     if len(x_train_list) != len(x_test_list):
         raise ValueError("x_train_list and x_test_list must have the same length")
@@ -1097,6 +1101,7 @@ def _fit_windowed_nonparametric_cvine_from_splits(
         order=order,
         knots=knots,
         npc_dict=npc_dict,
+        temporal_smoothing_bandwidth=temporal_smoothing_bandwidth,
     )
     result = model.fit(x_train_list)
     test_nll = model.evaluate(x_test_list).tolist()
@@ -1117,6 +1122,7 @@ def _fit_joint_dynamic_nonparametric_cvine_from_splits(
     batch_size: int = 2,
     normalization_iters: int = 10,
     final_normalization_iters: int = 50,
+    density_smoothing_bandwidth: float = 0.0,
 ) -> Tuple[JointDynamicNonparametricCVineResult, List[float]]:
     if len(x_train_list) != len(x_test_list):
         raise ValueError("x_train_list and x_test_list must have the same length")
@@ -1131,6 +1137,7 @@ def _fit_joint_dynamic_nonparametric_cvine_from_splits(
         batch_size=batch_size,
         normalization_iters=normalization_iters,
         final_normalization_iters=final_normalization_iters,
+        density_smoothing_bandwidth=density_smoothing_bandwidth,
     )
     result = model.fit(x_train_list)
     test_nll = model.evaluate(x_test_list).tolist()
@@ -2201,6 +2208,10 @@ def run_simulation_benchmark_suite(
             time_data = gen["time_data"]
             time = gen["time_indices"]
             cp = gen["change_point"]
+            tail_true = np.asarray(
+                [_taildep_student(float(cfg["rho"]), float(nu_t)) for nu_t in gen["nu_schedule"]],
+                dtype=np.float32,
+            )
 
             families = ["gaussian", "student", "clayton", "gumbel", "joe", "independence"]
             smooth_dynamic_families = ["gaussian", "student", "independence"]
@@ -2333,6 +2344,7 @@ def run_simulation_benchmark_suite(
                     "final_normalization_iters": 50,
                     "batch_size": 1,
                 },
+                temporal_smoothing_bandwidth=0.12,
             )
             joint_np_result, joint_np_dvc_nll = _fit_joint_dynamic_nonparametric_cvine_from_splits(
                 x_train_list,
@@ -2347,6 +2359,7 @@ def run_simulation_benchmark_suite(
                 batch_size=1,
                 normalization_iters=5,
                 final_normalization_iters=50,
+                density_smoothing_bandwidth=0.12,
             )
             kde_flow_nll, kde_flow_val_nll, kde_flow_bandwidths = _kde_flow_truncated_level0_nll_from_splits(
                 x_train_list,
@@ -2366,6 +2379,8 @@ def run_simulation_benchmark_suite(
                 "tau_mean_abs": np.asarray(tau_mean, dtype=np.float32),
                 "tail_emp_upper_q95": np.asarray(tail_emp, dtype=np.float32),
                 "tail_fit_upper": np.asarray(tail_fit, dtype=np.float32),
+                "tail_true_upper": tail_true,
+                "tail_true_lower": tail_true,
                 "nll_gap": np.asarray(gauss_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_truncated_level0": np.asarray(trunc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_glasso": np.asarray(glasso_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
@@ -2396,6 +2411,8 @@ def run_simulation_benchmark_suite(
                 "change_point_hat_tail_emp": cp_hat,
                 "change_point_abs_error_tail_emp": cp_err,
                 "nu_schedule": gen["nu_schedule"].tolist(),
+                "tail_true_upper": tail_true.tolist(),
+                "tail_true_lower": tail_true.tolist(),
                 "smooth_dynamic_family_candidates": list(smooth_dynamic_families),
                 "dvc_nll": dvc_nll,
                 "regularized_dvc_nll": reg_dvc_nll,
@@ -2432,6 +2449,8 @@ def run_simulation_benchmark_suite(
                 "latent_state_selected_families": [str(edge_fit.family) for edge_fit in latent_result.edge_fits],
                 "windowed_nonparametric_order": list(windowed_np_result.order),
                 "joint_nonparametric_order": list(joint_np_result.order),
+                "windowed_nonparametric_config": dict(windowed_np_result.config),
+                "joint_nonparametric_config": dict(joint_np_result.config),
                 "regularized_family_switch_count": int(reg_result.total_family_switches()),
                 "regularized_parameter_drift_total": float(reg_result.total_parameter_drift()),
                 "corr_mean_abs": corr_mean,
@@ -2453,6 +2472,16 @@ def run_simulation_benchmark_suite(
             time_data = gen["time_data"]
             time = gen["time_indices"]
             cp = int(gen["change_point"])
+            theta_clayton = float(gen["theta_clayton"])
+            theta_gumbel = float(gen["theta_gumbel"])
+            true_tail_lower = np.asarray(
+                [2.0 ** (-1.0 / theta_clayton) if fam == "clayton" else 0.0 for fam in gen["family_schedule"]],
+                dtype=np.float32,
+            )
+            true_tail_upper = np.asarray(
+                [0.0 if fam == "clayton" else 2.0 - 2.0 ** (1.0 / theta_gumbel) for fam in gen["family_schedule"]],
+                dtype=np.float32,
+            )
 
             families = ["gaussian", "clayton", "gumbel", "joe", "independence"]
             dvc_nll = []
@@ -2537,11 +2566,19 @@ def run_simulation_benchmark_suite(
                 device="auto",
             )
 
+            truth_codes = np.asarray(
+                [fam_to_code.get(str(fam).lower().strip(), 0) for fam in gen["family_schedule"]],
+                dtype=np.int64,
+            )
             heat = np.asarray(fam_codes, dtype=np.int64).T if fam_codes else None
+            if heat is not None:
+                heat = np.vstack([truth_codes.reshape(1, -1), heat])
             series = {
                 "corr_tau_mean_abs": np.asarray(tau_mean, dtype=np.float32),
                 "tail_upper_q95": np.asarray(tail_u, dtype=np.float32),
                 "tail_lower_q05": np.asarray(tail_l, dtype=np.float32),
+                "tail_true_upper": true_tail_upper,
+                "tail_true_lower": true_tail_lower,
                 "nll_gap": np.asarray(gauss_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_truncated_level0": np.asarray(trunc_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
                 "nll_gap_glasso": np.asarray(glasso_nll, dtype=np.float32) - np.asarray(dvc_nll, dtype=np.float32),
@@ -2570,6 +2607,9 @@ def run_simulation_benchmark_suite(
                 "change_point_hat_tail_asym": cp_hat,
                 "change_point_abs_error_tail_asym": cp_err,
                 "family_schedule": gen["family_schedule"],
+                "tail_true_upper": true_tail_upper.tolist(),
+                "tail_true_lower": true_tail_lower.tolist(),
+                "level0_family_truth_codes": truth_codes.tolist(),
                 "dvc_nll": dvc_nll,
                 "gaussian_nll": gauss_nll,
                 "nll_gap": (np.asarray(gauss_nll) - np.asarray(dvc_nll)).tolist(),

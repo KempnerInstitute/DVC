@@ -70,6 +70,8 @@ def _inverse_nonparametric_edge_h(cop, conditioning: np.ndarray, uniforms: np.nd
     conditional-CDF map, not the raw grid values. Sampling has to invert that
     same calibrated map to preserve uniform margins.
     """
+    if getattr(cop, "family", "kercop") == "ind":
+        return np.clip(np.asarray(uniforms, dtype=np.float32).reshape(-1), 1e-6, 1.0 - 1e-6)
     device = u1.device
     cond_t = torch.as_tensor(conditioning, dtype=torch.float32, device=device).reshape(-1)
     uni_t = torch.as_tensor(uniforms, dtype=torch.float32, device=device).reshape(-1)
@@ -116,6 +118,8 @@ def _evaluate_nonparametric_edge_h_sampled(cop, uv: np.ndarray, vine) -> np.ndar
     """Match the TensorFlow sampler: interpolate raw h-values then rank-calibrate
     them within the current sampled batch to recover approximately uniform
     pseudo-observations."""
+    if getattr(cop, "family", "kercop") == "ind":
+        return np.clip(np.asarray(uv, dtype=np.float32)[:, 1], 1e-6, 1.0 - 1e-6)
     uv_t = torch.tensor(uv, dtype=torch.float32)
     points_s = Transform(1).forward_u(uv_t)
     ccdf_grid = getattr(cop, "ccdf_grid", None)
@@ -179,12 +183,14 @@ def vine_copula_sample(vine, cases: int) -> Tuple[np.ndarray, np.ndarray, np.nda
     def _resolve_edge_index(tr: int, col: int, flip_flag: Optional[bool] = None) -> int:
         ind_edge_rel = getattr(vine, "ind_edge_rel", None)
         flip_flags = getattr(vine, "flip_flag", None)
+        if flip_flag is None:
+            return int(col)
         if not ind_edge_rel or tr >= len(ind_edge_rel):
             return int(col)
         candidates = np.where(np.asarray(ind_edge_rel[tr]) == int(col))[0]
         if len(candidates) == 0:
             return int(col)
-        if flip_flag is None or not flip_flags or tr >= len(flip_flags):
+        if not flip_flags or tr >= len(flip_flags):
             return int(candidates[0])
         for cand in candidates:
             if cand < len(flip_flags[tr]) and bool(flip_flags[tr][cand]) == bool(flip_flag):
@@ -274,7 +280,11 @@ def vine_copula_sample(vine, cases: int) -> Tuple[np.ndarray, np.ndarray, np.nda
                     data_u = np.concatenate((v2, v1), axis=1) if not flip_flag else np.concatenate((v1, v2), axis=1)
 
                     edge_idx = _resolve_edge_index(tr, col, flip_flag=flip_flag)
-                    cop = vine.copulas[tr][edge_idx]
+                    h_copulas = getattr(vine, "_np_h_copulas", [])
+                    if tr < len(h_copulas) and edge_idx < len(h_copulas[tr]):
+                        cop = h_copulas[tr][edge_idx]
+                    else:
+                        cop = vine.copulas[tr][col]
                     hval = _evaluate_nonparametric_edge_h_sampled(cop, data_u, vine)
                     if not flip_flag:
                         v[:, j + 1, ii] = hval

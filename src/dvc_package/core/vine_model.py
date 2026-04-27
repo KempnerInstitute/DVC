@@ -245,13 +245,16 @@ def evaluate_vine(vine: vine_obj_bin, points: torch.Tensor):
             device=device,
         )
         cop_now = vine.copulas[level] if level < len(vine.copulas) else []
+        density_edges_seen = set()
         for j, ind_edge in enumerate(ind_edge_rel1):
             if ind_edge >= len(cop_now):
                 continue
             cobj = cop_now[ind_edge]
             uv = point_u[:, :, ind_edge]
-            pdf_val = copulapdf(cobj, uv).clamp_min(1e-30)
-            log_cop = log_cop + torch.log(pdf_val)
+            if int(ind_edge) not in density_edges_seen:
+                density_edges_seen.add(int(ind_edge))
+                pdf_val = copulapdf(cobj, uv).clamp_min(1e-30)
+                log_cop = log_cop + torch.log(pdf_val)
             try:
                 if flip_flag1[j]:
                     hval = copulaccdf(cobj, uv[:, [1, 0]]).clamp(1e-6, 1.0 - 1e-6)
