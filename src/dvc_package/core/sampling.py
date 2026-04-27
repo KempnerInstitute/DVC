@@ -183,12 +183,14 @@ def vine_copula_sample(vine, cases: int) -> Tuple[np.ndarray, np.ndarray, np.nda
     def _resolve_edge_index(tr: int, col: int, flip_flag: Optional[bool] = None) -> int:
         ind_edge_rel = getattr(vine, "ind_edge_rel", None)
         flip_flags = getattr(vine, "flip_flag", None)
+        if flip_flag is None:
+            return int(col)
         if not ind_edge_rel or tr >= len(ind_edge_rel):
             return int(col)
         candidates = np.where(np.asarray(ind_edge_rel[tr]) == int(col))[0]
         if len(candidates) == 0:
             return int(col)
-        if flip_flag is None or not flip_flags or tr >= len(flip_flags):
+        if not flip_flags or tr >= len(flip_flags):
             return int(candidates[0])
         for cand in candidates:
             if cand < len(flip_flags[tr]) and bool(flip_flags[tr][cand]) == bool(flip_flag):
@@ -278,7 +280,11 @@ def vine_copula_sample(vine, cases: int) -> Tuple[np.ndarray, np.ndarray, np.nda
                     data_u = np.concatenate((v2, v1), axis=1) if not flip_flag else np.concatenate((v1, v2), axis=1)
 
                     edge_idx = _resolve_edge_index(tr, col, flip_flag=flip_flag)
-                    cop = vine.copulas[tr][edge_idx]
+                    h_copulas = getattr(vine, "_np_h_copulas", [])
+                    if tr < len(h_copulas) and edge_idx < len(h_copulas[tr]):
+                        cop = h_copulas[tr][edge_idx]
+                    else:
+                        cop = vine.copulas[tr][col]
                     hval = _evaluate_nonparametric_edge_h_sampled(cop, data_u, vine)
                     if not flip_flag:
                         v[:, j + 1, ii] = hval

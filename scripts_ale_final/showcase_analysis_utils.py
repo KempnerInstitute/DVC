@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
@@ -79,6 +80,156 @@ class ShowcaseConfig:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+def _gaussian_star_tc(rho: float, n_leaves: int) -> float:
+    if n_leaves <= 0:
+        return 0.0
+    return float(-0.5 * int(n_leaves) * math.log(max(1e-12, 1.0 - float(rho) ** 2)))
+
+
+def _gaussian_pair_mi(rho: float) -> float:
+    return float(-0.5 * math.log(max(1e-12, 1.0 - float(rho) ** 2)))
+
+
+@lru_cache(maxsize=16)
+def _multiplicative_triplet_truth(noise_std: float, n_samples: int = 500_000, seed: int = 314159) -> Dict[str, float]:
+    """Oracle information values for X,Y,Z=XY+noise, invariant to marginal Gaussianization."""
+    sigma = float(max(noise_std, 1e-8))
+    rng = np.random.default_rng(int(seed))
+    x = rng.standard_normal(int(n_samples))
+    y = rng.standard_normal(int(n_samples))
+    z = x * y + sigma * rng.standard_normal(int(n_samples))
+
+    # f_Z(z) = E_X Normal(z; 0, X^2 + sigma^2). Gauss-Hermite quadrature
+    # gives a fast, deterministic density evaluator for the Monte Carlo sample.
+    nodes, weights = np.polynomial.hermite.hermgauss(80)
+    x_nodes = np.sqrt(2.0) * nodes
+    w_nodes = weights / np.sqrt(np.pi)
+    variances = x_nodes * x_nodes + sigma * sigma
+    log_norm = np.log(2.0 * np.pi * variances)
+    log_fz_chunks = []
+    for start in range(0, z.shape[0], 8192):
+        zz = z[start:start + 8192, None]
+        dens = np.sum(
+            w_nodes[None, :] * np.exp(-0.5 * (log_norm[None, :] + zz * zz / variances[None, :])),
+            axis=1,
+        )
+        log_fz_chunks.append(np.log(np.clip(dens, 1e-300, None)))
+    h_z = float(-np.mean(np.concatenate(log_fz_chunks)))
+    h_noise = float(0.5 * math.log(2.0 * math.pi * math.e * sigma * sigma))
+    h_z_given_x = float(np.sum(w_nodes * 0.5 * np.log(2.0 * np.pi * math.e * variances)))
+    pair_mi = float(max(0.0, h_z - h_z_given_x))
+    total_tc = float(max(0.0, h_z - h_noise))
+    higher_tc = float(max(0.0, total_tc - 2.0 * pair_mi))
+    return {
+        "tc_total": total_tc,
+        "pair_mi_xz": pair_mi,
+        "tc_pair_oracle": float(2.0 * pair_mi),
+        "tc_higher_oracle": higher_tc,
+        "h_z": h_z,
+        "h_noise": h_noise,
+        "h_z_given_x": h_z_given_x,
+        "oracle_n_samples": float(n_samples),
+    }
+
+
+@lru_cache(maxsize=16)
+def _clayton_pair_truth(theta: float, n_samples: int = 1_000_000, seed: int = 271828) -> Dict[str, float]:
+    """Monte Carlo oracle MI and lower-tail coefficient for the bivariate Clayton copula."""
+    th = float(theta)
+    if th <= 0.0:
+        return {"pair_mi": 0.0, "lower_tail_lambda": 0.0, "oracle_n_samples": float(n_samples)}
+    rng = np.random.default_rng(int(seed))
+    u = np.clip(rng.random(int(n_samples)), 1e-12, 1.0 - 1e-12)
+    w = np.clip(rng.random(int(n_samples)), 1e-12, 1.0 - 1e-12)
+    v = (1.0 + (w ** (-th / (1.0 + th)) - 1.0) * u ** (-th)) ** (-1.0 / th)
+    v = np.clip(v, 1e-12, 1.0 - 1e-12)
+    log_density = (
+        math.log(th + 1.0)
+        + (-th - 1.0) * (np.log(u) + np.log(v))
+        + (-2.0 - 1.0 / th) * np.log(u ** (-th) + v ** (-th) - 1.0)
+    )
+    return {
+        "pair_mi": float(np.mean(log_density)),
+        "pair_mi_mc_se": float(np.std(log_density) / math.sqrt(float(n_samples))),
+        "lower_tail_lambda": float(2.0 ** (-1.0 / th)),
+        "oracle_n_samples": float(n_samples),
+    }
+
+
+def showcase_truth_by_phase(config: ShowcaseConfig, variant: str) -> Dict[str, Dict[str, float]]:
+    """Return oracle/analytic ground truth for the synthetic showcase phases."""
+    star_tc = _gaussian_star_tc(config.pair_rho, len(config.pair_leaves))
+    star_pair_mi = _gaussian_pair_mi(config.pair_rho)
+    mult = _multiplicative_triplet_truth(float(config.multiplicative_noise_std))
+    n_triplet_blocks = len(config.triplet_blocks)
+    tail = _clayton_pair_truth(float(config.tail_theta))
+    n_tail_edges = max(len(config.tail_block) - 1, 0)
+
+    phase3_mode = str(variant if variant is not None else config.phase3_mode)
+    phase3_truth: Dict[str, float]
+    if phase3_mode == "multiplicative_only":
+        phase3_truth = {
+            "truth_tc_total": float(n_triplet_blocks * mult["tc_total"]),
+            "truth_tc_pair_oracle": float(n_triplet_blocks * mult["tc_pair_oracle"]),
+            "truth_tc_higher_oracle": float(n_triplet_blocks * mult["tc_higher_oracle"]),
+            "truth_pair_mi01": 0.0,
+            "truth_pair_mi56": float(mult["pair_mi_xz"]),
+            "truth_tail_lambda_lower": 0.0,
+            "truth_method": 2.0,
+        }
+    elif phase3_mode == "multiplicative_triplets":
+        phase3_truth = {
+            "truth_tc_total": float(star_tc + n_triplet_blocks * mult["tc_total"]),
+            "truth_tc_pair_oracle": float(star_tc + n_triplet_blocks * mult["tc_pair_oracle"]),
+            "truth_tc_higher_oracle": float(n_triplet_blocks * mult["tc_higher_oracle"]),
+            "truth_pair_mi01": star_pair_mi,
+            "truth_pair_mi56": float(mult["pair_mi_xz"]),
+            "truth_tail_lambda_lower": 0.0,
+            "truth_method": 2.0,
+        }
+    else:
+        phase3_truth = {
+            "truth_tc_total": float("nan"),
+            "truth_tc_pair_oracle": float("nan"),
+            "truth_tc_higher_oracle": float("nan"),
+            "truth_pair_mi01": star_pair_mi if phase3_mode not in {"triplet_only", "xor_only"} else 0.0,
+            "truth_pair_mi56": float("nan"),
+            "truth_tail_lambda_lower": 0.0,
+            "truth_method": 0.0,
+        }
+
+    return {
+        "independent": {
+            "truth_tc_total": 0.0,
+            "truth_tc_pair_oracle": 0.0,
+            "truth_tc_higher_oracle": 0.0,
+            "truth_pair_mi01": 0.0,
+            "truth_pair_mi56": 0.0,
+            "truth_tail_lambda_lower": 0.0,
+            "truth_method": 1.0,
+        },
+        "pairwise-block": {
+            "truth_tc_total": star_tc,
+            "truth_tc_pair_oracle": star_tc,
+            "truth_tc_higher_oracle": 0.0,
+            "truth_pair_mi01": star_pair_mi,
+            "truth_pair_mi56": 0.0,
+            "truth_tail_lambda_lower": 0.0,
+            "truth_method": 1.0,
+        },
+        "pairwise+higher-order": phase3_truth,
+        "tail-block": {
+            "truth_tc_total": float(n_tail_edges * tail["pair_mi"]),
+            "truth_tc_pair_oracle": float(n_tail_edges * tail["pair_mi"]),
+            "truth_tc_higher_oracle": 0.0,
+            "truth_pair_mi01": float(tail["pair_mi"]) if {0, 1}.issubset(set(config.tail_block)) else 0.0,
+            "truth_pair_mi56": 0.0,
+            "truth_tail_lambda_lower": float(tail["lower_tail_lambda"]),
+            "truth_method": 2.0,
+        },
+    }
 
 
 def make_seed_list(n_seeds: int = 5, base_seed: int = 2026, stride: int = 97) -> List[int]:
@@ -479,19 +630,23 @@ def evaluate_static_baselines(
     *,
     config: ShowcaseConfig,
     seed: int,
+    variant: str = "current",
     skip_nf: bool = False,
     nf_epochs: int = 40,
     nf_hidden_dim: int = 32,
     nf_blocks: int = 4,
 ) -> Dict[str, Any]:
     rows: List[Dict[str, Any]] = []
+    truth_by_phase = showcase_truth_by_phase(config, variant)
     for t_idx, (tr, te) in enumerate(zip(x_train_by_t, x_test_by_t)):
         eval_seed = int(seed + 1000 + 17 * t_idx)
+        phase_name = config.phases[phase_index_of_window(t_idx, config)]
         row: Dict[str, Any] = {
             "t": int(t_idx),
             "phase": int(phase_index_of_window(t_idx, config)),
-            "phase_name": config.phases[phase_index_of_window(t_idx, config)],
+            "phase_name": phase_name,
         }
+        row.update(truth_by_phase.get(phase_name, {}))
         vine = _fit_parametric_vine(tr, families=FAMILIES, optimize_structure=False, seed=eval_seed)
         nll_dvc = float(_mean_copula_nll(vine, te))
         trunc_vine = _fit_truncated_cvine_level0(tr, families=FAMILIES, order=list(range(config.d)))
@@ -664,6 +819,12 @@ def enrich_phasewise_deltas(
     config: ShowcaseConfig,
 ) -> Dict[str, Dict[str, float]]:
     metric_keys = [
+        "truth_tc_total",
+        "truth_tc_pair_oracle",
+        "truth_tc_higher_oracle",
+        "truth_pair_mi01",
+        "truth_pair_mi56",
+        "truth_tail_lambda_lower",
         "tc_total_dvc",
         "tc_total_np_windowed",
         "tc_pair_dvc",
@@ -679,6 +840,9 @@ def enrich_phasewise_deltas(
         np_windowed = phase_metrics.get("tc_total_np_windowed", float("nan"))
         gauss = phase_metrics["tc_gauss"]
         ssm = phase_metrics["tc_total_ssm"]
+        truth_total = phase_metrics.get("truth_tc_total", float("nan"))
+        truth_pair = phase_metrics.get("truth_tc_pair_oracle", float("nan"))
+        truth_higher = phase_metrics.get("truth_tc_higher_oracle", float("nan"))
         out[phase_name] = {
             **phase_metrics,
             "dvc_minus_gauss": float(dvc - gauss),
@@ -687,6 +851,16 @@ def enrich_phasewise_deltas(
             "np_minus_gauss": float(np_windowed - gauss) if math.isfinite(np_windowed) else float("nan"),
             "np_minus_ssm": float(np_windowed - ssm) if math.isfinite(np_windowed) else float("nan"),
             "np_minus_dvc": float(np_windowed - dvc) if math.isfinite(np_windowed) else float("nan"),
+            "dvc_minus_truth": float(dvc - truth_total) if math.isfinite(truth_total) else float("nan"),
+            "ssm_minus_truth": float(ssm - truth_total) if math.isfinite(truth_total) else float("nan"),
+            "gauss_minus_truth": float(gauss - truth_total) if math.isfinite(truth_total) else float("nan"),
+            "np_minus_truth": float(np_windowed - truth_total) if math.isfinite(truth_total) and math.isfinite(np_windowed) else float("nan"),
+            "dvc_abs_error_truth": float(abs(dvc - truth_total)) if math.isfinite(truth_total) else float("nan"),
+            "ssm_abs_error_truth": float(abs(ssm - truth_total)) if math.isfinite(truth_total) else float("nan"),
+            "gauss_abs_error_truth": float(abs(gauss - truth_total)) if math.isfinite(truth_total) else float("nan"),
+            "np_abs_error_truth": float(abs(np_windowed - truth_total)) if math.isfinite(truth_total) and math.isfinite(np_windowed) else float("nan"),
+            "dvc_pair_abs_error_truth": float(abs(phase_metrics["tc_pair_dvc"] - truth_pair)) if math.isfinite(truth_pair) else float("nan"),
+            "dvc_higher_abs_error_truth": float(abs(phase_metrics["tc_higher_dvc"] - truth_higher)) if math.isfinite(truth_higher) else float("nan"),
         }
     return out
 
@@ -777,6 +951,7 @@ def run_static_seed(
         x_test,
         config=config,
         seed=seed,
+        variant=variant,
         skip_nf=skip_nf,
         nf_epochs=nf_epochs,
     )

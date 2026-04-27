@@ -33,6 +33,11 @@ This writes by default to:
 
 - `results/showcase_ale_final/contrast_harder_parametric`
 
+The resulting `summary.json` now includes per-window oracle targets:
+`truth_tc_total`, `truth_tc_pair_oracle`, `truth_tc_higher_oracle`,
+`truth_pair_mi01`, `truth_pair_mi56`, and `truth_tail_lambda_lower`.  The
+phasewise summary also reports absolute errors against these truth values.
+
 ### Supplementary benchmark with repaired NP DVC
 
 Add the repaired **nonparametric DVC** as a supplementary comparator:
@@ -50,6 +55,8 @@ The `with_np` mode uses the repaired nonparametric defaults that were found to b
 - `d-vine`
 - `knots = 7`
 - `higher_tree_validation_margin = 0.05`
+- `np_temporal_smoothing = 0.12`, which couples the nonparametric density grids
+  across nearby time windows while preserving validated independence edges
 
 ## Bash Launcher
 
@@ -92,6 +99,7 @@ Available wrapper options:
 - `--n-seeds`
 - `--base-seed`
 - `--n-per-time`
+- `--multiplicative-noise-std`
 - `--skip-mine`
 - `--skip-nf`
 - `--include-regularized-dvc`
@@ -102,6 +110,14 @@ Available wrapper options:
 - Use `contrast_harder` + `parametric` as the main final benchmark.
 - Use `with_np` only as a supplementary robustness comparison.
 - Do not promote the nonparametric DVC line into the main Figure 7 benchmark by default.
+- Report model quality against the oracle fields, not only against the
+  DVC-minus-baseline gaps.
+
+The default `contrast_harder` multiplicative noise is `0.10`, matching the
+hard stress-test setting used for the final comparison. This creates a
+near-deterministic triplet phase: DVC detects and decomposes the signal better
+than Gaussian baselines, but all finite-sample fitted models underestimate the
+large oracle TC. Use `--multiplicative-noise-std` for calibration sweeps.
 
 ## Final Figure Script
 
@@ -110,6 +126,9 @@ The final figure entrypoint is:
 ```bash
 conda run -n dvc python scripts_ale_final/generate_fig7_showcase.py
 ```
+
+Figure 7 overlays these oracle targets on the total-correlation,
+pair-vs-higher-order, and representative pairwise-MI panels.
 
 To point it at a different results folder:
 

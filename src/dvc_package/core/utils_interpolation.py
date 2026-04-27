@@ -99,6 +99,11 @@ def interp_regular_nd_grid(x: torch.Tensor,
         # Convert to grid_sample format
         # grid_sample expects coordinates in [-1, 1]
         x_grid_sample = 2.0 * x_normalized - 1.0
+        # torch.grid_sample uses coordinates in (width, height) order, while
+        # copula grids are stored as [axis_0, axis_1]. Keep the public
+        # interpolation API in natural point order by swapping the last two
+        # coordinates only at the grid_sample boundary.
+        x_grid_sample = x_grid_sample[..., [1, 0]]
         
         # Reshape for grid_sample
         # y_ref: [H, W] -> [1, 1, H, W]

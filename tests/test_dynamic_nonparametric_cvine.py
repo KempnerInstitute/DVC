@@ -47,6 +47,32 @@ def test_windowed_and_joint_dynamic_nonparametric_cvine_fit_and_evaluate():
     assert np.isfinite(w_eval).all()
     assert len(w_result.vines_by_time) == len(windows)
 
+    coupled_windowed = WindowedNonparametricCVine(
+        knots=7,
+        temporal_smoothing_bandwidth=0.25,
+        temporal_smoothing_normalization_iters=20,
+        npc_dict={
+            "opt_method": "LL1",
+            "max_iter_phase1": 1,
+            "max_iter_phase2": 1,
+            "normal_iters_phase1": 5,
+            "normal_iters_phase2": 5,
+            "final_normalization_iters": 20,
+            "batch_size": 1,
+        },
+    )
+    cw_result = coupled_windowed.fit(windows)
+    cw_eval = cw_result.evaluate(windows)
+    assert np.isfinite(cw_eval).all()
+    assert cw_result.config["temporal_smoothing_bandwidth"] == 0.25
+    assert any(
+        ((getattr(cop, "validation", {}) or {}).get("dynamic_smoothing") == "temporal_log_density")
+        for vine in cw_result.vines_by_time
+        for level in vine.copulas
+        for cop in level
+        if getattr(cop, "family", "kercop") != "ind"
+    )
+
     joint = JointDynamicNonparametricCVine(
         knots=7,
         trajectory_type="basis",
@@ -57,12 +83,14 @@ def test_windowed_and_joint_dynamic_nonparametric_cvine_fit_and_evaluate():
         batch_size=1,
         normalization_iters=5,
         final_normalization_iters=50,
+        density_smoothing_bandwidth=0.20,
     )
     j_result = joint.fit(windows)
     j_eval = j_result.evaluate(windows)
     assert np.isfinite(j_eval).all()
     assert len(j_result.edge_fits) == 3
     assert j_result.order == w_result.order
+    assert j_result.config["density_smoothing_bandwidth"] == 0.20
     assert np.max(j_eval) - np.min(j_eval) > 1e-4
     statuses = {edge_fit.status for edge_fit in j_result.edge_fits}
     assert statuses & {"optimized", "target_bandwidth_fallback", "warm_start_fallback"}

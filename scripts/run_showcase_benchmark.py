@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Four-phase detection showcase: $d=10$, $T=60$.
+r"""Four-phase detection showcase: $d=10$, $T=60$.
 
 Phases (15 windows each):
 1. Independent baseline.

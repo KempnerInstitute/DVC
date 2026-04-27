@@ -127,11 +127,16 @@ def test_dynamic_tail_df_reports_joint_dynamic_improvements(tmp_path):
         "latent_state_dvc_nll",
         "nll_improvement_joint_over_dvc",
         "nll_improvement_latent_over_dvc",
+        "tail_true_upper",
+        "tail_true_lower",
     ]:
         arr = np.asarray(payload[key], dtype=np.float64)
         assert arr.shape == (4,)
         assert np.all(np.isfinite(arr))
 
+    assert payload["tail_true_upper"][0] > payload["tail_true_upper"][-1]
+    assert payload["windowed_nonparametric_config"]["temporal_smoothing_bandwidth"] > 0.0
+    assert payload["joint_nonparametric_config"]["density_smoothing_bandwidth"] > 0.0
     assert payload["joint_dynamic_order"] == payload["latent_state_order"]
     assert np.mean(payload["nll_improvement_joint_over_dvc"]) > 0.0
     assert np.mean(payload["nll_improvement_latent_over_dvc"]) > 0.0

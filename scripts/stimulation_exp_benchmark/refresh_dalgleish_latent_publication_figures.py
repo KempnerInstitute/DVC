@@ -154,7 +154,7 @@ def _plot_panel_a(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame)
         transform=ax.transAxes,
         ha="right",
         va="bottom",
-        fontsize=8.5,
+        fontsize=5.8,
         color="#666666",
     )
 
@@ -222,6 +222,37 @@ def _plot_source_metric(ax: plt.Axes, source_df: pd.DataFrame, metric: str, titl
     ax.set_title(title, fontsize=10)
 
 
+def _plot_panel_c(ax: plt.Axes, source_df: pd.DataFrame) -> None:
+    """Compact source-space panel with both full-vs-Gaussian and higher-order gains."""
+    x = np.arange(len(SOURCE_ORDER), dtype=float)
+    specs = [
+        ("full_vs_gaussian", "Full-vs-Gaussian", PANEL_COLORS["green"], -0.12),
+        ("tc_higher", "Higher-order", PANEL_COLORS["orange"], 0.12),
+    ]
+    for metric, label, color, offset in specs:
+        for xpos, variant in zip(x, SOURCE_ORDER):
+            vals = source_df.loc[source_df["variant"] == variant, metric].to_numpy(dtype=float)
+            vals = vals[np.isfinite(vals)]
+            if vals.size:
+                ax.scatter(
+                    np.full(vals.size, xpos + offset) + _jitter(vals.size, width=0.035),
+                    vals,
+                    color=PANEL_COLORS["gray"],
+                    s=10,
+                    alpha=0.62,
+                    zorder=1,
+                )
+                mean_v, low, high = _bootstrap_ci(vals, seed=123 + int(10 * xpos) + len(metric))
+                _draw_interval(ax, xpos + offset, mean_v, low, high, color)
+        ax.plot([], [], color=color, marker="o", linewidth=1.5, label=label)
+    ax.axhline(0.0, color="#444444", linewidth=1.0)
+    ax.grid(axis="y", alpha=0.5)
+    ax.set_xticks(x, [SOURCE_LABELS[v] for v in SOURCE_ORDER])
+    ax.set_ylabel("Held-out gain (nats)")
+    ax.set_title("C. Strongest signal in non-targeted space", loc="left")
+    ax.legend(loc="upper left", fontsize=7.0, handlelength=1.2, borderpad=0.25)
+
+
 def _plot_panel_d(ax: plt.Axes, family_df: pd.DataFrame) -> None:
     fam = family_df[
         (family_df["analysis_scope"] == "static_source_space")
@@ -253,41 +284,28 @@ def _plot_panel_d(ax: plt.Axes, family_df: pd.DataFrame) -> None:
     ax.set_xlabel("Fraction of fitted pair-copula edges")
     ax.set_title("D. Heavy-tailed and asymmetric dependence", loc="left")
     ax.grid(axis="x", alpha=0.4)
-    ax.legend(loc="lower right", fontsize=8)
+    ax.legend(loc="lower right", fontsize=5.6, handlelength=1.0, borderpad=0.25, labelspacing=0.25)
 
 
 def _plot_main_figure(static_df: pd.DataFrame, stats_df: pd.DataFrame, family_df: pd.DataFrame, out_path: Path) -> None:
-    fig = plt.figure(figsize=(TEXTWIDTH * 2.2, TEXTWIDTH * 1.4))
-    gs = fig.add_gridspec(2, 6, hspace=0.42, wspace=0.58)
-    ax_a = fig.add_subplot(gs[0, 0:3])
-    ax_b = fig.add_subplot(gs[0, 3:6])
-    ax_c1 = fig.add_subplot(gs[1, 0:2])
-    ax_c2 = fig.add_subplot(gs[1, 2:4])
-    ax_d = fig.add_subplot(gs[1, 4:6])
+    fig = plt.figure(figsize=(TEXTWIDTH * 2.05, TEXTWIDTH * 0.58))
+    gs = fig.add_gridspec(1, 4, wspace=0.48, width_ratios=[1.08, 0.95, 1.08, 1.15])
+    ax_a = fig.add_subplot(gs[0, 0])
+    ax_b = fig.add_subplot(gs[0, 1])
+    ax_c = fig.add_subplot(gs[0, 2])
+    ax_d = fig.add_subplot(gs[0, 3])
 
     _plot_panel_a(ax_a, static_df, stats_df)
     _plot_panel_b(ax_b, static_df, stats_df)
 
     source_df = static_df[static_df["row_type"] == "source_space_session"].copy()
-    _plot_source_metric(
-        ax_c1,
-        source_df,
-        "full_vs_gaussian",
-        "C. Strongest signal in recruited /\nnon-targeted space",
-        PANEL_COLORS["green"],
-    )
-    _plot_source_metric(
-        ax_c2,
-        source_df,
-        "tc_higher",
-        "Higher-order gain\nby source space",
-        PANEL_COLORS["orange"],
-    )
-    ax_c1.set_ylabel("Full-vs-Gaussian")
-    ax_c2.set_ylabel("TC_higher")
+    _plot_panel_c(ax_c, source_df)
     _plot_panel_d(ax_d, family_df)
 
-    fig.subplots_adjust(left=0.06, right=0.985, bottom=0.08, top=0.95, wspace=0.78, hspace=0.55)
+    for ax in [ax_a, ax_b, ax_c, ax_d]:
+        ax.tick_params(labelsize=7)
+        ax.title.set_fontsize(8)
+    fig.subplots_adjust(left=0.055, right=0.99, bottom=0.24, top=0.86)
     fig.savefig(out_path, dpi=600)
     fig.savefig(out_path.with_suffix(".pdf"))
     plt.close(fig)

@@ -25,16 +25,23 @@ from ..core.nonparametric_vine import (
     _build_internal_edge_structure,
     _build_sampling_metadata,
     _ensure_grid_metadata,
+    _augment_validation,
+    _build_oriented_h_copulas,
     _fit_nonparametric_edge,
+    _project_monotone_ccdf_grid,
+    _validate_nonparametric_edge,
+    build_independence_edge_copula,
     build_nonparametric_edge_copula,
     evaluate_nonparametric_edge_h,
     make_nonparametric_uniform_grid,
     prepare_nonparametric_edge_context,
     prepare_nonparametric_margin_pseudo_obs,
 )
+from ..core.cop_eval import cdf_grid_fun, normalize_pdf_grid
+from ..core.objects import copula_obj
 from ..core.utils_bandwidth import check_bound_bw
-from ..core.utils_interpolation import nearestInterp2d
-from ..core.utils_prob import kernel_cdf
+from ..core.utils_interpolation import interp_regular_nd_grid, nearestInterp2d
+from ..core.utils_prob import biv_norm, kernel_cdf
 from ..core.vine_factory import create_vine, optimize_vine_type
 from ..core.vine_tree import flip_check_all
 from .regularized_cvine import (
@@ -59,6 +66,134 @@ def _time_to_unit_interval(time_points: np.ndarray) -> np.ndarray:
 def _mean_nonparametric_nll(vine, x: np.ndarray) -> float:
     x_t = torch.tensor(np.asarray(x, dtype=np.float32), dtype=torch.float32)
     return float((-vine.logpdf(x_t)).mean().detach().cpu())
+
+
+def _copula_from_pdf_grid(
+    ctx: Any,
+    pdf_grid_uv: torch.Tensor,
+    opt_bw: torch.Tensor,
+    *,
+    normalization_iters: int,
+    validation_extra: Optional[Dict[str, Any]] = None,
+) -> Any:
+    """Build a nonparametric edge copula from a pre-smoothed copula density grid."""
+    device = ctx.data_s.device
+    pdf = torch.as_tensor(pdf_grid_uv, dtype=torch.float32, device=device)
+    if pdf.dim() == 2:
+        pdf = pdf.unsqueeze(-1)
+    pdf = torch.nan_to_num(pdf, nan=1.0, posinf=1e6, neginf=1e-12).clamp_min(1e-12)
+
+    adu11, adu22 = ctx.grid_u.diff()
+    adu11 = adu11.to(device)
+    adu22 = adu22.to(device)
+    x1_s, x2_s = ctx.grid_s.axis()
+    norm_ref = biv_norm(x1_s.to(device), x2_s.to(device)).unsqueeze(-1).to(device)
+    pdf = normalize_pdf_grid(
+        adu11,
+        adu22,
+        pdf * norm_ref,
+        norm_ref,
+        1,
+        iterations=int(normalization_iters),
+    ) / norm_ref.clamp_min(1e-12)
+    pdf = torch.nan_to_num(pdf, nan=1.0, posinf=1e6, neginf=1e-12).clamp_min(1e-12)
+
+    ccdf = cdf_grid_fun(pdf, ctx.grid_u.ex.to(device), adu11, adu22, 1)
+    ccdf = _project_monotone_ccdf_grid(ccdf)
+
+    cop = copula_obj(torch.as_tensor(opt_bw, dtype=torch.float32).detach().cpu())
+    cop.family = "kercop"
+    cop.pd_grid_uv = pdf[:, :, 0].detach().cpu()
+    cop.ccdf_grid = ccdf[:, :, 0].detach().cpu()
+    cop.cdf = cop.ccdf_grid
+    cop.normalization_iterations = int(normalization_iters)
+
+    ccdf_train_raw = interp_regular_nd_grid(
+        ctx.data_s[:, :, 0],
+        ctx.grid_s.min.to(device),
+        ctx.grid_s.max.to(device),
+        cop.ccdf_grid.to(device),
+    ).detach()
+    ccdf_train_u = torch.tensor(
+        kernel_cdf(
+            ccdf_train_raw.cpu().numpy(),
+            ccdf_train_raw.cpu().numpy(),
+            ctx.grid_u.ex.detach().cpu().numpy(),
+        )[0],
+        dtype=torch.float32,
+        device=device,
+    )
+    order = torch.argsort(ccdf_train_raw)
+    cop.ccdf_train_raw = ccdf_train_raw[order].detach().cpu()
+    cop.ccdf_train_u = ccdf_train_u[order].detach().cpu()
+    cop.grid_s_min = ctx.grid_s.min.detach().cpu()
+    cop.grid_s_max = ctx.grid_s.max.detach().cpu()
+    cop.validation = _validate_nonparametric_edge(cop)
+    _augment_validation(cop, validation_extra)
+    return cop
+
+
+def _temporal_smooth_edge_copulas(
+    edge_copulas: Sequence[Any],
+    contexts: Sequence[Any],
+    normalized_time: np.ndarray,
+    *,
+    bandwidth: float,
+    normalization_iters: int,
+    log_density: bool = True,
+) -> List[Any]:
+    """Couple nonparametric edge shapes by smoothing fitted density grids over time."""
+    bw_time = float(bandwidth)
+    if bw_time <= 0.0 or len(edge_copulas) <= 1:
+        return [copy.deepcopy(cop) for cop in edge_copulas]
+
+    t = np.asarray(normalized_time, dtype=np.float64).reshape(-1)
+    eligible = [
+        idx for idx, cop in enumerate(edge_copulas)
+        if getattr(cop, "family", "kercop") != "ind" and getattr(cop, "pd_grid_uv", None) is not None
+    ]
+    if not eligible:
+        return [copy.deepcopy(cop) for cop in edge_copulas]
+
+    out: List[Any] = []
+    for idx, cop in enumerate(edge_copulas):
+        if getattr(cop, "family", "kercop") == "ind":
+            out.append(copy.deepcopy(cop))
+            continue
+
+        dist = (t[eligible] - t[idx]) / max(bw_time, 1e-8)
+        weights = np.exp(-0.5 * dist * dist)
+        weights_sum = float(np.sum(weights))
+        if weights_sum <= 1e-12:
+            out.append(copy.deepcopy(cop))
+            continue
+        weights = weights / weights_sum
+
+        pdf_terms = []
+        for weight, src_idx in zip(weights, eligible):
+            src_pdf = torch.as_tensor(edge_copulas[src_idx].pd_grid_uv, dtype=torch.float32)
+            if log_density:
+                pdf_terms.append(float(weight) * torch.log(src_pdf.clamp_min(1e-12)))
+            else:
+                pdf_terms.append(float(weight) * src_pdf)
+        smoothed = torch.stack(pdf_terms, dim=0).sum(dim=0)
+        if log_density:
+            smoothed = torch.exp(smoothed)
+
+        out.append(
+            _copula_from_pdf_grid(
+                contexts[idx],
+                smoothed,
+                torch.as_tensor(cop.opt_bw, dtype=torch.float32),
+                normalization_iters=normalization_iters,
+                validation_extra={
+                    "dynamic_smoothing": "temporal_log_density" if log_density else "temporal_density",
+                    "temporal_smoothing_bandwidth": bw_time,
+                    "temporal_smoothing_n_neighbors": int(len(eligible)),
+                },
+            )
+        )
+    return out
 
 
 def _infer_cvine_order(windows: Sequence[np.ndarray], order: Optional[Sequence[int]]) -> List[int]:
@@ -207,10 +342,43 @@ def _build_prefit_nonparametric_vine(
     vine._sampling_nodes = sample_nodes
     vine.flip_flag = []
     vine.ind_edge_rel = []
+    vine._np_h_copulas = []
     for level in range(max(int(x_train.shape[1]) - 1, 0)):
+        data_u = _build_edge_input_pairs(
+            state=vine.theta,
+            state_flip=vine.theta_flip,
+            edge_refs=vine._internal_ind_vine,
+            level=level,
+            device=device,
+        )
         flip_flag1, ind_edge_rel1, _parent_all = flip_check_all(vine._internal_ind_vine, level, False, 1)
         vine.flip_flag.append(flip_flag1)
         vine.ind_edge_rel.append(ind_edge_rel1)
+        level_cops = vine.copulas[level] if level < len(vine.copulas) else []
+        h_level_cops = _build_oriented_h_copulas(
+            level_cops,
+            data_u,
+            flip_flag1,
+            ind_edge_rel1,
+            grid_u=vine.grid_u,
+            grid_s=vine.grid_s,
+            bandwidth_method="rule_of_thumb",
+            knn_k=10,
+            batch_size=3,
+            fallback_normalization_iters=50,
+        )
+        vine._np_h_copulas.append(h_level_cops)
+        for j, ind_edge in enumerate(ind_edge_rel1):
+            if ind_edge >= len(level_cops):
+                continue
+            uv = data_u[:, :, ind_edge]
+            cop = h_level_cops[j] if j < len(h_level_cops) else level_cops[ind_edge]
+            if flip_flag1[j]:
+                hval = evaluate_nonparametric_edge_h(cop, uv[:, [1, 0]], vine.grid_s)
+                vine.theta_flip[:, level + 1, ind_edge] = hval
+            else:
+                hval = evaluate_nonparametric_edge_h(cop, uv, vine.grid_s)
+                vine.theta[:, level + 1, ind_edge] = hval
     vine.training_data = np.asarray(x_train, dtype=np.float32).copy()
     return vine
 
@@ -247,6 +415,11 @@ class WindowedNonparametricCVine:
         selection_criterion: str = "aic",
         optimization_method: str = "sequential",
         optimization_criterion: str = "kendall_tau",
+        temporal_smoothing_bandwidth: float = 0.0,
+        temporal_smoothing_log_density: bool = True,
+        temporal_smoothing_normalization_iters: int = 50,
+        bandwidth_method: str = "rule_of_thumb",
+        knn_k: int = 10,
     ):
         self.order = None if order is None else [int(v) for v in order]
         self.knots = int(knots)
@@ -257,6 +430,11 @@ class WindowedNonparametricCVine:
         self.selection_criterion = str(selection_criterion)
         self.optimization_method = str(optimization_method)
         self.optimization_criterion = str(optimization_criterion)
+        self.temporal_smoothing_bandwidth = float(max(temporal_smoothing_bandwidth, 0.0))
+        self.temporal_smoothing_log_density = bool(temporal_smoothing_log_density)
+        self.temporal_smoothing_normalization_iters = int(max(temporal_smoothing_normalization_iters, 1))
+        self.bandwidth_method = str(bandwidth_method)
+        self.knn_k = int(knn_k)
         self.result_: Optional[WindowedNonparametricCVineResult] = None
 
     def fit(
@@ -295,6 +473,15 @@ class WindowedNonparametricCVine:
             vines_by_time.append(vine)
             mean_nll_by_time.append(_mean_nonparametric_nll(vine, x))
 
+        if self.temporal_smoothing_bandwidth > 0.0:
+            vines_by_time = self._smooth_vines_over_time(
+                template_vine=template_vine,
+                fitted_vines=vines_by_time,
+                windows=windows,
+                times=np.asarray(times, dtype=np.float32),
+            )
+            mean_nll_by_time = [_mean_nonparametric_nll(vine, x) for vine, x in zip(vines_by_time, windows)]
+
         result = WindowedNonparametricCVineResult(
             time_points=[float(v) for v in times],
             normalized_time=[float(v) for v in _time_to_unit_interval(times)],
@@ -312,10 +499,118 @@ class WindowedNonparametricCVine:
                 "vine_kwargs": dict(self.vine_kwargs),
                 "knots": int(self.knots),
                 "npc_dict": dict(self.npc_dict),
+                "temporal_smoothing_bandwidth": float(self.temporal_smoothing_bandwidth),
+                "temporal_smoothing_log_density": bool(self.temporal_smoothing_log_density),
+                "temporal_smoothing_normalization_iters": int(self.temporal_smoothing_normalization_iters),
+                "bandwidth_method": str(self.bandwidth_method),
+                "knn_k": int(self.knn_k),
             },
         )
         self.result_ = result
         return result
+
+    def _smooth_vines_over_time(
+        self,
+        *,
+        template_vine: Any,
+        fitted_vines: Sequence[Any],
+        windows: Sequence[np.ndarray],
+        times: np.ndarray,
+    ) -> List[Any]:
+        d = int(windows[0].shape[1])
+        device = torch.device("cpu")
+        ex_u = make_nonparametric_uniform_grid(self.knots, device=device)
+        from ..core.grid_ops import grid_obj
+        from ..core.transformation import Transform
+
+        grid_u = _ensure_grid_metadata(grid_obj(ex_u))
+        grid_s = _ensure_grid_metadata(grid_obj(Transform(1).forward_u(ex_u)))
+        internal_ind_vine = _build_internal_edge_structure(template_vine, d)
+        normalized_time = _time_to_unit_interval(np.asarray(times, dtype=np.float32))
+
+        u_state_by_time = _base_u_state(windows, ex_u.detach().cpu().numpy())
+        u_state_flip_by_time = [np.zeros_like(state) for state in u_state_by_time]
+        copulas_by_time: List[List[List[Any]]] = [[] for _ in windows]
+
+        for level, edges in enumerate(internal_ind_vine):
+            level_pairs_by_time = [
+                _build_edge_input_pairs(
+                    state=torch.tensor(u_state, dtype=torch.float32, device=device),
+                    state_flip=torch.tensor(u_state_flip, dtype=torch.float32, device=device),
+                    edge_refs=internal_ind_vine,
+                    level=level,
+                    device=device,
+                ).detach().cpu().numpy()
+                for u_state, u_state_flip in zip(u_state_by_time, u_state_flip_by_time)
+            ]
+            level_copulas_by_time: List[List[Any]] = [[] for _ in windows]
+            for edge_idx, _edge in enumerate(edges):
+                contexts = [
+                    prepare_nonparametric_edge_context(
+                        torch.tensor(pairs[:, :, edge_idx].astype(np.float32), dtype=torch.float32, device=device),
+                        grid_u=grid_u,
+                        grid_s=grid_s,
+                        bandwidth_method=self.bandwidth_method,
+                        knn_k=self.knn_k,
+                    )
+                    for pairs in level_pairs_by_time
+                ]
+                edge_copulas = []
+                for vine, ctx in zip(fitted_vines, contexts):
+                    if level < len(vine.copulas) and edge_idx < len(vine.copulas[level]):
+                        edge_copulas.append(vine.copulas[level][edge_idx])
+                    else:
+                        cop = build_independence_edge_copula(ctx)
+                        _augment_validation(cop, {"dynamic_reason": "missing_static_depth"})
+                        edge_copulas.append(cop)
+                smoothed_edge_copulas = _temporal_smooth_edge_copulas(
+                    edge_copulas,
+                    contexts,
+                    normalized_time,
+                    bandwidth=self.temporal_smoothing_bandwidth,
+                    normalization_iters=self.temporal_smoothing_normalization_iters,
+                    log_density=self.temporal_smoothing_log_density,
+                )
+                for t_idx, cop in enumerate(smoothed_edge_copulas):
+                    level_copulas_by_time[t_idx].append(cop)
+
+            for t_idx, level_cops in enumerate(level_copulas_by_time):
+                while len(copulas_by_time[t_idx]) <= level:
+                    copulas_by_time[t_idx].append([])
+                copulas_by_time[t_idx][level] = list(level_cops)
+                flip_flag1, ind_edge_rel1, _parent_all = flip_check_all(internal_ind_vine, level, False, 1)
+                uv_level = level_pairs_by_time[t_idx]
+                h_level_cops = _build_oriented_h_copulas(
+                    level_cops,
+                    torch.tensor(uv_level, dtype=torch.float32, device=device),
+                    flip_flag1,
+                    ind_edge_rel1,
+                    grid_u=grid_u,
+                    grid_s=grid_s,
+                    bandwidth_method=self.bandwidth_method,
+                    knn_k=self.knn_k,
+                    batch_size=3,
+                    fallback_normalization_iters=self.temporal_smoothing_normalization_iters,
+                )
+                for j, ind_edge in enumerate(ind_edge_rel1):
+                    cop = h_level_cops[j] if j < len(h_level_cops) else level_cops[ind_edge]
+                    uv = torch.tensor(uv_level[:, :, ind_edge], dtype=torch.float32, device=device)
+                    if flip_flag1[j]:
+                        hval = evaluate_nonparametric_edge_h(cop, uv[:, [1, 0]], grid_s).detach().cpu().numpy().astype(np.float32)
+                        u_state_flip_by_time[t_idx][:, level + 1, ind_edge] = hval
+                    else:
+                        hval = evaluate_nonparametric_edge_h(cop, uv, grid_s).detach().cpu().numpy().astype(np.float32)
+                        u_state_by_time[t_idx][:, level + 1, ind_edge] = hval
+
+        return [
+            _build_prefit_nonparametric_vine(
+                np.asarray(x, dtype=np.float32),
+                template_vine=template_vine,
+                copulas_by_level=copulas_by_time[t_idx],
+                knots=self.knots,
+            )
+            for t_idx, x in enumerate(windows)
+        ]
 
     def evaluate(self, data_by_time: Union[np.ndarray, Sequence[np.ndarray]]) -> np.ndarray:
         if self.result_ is None:
@@ -333,6 +628,7 @@ class DynamicNonparametricEdgeFit:
     target_bandwidth_trajectory: List[List[float]]
     loss: float
     status: str
+    selected_model_trajectory: Optional[List[str]] = None
 
     @property
     def edge_key(self) -> Tuple[int, int, int]:
@@ -384,6 +680,8 @@ class JointDynamicNonparametricCVine:
         final_normalization_iters: int = 50,
         warm_start_epochs: int = 40,
         gradient_clip: float = 5.0,
+        density_smoothing_bandwidth: float = 0.0,
+        density_smoothing_log_density: bool = True,
     ):
         self.order = None if order is None else [int(v) for v in order]
         self.knots = int(knots)
@@ -405,6 +703,8 @@ class JointDynamicNonparametricCVine:
         self.final_normalization_iters = int(final_normalization_iters)
         self.warm_start_epochs = int(max(warm_start_epochs, 0))
         self.gradient_clip = float(max(gradient_clip, 0.0))
+        self.density_smoothing_bandwidth = float(max(density_smoothing_bandwidth, 0.0))
+        self.density_smoothing_log_density = bool(density_smoothing_log_density)
         self.result_: Optional[JointDynamicNonparametricCVineResult] = None
 
     def _fit_edge_trajectory(
@@ -430,6 +730,7 @@ class JointDynamicNonparametricCVine:
         t_tensor = torch.tensor(np.asarray(time_points, dtype=np.float32), dtype=torch.float32, device=device)
         target_bws = []
         target_mults = []
+        target_model_labels: List[str] = []
         static_npc_dict = {
             "opt_method": "LL1",
             "batch_size": self.batch_size,
@@ -446,6 +747,7 @@ class JointDynamicNonparametricCVine:
         }
         for ctx in contexts:
             static_cop = _fit_nonparametric_edge(ctx, npc_dict=static_npc_dict, cfg={})
+            target_model_labels.append(str(getattr(static_cop, "family", "kercop")).lower().strip())
             target_bw = static_cop.opt_bw.to(device) if torch.is_tensor(static_cop.opt_bw) else torch.tensor(static_cop.opt_bw, dtype=torch.float32, device=device)
             if target_bw.dim() == 1:
                 target_bw = target_bw.view(2, 1)
@@ -547,24 +849,46 @@ class JointDynamicNonparametricCVine:
         base_bw_traj: List[List[float]] = []
         target_bw_traj: List[List[float]] = []
         for idx, ctx in enumerate(contexts):
-            if use_target_bandwidths:
+            if target_model_labels[idx] == "ind":
+                cop = build_independence_edge_copula(ctx)
+                _augment_validation(cop, {"dynamic_selected_model": "independence", "dynamic_reason": "static_edge_validation"})
+                edge_copulas.append(cop)
+                bw = target_bws[idx]
+            elif use_target_bandwidths:
                 bw = target_bws[idx]
                 status = "target_bandwidth_fallback"
+                cop = build_nonparametric_edge_copula(
+                    ctx,
+                    bw,
+                    batch_size=self.batch_size,
+                    normalization_iters=self.final_normalization_iters,
+                )
+                edge_copulas.append(cop)
             else:
                 bw = check_bound_bw(mult[idx].view(2, 1) * ctx.base_bw)
                 if not torch.isfinite(bw).all():
                     bw = target_bws[idx]
                     status = "target_bandwidth_fallback"
-            cop = build_nonparametric_edge_copula(
-                ctx,
-                bw,
-                batch_size=self.batch_size,
-                normalization_iters=self.final_normalization_iters,
-            )
-            edge_copulas.append(cop)
+                cop = build_nonparametric_edge_copula(
+                    ctx,
+                    bw,
+                    batch_size=self.batch_size,
+                    normalization_iters=self.final_normalization_iters,
+                )
+                edge_copulas.append(cop)
             bw_traj.append([float(v) for v in bw[:, 0].detach().cpu().numpy().tolist()])
             base_bw_traj.append([float(v) for v in ctx.base_bw[:, 0].detach().cpu().numpy().tolist()])
             target_bw_traj.append([float(v) for v in target_bws[idx][:, 0].detach().cpu().numpy().tolist()])
+
+        if self.density_smoothing_bandwidth > 0.0:
+            edge_copulas = _temporal_smooth_edge_copulas(
+                edge_copulas,
+                contexts,
+                _time_to_unit_interval(np.asarray(time_points, dtype=np.float32)),
+                bandwidth=self.density_smoothing_bandwidth,
+                normalization_iters=self.final_normalization_iters,
+                log_density=self.density_smoothing_log_density,
+            )
 
         edge_fit = DynamicNonparametricEdgeFit(
             level=int(level),
@@ -575,6 +899,7 @@ class JointDynamicNonparametricCVine:
             target_bandwidth_trajectory=target_bw_traj,
             loss=float(best_loss if np.isfinite(best_loss) else float("nan")),
             status=status,
+            selected_model_trajectory=list(target_model_labels),
         )
         return edge_fit, edge_copulas
 
@@ -660,14 +985,26 @@ class JointDynamicNonparametricCVine:
                 copulas_by_time[t_idx][level] = list(level_cops)
                 flip_flag1, ind_edge_rel1, _parent_all = flip_check_all(internal_ind_vine, level, False, 1)
                 uv_level = level_pairs_by_time[t_idx]
+                h_level_cops = _build_oriented_h_copulas(
+                    level_cops,
+                    torch.tensor(uv_level, dtype=torch.float32, device=device),
+                    flip_flag1,
+                    ind_edge_rel1,
+                    grid_u=grid_u,
+                    grid_s=grid_s,
+                    bandwidth_method=self.bandwidth_method,
+                    knn_k=self.knn_k,
+                    batch_size=self.batch_size,
+                    fallback_normalization_iters=self.final_normalization_iters,
+                )
                 for j, ind_edge in enumerate(ind_edge_rel1):
-                    cop = level_cops[ind_edge]
+                    cop = h_level_cops[j] if j < len(h_level_cops) else level_cops[ind_edge]
                     uv = torch.tensor(uv_level[:, :, ind_edge], dtype=torch.float32, device=device)
                     if flip_flag1[j]:
-                        hval = evaluate_nonparametric_edge_h(cop, uv, grid_s).detach().cpu().numpy().astype(np.float32)
+                        hval = evaluate_nonparametric_edge_h(cop, uv[:, [1, 0]], grid_s).detach().cpu().numpy().astype(np.float32)
                         u_state_flip_by_time[t_idx][:, level + 1, ind_edge] = hval
                     else:
-                        hval = evaluate_nonparametric_edge_h(cop, uv[:, [1, 0]], grid_s).detach().cpu().numpy().astype(np.float32)
+                        hval = evaluate_nonparametric_edge_h(cop, uv, grid_s).detach().cpu().numpy().astype(np.float32)
                         u_state_by_time[t_idx][:, level + 1, ind_edge] = hval
 
         vines_by_time = []
@@ -711,6 +1048,8 @@ class JointDynamicNonparametricCVine:
                 "final_normalization_iters": int(self.final_normalization_iters),
                 "warm_start_epochs": int(self.warm_start_epochs),
                 "gradient_clip": float(self.gradient_clip),
+                "density_smoothing_bandwidth": float(self.density_smoothing_bandwidth),
+                "density_smoothing_log_density": bool(self.density_smoothing_log_density),
             },
         )
         self.result_ = result

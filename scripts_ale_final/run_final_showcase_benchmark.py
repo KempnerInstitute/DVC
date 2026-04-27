@@ -42,11 +42,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-seeds", type=int, default=5)
     parser.add_argument("--base-seed", type=int, default=2026)
     parser.add_argument("--n-per-time", type=int, default=None)
+    parser.add_argument(
+        "--multiplicative-noise-std",
+        type=float,
+        default=None,
+        help="Override the multiplicative triplet noise used by contrast_harder.",
+    )
     parser.add_argument("--mine-epochs", type=int, default=60)
     parser.add_argument("--nf-epochs", type=int, default=40)
     parser.add_argument("--skip-mine", action="store_true")
     parser.add_argument("--skip-nf", action="store_true")
     parser.add_argument("--include-regularized-dvc", action="store_true")
+    parser.add_argument(
+        "--np-temporal-smoothing",
+        type=float,
+        default=0.12,
+        help="Coupled nonparametric smoothing bandwidth used only in `with_np` mode.",
+    )
     parser.add_argument(
         "--out",
         type=Path,
@@ -81,6 +93,8 @@ def build_command(args: argparse.Namespace) -> list[str]:
     ]
     if args.n_per_time is not None:
         cmd.extend(["--n-per-time", str(args.n_per_time)])
+    if args.multiplicative_noise_std is not None:
+        cmd.extend(["--multiplicative-noise-std", str(args.multiplicative_noise_std)])
     if args.skip_mine:
         cmd.append("--skip-mine")
     if args.skip_nf:
@@ -95,6 +109,8 @@ def build_command(args: argparse.Namespace) -> list[str]:
                 "d-vine",
                 "--np-knots",
                 "7",
+                "--np-temporal-smoothing",
+                str(args.np_temporal_smoothing),
                 "--np-higher-tree-validation-margin",
                 "0.05",
             ]

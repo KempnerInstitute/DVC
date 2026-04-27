@@ -31,18 +31,34 @@ if str(PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from dvc_package.time.nonparametric_dynamic_cvine import WindowedNonparametricCVine
-from showcase_analysis_utils import (
-    DEFAULT_RESULTS_ROOT,
-    ShowcaseConfig,
-    aggregate_seed_runs,
-    enrich_phasewise_deltas,
-    evaluate_regularized_dynamic_dvc,
-    evaluate_static_baselines,
-    generate_sequence,
-    make_seed_list,
-    phase_acceptance_flags,
-    split_train_test,
-)
+try:
+    from .showcase_analysis_utils import (
+        DEFAULT_RESULTS_ROOT,
+        ShowcaseConfig,
+        aggregate_seed_runs,
+        enrich_phasewise_deltas,
+        evaluate_regularized_dynamic_dvc,
+        evaluate_static_baselines,
+        generate_sequence,
+        make_seed_list,
+        phase_acceptance_flags,
+        showcase_truth_by_phase,
+        split_train_test,
+    )
+except ImportError:  # pragma: no cover - exercised when run as a script path
+    from showcase_analysis_utils import (
+        DEFAULT_RESULTS_ROOT,
+        ShowcaseConfig,
+        aggregate_seed_runs,
+        enrich_phasewise_deltas,
+        evaluate_regularized_dynamic_dvc,
+        evaluate_static_baselines,
+        generate_sequence,
+        make_seed_list,
+        phase_acceptance_flags,
+        showcase_truth_by_phase,
+        split_train_test,
+    )
 
 
 DEFAULT_OUT = DEFAULT_RESULTS_ROOT / "run_showcase_benchmark"
@@ -103,6 +119,12 @@ def parse_args() -> argparse.Namespace:
         help="Override phase-3 higher-tree Clayton strength.",
     )
     parser.add_argument(
+        "--multiplicative-noise-std",
+        type=float,
+        default=None,
+        help="Override phase-3 multiplicative triplet noise for calibrated ground-truth sweeps.",
+    )
+    parser.add_argument(
         "--tail-theta",
         type=float,
         default=None,
@@ -147,6 +169,12 @@ def parse_args() -> argparse.Namespace:
         help="Vine structure for the windowed nonparametric DVC comparator.",
     )
     parser.add_argument("--np-knots", type=int, default=7, help="Uniform grid knots for the nonparametric comparator.")
+    parser.add_argument(
+        "--np-temporal-smoothing",
+        type=float,
+        default=0.0,
+        help="Gaussian bandwidth on normalized time for coupled nonparametric log-density smoothing.",
+    )
     parser.add_argument("--np-higher-tree-validation-margin", type=float, default=None)
     parser.add_argument("--np-higher-tree-boundary-frac-threshold", type=float, default=None)
     return parser.parse_args()
@@ -205,7 +233,8 @@ def build_benchmark_setup(args: argparse.Namespace) -> Tuple[ShowcaseConfig, str
         rationale = (
             "Keep a moderate Gaussian star in phase 2, then add two disjoint "
             "multiplicative triplets in phase 3 to create strong higher-order "
-            "structure that should open a much larger DVC-vs-Gaussian gap."
+            "structure that opens a large DVC-vs-Gaussian gap, with explicit "
+            "oracle ground truth for calibration."
         )
 
     if args.n_per_time is not None:
@@ -216,6 +245,8 @@ def build_benchmark_setup(args: argparse.Namespace) -> Tuple[ShowcaseConfig, str
         config = replace(config, triplet_nu=float(args.triplet_nu))
     if args.triplet_clayton_theta is not None:
         config = replace(config, triplet_clayton_theta=float(args.triplet_clayton_theta))
+    if args.multiplicative_noise_std is not None:
+        config = replace(config, multiplicative_noise_std=float(args.multiplicative_noise_std))
     if args.tail_theta is not None:
         config = replace(config, tail_theta=float(args.tail_theta))
     if args.variant is not None:
@@ -288,6 +319,7 @@ def _run_windowed_nonparametric(
     *,
     vine_type: str,
     knots: int,
+    temporal_smoothing: float,
     higher_tree_validation_margin: float | None,
     higher_tree_boundary_frac_threshold: float | None,
 ) -> Dict[str, Any]:
@@ -310,6 +342,7 @@ def _run_windowed_nonparametric(
         knots=knots,
         npc_dict=npc_dict,
         vine_type=str(vine_type),
+        temporal_smoothing_bandwidth=float(temporal_smoothing),
     )
     result = model.fit(x_train_by_t)
     nll = model.evaluate(x_test_by_t)
@@ -332,6 +365,7 @@ def _run_windowed_nonparametric(
         "mean_nll_by_time": [float(v) for v in result.mean_nll_by_time],
         "npc_dict": npc_dict,
         "knots": int(knots),
+        "temporal_smoothing_bandwidth": float(temporal_smoothing),
     }
 
 
@@ -348,6 +382,7 @@ def _run_single_seed(
     include_nonparametric_dvc: bool,
     np_vine_type: str,
     np_knots: int,
+    np_temporal_smoothing: float,
     np_higher_tree_validation_margin: float | None,
     np_higher_tree_boundary_frac_threshold: float | None,
 ) -> Dict[str, Any]:
@@ -358,6 +393,7 @@ def _run_single_seed(
         x_test_by_t,
         config=config,
         seed=seed,
+        variant=variant,
         skip_nf=skip_nf,
         nf_epochs=nf_epochs,
     )
@@ -375,6 +411,7 @@ def _run_single_seed(
             x_test_by_t,
             vine_type=np_vine_type,
             knots=np_knots,
+            temporal_smoothing=np_temporal_smoothing,
             higher_tree_validation_margin=np_higher_tree_validation_margin,
             higher_tree_boundary_frac_threshold=np_higher_tree_boundary_frac_threshold,
         )
@@ -465,6 +502,7 @@ def main() -> None:
             include_nonparametric_dvc=bool(args.include_nonparametric_dvc),
             np_vine_type=str(args.np_vine_type),
             np_knots=int(args.np_knots),
+            np_temporal_smoothing=float(args.np_temporal_smoothing),
             np_higher_tree_validation_margin=(
                 None if args.np_higher_tree_validation_margin is None else float(args.np_higher_tree_validation_margin)
             ),
@@ -486,12 +524,14 @@ def main() -> None:
         "preset": args.preset,
         "variant": variant,
         "benchmark_rationale": rationale,
+        "ground_truth_by_phase": showcase_truth_by_phase(config, variant),
         "skip_nf": bool(args.skip_nf),
         "skip_mine": bool(args.skip_mine),
         "include_regularized_dvc": bool(args.include_regularized_dvc),
         "include_nonparametric_dvc": bool(args.include_nonparametric_dvc),
         "np_vine_type": str(args.np_vine_type),
         "np_knots": int(args.np_knots),
+        "np_temporal_smoothing": float(args.np_temporal_smoothing),
         "np_higher_tree_validation_margin": (
             None if args.np_higher_tree_validation_margin is None else float(args.np_higher_tree_validation_margin)
         ),

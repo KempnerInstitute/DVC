@@ -297,67 +297,49 @@ def prepare_vine(vine_family, dim):
 
 def flip_check_all(ind_vine, tr, binning, n_bin):
     """
-    The full flipping logic, as used in the original code:
+    Return the TensorFlow-legacy list of h-function directions needed after a tree.
 
-    We want to check the edges in 'ind_vine[tr]' and see how they are used in 'ind_vine[tr+1]'.
-    If the parent variable at next level doesn't match the "left" variable of the current edge,
-    we set flip_flag=True. This means we interpret that next edge needs to "flip" the order.
-
-    If binning is True, we might do extra bin-based logic, but let's replicate a typical approach:
-      1) gather next-level edges => for each next edge, find parent => see if parent's left side
-      2) if parent is different => flip => True
-      3) store (flip_flag1, ind_edge_rel1, parent_all)
+    A single edge can be needed by two next-tree edges with different parent
+    variables. The legacy implementation emitted that edge once per conditional
+    direction, so both ``theta`` and ``theta_flip`` are populated. Collapsing
+    those directions breaks D-vines and generic R-vines from tree 2 onward.
     """
-    flip_flag1 = []
-    ind_edge_rel1 = []
+    if tr < len(ind_vine) - 1:
+        next_edges = ind_vine[tr + 1]
+        u_set = []
+        parent = []
+        for edge in next_edges:
+            parent1, inx1, inx2 = parent_var(tr + 1, ind_vine, edge)
+            if parent1 is None:
+                continue
+            u_set.append(inx1.union(inx2))
+            parent.append(parent1)
+    else:
+        u_set = [{0, 1}]
+        parent = [0]
+
     parent_all = []
+    ind_edge_rel1 = []
+    flip_flag1 = []
+    edges_now = ind_vine[tr] if tr < len(ind_vine) else []
 
-    edges_now = []
-    if tr < len(ind_vine):
-        edges_now = ind_vine[tr]
+    for j, edge in enumerate(edges_now):
+        uu_now = {edge[0], edge[1]}
+        parent_now = []
+        parent_now_set = set()
+        for uu, par in zip(u_set, parent):
+            if uu_now.issubset(uu) and par not in parent_now_set:
+                parent_now.append(par)
+                parent_now_set.add(par)
 
-    # If there's no next level, no flipping
-    if tr >= len(ind_vine)-1:
-        for j, e in enumerate(edges_now):
-            flip_flag1.append(False)
+        if len(parent_now) == 0:
+            parent_now = [edge[0]]
+        elif len(set(parent_now)) <= 1:
+            parent_now = [parent_now[0]]
+
+        parent_all.append(parent_now)
+        for par in parent_now:
+            flip_flag1.append(edge[0] != par)
             ind_edge_rel1.append(j)
-            parent_all.append([])
-        return flip_flag1, ind_edge_rel1, parent_all
 
-    # There is a next level => check how each edge is used by next-level edges
-    next_edges = ind_vine[tr+1]
-
-    # We'll do a small helper: we create an "edge usage" map => next_edge -> parent variable
-    # then see if the parent's in edges_now[e][0] or not
-    # but each next_edge is [u,v], referencing edges in level 'tr', so we can see if 'j' in [u,v]
-    # then we do parent_var(...) to see what the parent's actual variable is
-    # if that parent's not edges_now[j][0], we flip => True
-
-    # We'll store for each e in edges_now => whether we flip or not
-    for j, e in enumerate(edges_now):
-        # e is a 2-variable set, e[0] is "left", e[1] is "right"
-        # we check if some next_edge references j => means next_edge = [j, X] or [X, j]
-        # we find the next_edge that references j => call parent_var => see if parent's in e
-        flip_me = False
-        par_list = []
-
-        # gather how many next_edges reference 'j'
-        for ne_idx, ne in enumerate(next_edges):
-            if j in ne:
-                # find the parent variable of next_edge
-                par, up1, up2 = parent_var(tr+1, ind_vine, ne)
-                # store for debugging
-                if par is not None:
-                    par_list.append(par)
-                # see if par matches e[0], if not => flip
-                if par is not None and (e[0] != par):
-                    flip_me = True
-
-        flip_flag1.append(flip_me)
-        ind_edge_rel1.append(j)
-        parent_all.append(par_list)
-
-    # If binning is True, we might do finer logic, e.g. flipping each bin separately,
-    # but let's assume the logic is the same except repeated. 
-    # We'll keep it this way for demonstration.
     return flip_flag1, ind_edge_rel1, parent_all

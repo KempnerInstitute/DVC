@@ -362,12 +362,16 @@ def _tree_edge_mean_loglik(
     rng: Optional[np.random.Generator] = None,
 ) -> Tuple[float, List[float]]:
     edge_vals: List[float] = []
+    seen_edges = set()
     for j, ind_edge in enumerate(ind_edge_rel1):
+        if int(ind_edge) in seen_edges:
+            continue
+        seen_edges.add(int(ind_edge))
         if ind_edge >= len(level_cops):
             continue
         cop = level_cops[ind_edge]
         uv = inputs_u[:, :, ind_edge]
-        pdf_uv = uv[:, [1, 0]] if flip_flag1[j] else uv
+        pdf_uv = uv
         if permute_second:
             pdf_uv = pdf_uv.clone()
             if rng is None:
@@ -386,6 +390,148 @@ def _tree_edge_mean_loglik(
         ll = torch.mean(torch.log(pdf_vals.clamp_min(1e-12)))
         edge_vals.append(float(ll.detach().cpu()))
     return float(sum(edge_vals)), edge_vals
+
+
+def _oriented_nonparametric_h_copula(
+    base_cop: copula_obj,
+    uv_oriented: torch.Tensor,
+    *,
+    grid_u: grid_obj,
+    grid_s: grid_obj,
+    bandwidth_method: str,
+    knn_k: int,
+    batch_size: int,
+    fallback_normalization_iters: int,
+) -> copula_obj:
+    """Build the h-grid for one oriented conditional direction.
+
+    The base pair density is fitted once per vine edge, but a reused edge can
+    need both h(v|u) and h(u|v). For nonparametric copulas these are not
+    interchangeable unless the fitted density is exactly exchangeable. The
+    reversed direction therefore uses the transpose of the fitted pair density
+    and recalibrates the h-values on the oriented training pseudo-observations.
+    """
+    if getattr(base_cop, "family", "kercop") == "ind":
+        ctx = prepare_nonparametric_edge_context(
+            u_pair=uv_oriented,
+            grid_u=grid_u,
+            grid_s=grid_s,
+            bandwidth_method=bandwidth_method,
+            knn_k=knn_k,
+        )
+        cop = build_independence_edge_copula(ctx)
+        _augment_validation(cop, {"orientation_source": "independence"})
+        return cop
+
+    device = uv_oriented.device
+    pdf_base = getattr(base_cop, "pd_grid_uv", None)
+    if pdf_base is None:
+        ctx = prepare_nonparametric_edge_context(
+            u_pair=uv_oriented,
+            grid_u=grid_u,
+            grid_s=grid_s,
+            bandwidth_method=bandwidth_method,
+            knn_k=knn_k,
+        )
+        return build_nonparametric_edge_copula(
+            ctx,
+            base_cop.opt_bw,
+            batch_size=max(1, int(batch_size)),
+            normalization_iters=int(fallback_normalization_iters),
+        )
+
+    pdf = torch.as_tensor(pdf_base, dtype=torch.float32, device=device).t().contiguous().clamp_min(1e-12)
+    adu11, adu22 = grid_u.diff()
+    ccdf = cdf_grid_fun(
+        pdf.unsqueeze(-1),
+        grid_u.ex.to(device),
+        adu11.to(device),
+        adu22.to(device),
+        1,
+    )
+    ccdf = _project_monotone_ccdf_grid(ccdf)[:, :, 0]
+
+    bw = base_cop.opt_bw
+    bw_t = bw.detach().cpu() if torch.is_tensor(bw) else torch.tensor(bw, dtype=torch.float32)
+    cop = copula_obj(bw_t)
+    cop.family = "kercop"
+    cop.pd_grid_uv = pdf.detach().cpu()
+    cop.ccdf_grid = ccdf.detach().cpu()
+    cop.cdf = cop.ccdf_grid
+    cop.normalization_iterations = getattr(base_cop, "normalization_iterations", None)
+
+    points_s = Transform(1).forward_u(uv_oriented.unsqueeze(-1))[:, :, 0]
+    raw = interp_regular_nd_grid(
+        points_s,
+        grid_s.min.to(device),
+        grid_s.max.to(device),
+        cop.ccdf_grid.to(device),
+    ).detach()
+    raw_u = torch.tensor(
+        kernel_cdf(
+            raw.cpu().numpy(),
+            raw.cpu().numpy(),
+            grid_u.ex.detach().cpu().numpy(),
+        )[0],
+        dtype=torch.float32,
+        device=device,
+    )
+    order = torch.argsort(raw)
+    cop.ccdf_train_raw = raw[order].detach().cpu()
+    cop.ccdf_train_u = raw_u[order].detach().cpu()
+    cop.grid_s_min = grid_s.min.detach().cpu()
+    cop.grid_s_max = grid_s.max.detach().cpu()
+    cop.validation = _validate_nonparametric_edge(cop)
+    _augment_validation(
+        cop,
+        {
+            "orientation_source": "reversed_h",
+            "source_selected_model": str(getattr(base_cop, "family", "kercop")),
+        },
+    )
+    return cop
+
+
+def _build_oriented_h_copulas(
+    level_cops: Sequence[copula_obj],
+    inputs_u: torch.Tensor,
+    flip_flag1: Sequence[bool],
+    ind_edge_rel1: Sequence[int],
+    *,
+    grid_u: grid_obj,
+    grid_s: grid_obj,
+    bandwidth_method: str,
+    knn_k: int,
+    batch_size: int,
+    fallback_normalization_iters: int,
+) -> List[copula_obj]:
+    h_cops: List[copula_obj] = []
+    cache: Dict[Tuple[int, bool], copula_obj] = {}
+    for j, ind_edge in enumerate(ind_edge_rel1):
+        if ind_edge >= len(level_cops):
+            continue
+        flip = bool(flip_flag1[j])
+        key = (int(ind_edge), flip)
+        if key in cache:
+            h_cops.append(cache[key])
+            continue
+        base_cop = level_cops[ind_edge]
+        if not flip:
+            cache[key] = base_cop
+        else:
+            uv_oriented = inputs_u[:, :, ind_edge][:, [1, 0]]
+            cache[key] = _oriented_nonparametric_h_copula(
+                base_cop,
+                uv_oriented,
+                grid_u=grid_u,
+                grid_s=grid_s,
+                bandwidth_method=bandwidth_method,
+                knn_k=knn_k,
+                batch_size=batch_size,
+                fallback_normalization_iters=fallback_normalization_iters,
+            )
+        h_cops.append(cache[key])
+    return h_cops
 
 
 def _init_margin_u_state(vine: vine_obj_bin,
@@ -438,12 +584,14 @@ def _propagated_inputs_for_level(vine: vine_obj_bin,
             device=device,
         )
         cops_now = vine.copulas[level] if level < len(vine.copulas) else []
+        h_cops_now = getattr(vine, "_np_h_copulas", [])
+        h_cops_level = h_cops_now[level] if level < len(h_cops_now) else []
         for j, ind_edge in enumerate(ind_edge_rel1):
             if ind_edge >= len(cops_now):
                 continue
-            cop = cops_now[ind_edge]
+            cop = h_cops_level[j] if j < len(h_cops_level) else cops_now[ind_edge]
             uv = point_u[:, :, ind_edge]
-            uv_h = uv if flip_flag1[j] else uv[:, [1, 0]]
+            uv_h = uv[:, [1, 0]] if flip_flag1[j] else uv
             hval = evaluate_nonparametric_edge_h(cop, uv_h, vine.grid_s)
             if flip_flag1[j]:
                 u_state_flip[:, level + 1, ind_edge] = hval
@@ -991,6 +1139,7 @@ def fit_nonparametric_vine(
     vine.theta_flip = torch.zeros_like(vine.theta)
     vine.flip_flag = []
     vine.ind_edge_rel = []
+    vine._np_h_copulas = []
 
     bandwidth_cfg = cfg.get("bandwidth", {})
     bandwidth_method = str(bandwidth_cfg.get("method", "rule_of_thumb"))
@@ -1077,14 +1226,28 @@ def fit_nonparametric_vine(
         flip_flag1, ind_edge_rel1, _parent_all = flip_check_all(vine._internal_ind_vine, level, False, 1)
         vine.flip_flag.append(flip_flag1)
         vine.ind_edge_rel.append(ind_edge_rel1)
+        h_level_cops = _build_oriented_h_copulas(
+            level_cops,
+            data_u,
+            flip_flag1,
+            ind_edge_rel1,
+            grid_u=vine.grid_u,
+            grid_s=vine.grid_s,
+            bandwidth_method=bandwidth_method,
+            knn_k=knn_k,
+            batch_size=int(npc_dict.get("batch_size", cfg.get("optimizer", {}).get("batch_size", 3))),
+            fallback_normalization_iters=int(npc_dict.get("final_normalization_iters", 50)),
+        )
+        vine._np_h_copulas.append(h_level_cops)
 
         for j, ind_edge in enumerate(ind_edge_rel1):
             uv = data_u[:, :, ind_edge]
+            cop = h_level_cops[j] if j < len(h_level_cops) else level_cops[ind_edge]
             if flip_flag1[j]:
-                hval = evaluate_nonparametric_edge_h(level_cops[ind_edge], uv, vine.grid_s)
+                hval = evaluate_nonparametric_edge_h(cop, uv[:, [1, 0]], vine.grid_s)
                 vine.theta_flip[:, level + 1, ind_edge] = hval
             else:
-                hval = evaluate_nonparametric_edge_h(level_cops[ind_edge], uv[:, [1, 0]], vine.grid_s)
+                hval = evaluate_nonparametric_edge_h(cop, uv, vine.grid_s)
                 vine.theta[:, level + 1, ind_edge] = hval
 
         if use_depth_selection and x_val is not None:
@@ -1278,6 +1441,8 @@ def evaluate_nonparametric_vine(vine: vine_obj_bin, points: torch.Tensor):
 
         edges_now = edge_refs[level] if level < len(edge_refs) else []
         cops_now = vine.copulas[level] if level < len(vine.copulas) else []
+        h_cops_now = getattr(vine, "_np_h_copulas", [])
+        h_cops_level = h_cops_now[level] if level < len(h_cops_now) else []
         point_u = _build_edge_input_pairs(
             state=u_state,
             state_flip=u_state_flip,
@@ -1285,20 +1450,19 @@ def evaluate_nonparametric_vine(vine: vine_obj_bin, points: torch.Tensor):
             level=level,
             device=device,
         )
+        density_edges_seen = set()
         for j, ind_edge in enumerate(ind_edge_rel1):
             if ind_edge >= len(cops_now):
                 continue
-            cop = cops_now[ind_edge]
             uv = point_u[:, :, ind_edge]
-            uv_pdf = uv[:, [1, 0]] if flip_flag1[j] else uv
-            pdf_val = evaluate_nonparametric_edge_pdf(cop, uv_pdf, vine.grid_s).clamp_min(1e-12)
-            log_cop = log_cop + torch.log(pdf_val)
+            if int(ind_edge) not in density_edges_seen:
+                density_edges_seen.add(int(ind_edge))
+                pdf_val = evaluate_nonparametric_edge_pdf(cops_now[ind_edge], uv, vine.grid_s).clamp_min(1e-12)
+                log_cop = log_cop + torch.log(pdf_val)
             if level < d - 1:
-                # Keep higher-tree propagation consistent with fit_nonparametric_vine:
-                # non-flipped edges propagate h(v|u), while flipped edges propagate
-                # the opposite conditional using the unreversed pair.
-                uv_h = uv if flip_flag1[j] else uv[:, [1, 0]]
-                hval = evaluate_nonparametric_edge_h(cop, uv_h, vine.grid_s)
+                cop_h = h_cops_level[j] if j < len(h_cops_level) else cops_now[ind_edge]
+                uv_h = uv[:, [1, 0]] if flip_flag1[j] else uv
+                hval = evaluate_nonparametric_edge_h(cop_h, uv_h, vine.grid_s)
                 if flip_flag1[j]:
                     u_state_flip[:, level + 1, ind_edge] = hval
                 else:

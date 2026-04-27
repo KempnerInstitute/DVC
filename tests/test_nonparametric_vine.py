@@ -7,6 +7,7 @@ from dvc_package.core.nonparametric_vine import _build_edge_input_pairs, _build_
 from dvc_package.core.nonparametric_vine import evaluate_nonparametric_edge_h, evaluate_nonparametric_edge_pdf
 from dvc_package.core.cop_eval import cdf_grid_fun
 from dvc_package.core.sampling import vine_copula_sample
+from dvc_package.core.utils_interpolation import interp_regular_nd_grid
 from dvc_package.core.utils_prob import kernel_cdf
 from dvc_package.core.vine_factory import create_vine
 from dvc_package.core.vine_tree import flip_check_all
@@ -145,6 +146,52 @@ def test_conditional_grid_for_independence_matches_second_axis_cdf():
     expected = torch.cumsum(steps, dim=0) / torch.sum(steps)
     expected = expected.unsqueeze(0).repeat(4, 1)
     assert torch.allclose(cond_grid, expected, atol=1e-6)
+
+
+def test_conditional_grid_default_integrates_second_axis():
+    pdf = torch.tensor(
+        [
+            [1.0, 2.0, 3.0],
+            [2.0, 1.0, 1.0],
+            [4.0, 3.0, 2.0],
+        ],
+        dtype=torch.float32,
+    ).unsqueeze(-1)
+    u1_steps = torch.tensor([0.2, 0.3, 0.5], dtype=torch.float32)
+    u2_steps = torch.tensor([0.1, 0.4, 0.5], dtype=torch.float32)
+
+    cond_grid = cdf_grid_fun(pdf, torch.empty(0), u1_steps, u2_steps, 1)[:, :, 0]
+    expected = torch.cumsum(pdf[:, :, 0] * u2_steps.view(1, -1), dim=1)
+    expected = expected / expected[:, -1:].clamp_min(1e-12)
+
+    reverse_grid = cdf_grid_fun(pdf, torch.empty(0), u1_steps, u2_steps, 1, axis=0)[:, :, 0]
+    expected_reverse = torch.cumsum(pdf[:, :, 0] * u1_steps.view(-1, 1), dim=0)
+    expected_reverse = expected_reverse / expected_reverse[-1:, :].clamp_min(1e-12)
+
+    assert torch.allclose(cond_grid, expected, atol=1e-6)
+    assert torch.allclose(reverse_grid, expected_reverse, atol=1e-6)
+
+
+def test_regular_grid_interpolation_keeps_point_axis_order():
+    grid_vals_axis0 = torch.arange(5, dtype=torch.float32).view(5, 1).repeat(1, 5)
+    grid_vals_axis1 = torch.arange(5, dtype=torch.float32).view(1, 5).repeat(5, 1)
+    points = torch.tensor(
+        [
+            [-1.0, 0.0],
+            [1.0, 0.0],
+            [0.0, -1.0],
+            [0.0, 1.0],
+        ],
+        dtype=torch.float32,
+    )
+    grid_min = torch.tensor([-1.0, -1.0], dtype=torch.float32)
+    grid_max = torch.tensor([1.0, 1.0], dtype=torch.float32)
+
+    out_axis0 = interp_regular_nd_grid(points, grid_min, grid_max, grid_vals_axis0)
+    out_axis1 = interp_regular_nd_grid(points, grid_min, grid_max, grid_vals_axis1)
+
+    assert torch.allclose(out_axis0, torch.tensor([0.0, 4.0, 2.0, 2.0]))
+    assert torch.allclose(out_axis1, torch.tensor([2.0, 2.0, 0.0, 4.0]))
 
 
 @pytest.mark.parametrize(
@@ -521,19 +568,55 @@ def test_nonparametric_logpdf_matches_fit_style_h_propagation():
             device=device,
         )
         cops_now = vine.copulas[level]
+        h_cops_now = getattr(vine, "_np_h_copulas", [])
+        h_cops_level = h_cops_now[level] if level < len(h_cops_now) else []
+        density_edges_seen = set()
         for j, ind_edge in enumerate(ind_edge_rel1):
-            cop = cops_now[ind_edge]
             uv = point_u[:, :, ind_edge]
-            uv_pdf = uv[:, [1, 0]] if flip_flag1[j] else uv
-            manual_logp = manual_logp + torch.log(
-                evaluate_nonparametric_edge_pdf(cop, uv_pdf, vine.grid_s).clamp_min(1e-12)
-            )
+            if int(ind_edge) not in density_edges_seen:
+                density_edges_seen.add(int(ind_edge))
+                manual_logp = manual_logp + torch.log(
+                    evaluate_nonparametric_edge_pdf(cops_now[ind_edge], uv, vine.grid_s).clamp_min(1e-12)
+                )
             if level < d - 1:
-                uv_h = uv if flip_flag1[j] else uv[:, [1, 0]]
-                hval = evaluate_nonparametric_edge_h(cop, uv_h, vine.grid_s)
+                cop_h = h_cops_level[j] if j < len(h_cops_level) else cops_now[ind_edge]
+                uv_h = uv[:, [1, 0]] if flip_flag1[j] else uv
+                hval = evaluate_nonparametric_edge_h(cop_h, uv_h, vine.grid_s)
                 if flip_flag1[j]:
                     u_state_flip[:, level + 1, ind_edge] = hval
                 else:
                     u_state[:, level + 1, ind_edge] = hval
 
     assert torch.allclose(model_logp, manual_logp, atol=1e-5, rtol=1e-5)
+
+
+def test_nonparametric_independence_h_propagates_target_given_root():
+    rng = np.random.default_rng(123)
+    x = rng.normal(size=(120, 3)).astype(np.float32)
+    vine = create_vine("c-vine", 3, knots=7, variable_order=[0, 1, 2])
+    kwargs = _npc_fit_kwargs()
+    kwargs["npc_dict"] = dict(kwargs["npc_dict"])
+    kwargs["npc_dict"].update(
+        {
+            "allow_independence_fallback": True,
+            "minimum_kernel_gain": 999.0,
+            "validation_fraction": 0.2,
+        }
+    )
+    vine.fit(x, **kwargs)
+
+    assert vine.flip_flag[0] == [False, False]
+    assert [getattr(cop, "family", None) for cop in vine.copulas[0]] == ["ind", "ind"]
+    assert torch.allclose(vine.theta[:, 1, 0], vine.theta[:, 0, 1])
+    assert torch.allclose(vine.theta[:, 1, 1], vine.theta[:, 0, 2])
+
+
+def test_flip_check_keeps_both_dvine_conditionals_for_reused_edges():
+    vine = create_vine("d-vine", 4, knots=7, variable_order=[0, 1, 2, 3])
+    edge_refs = _build_internal_edge_structure(vine, 4)
+
+    flip_flag, ind_edge_rel, parent_all = flip_check_all(edge_refs, 0, False, 1)
+
+    assert ind_edge_rel == [0, 1, 1, 2]
+    assert flip_flag == [True, False, True, False]
+    assert parent_all == [[1], [1, 2], [2]]
