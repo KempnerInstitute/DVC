@@ -77,3 +77,33 @@ def test_contrast_harder_has_explicit_oracle_ground_truth():
     assert truth["pairwise+higher-order"]["truth_pair_mi56"] > 0.0
     assert truth["tail-block"]["truth_tc_total"] > 1.0
     assert np.isclose(truth["tail-block"]["truth_tail_lambda_lower"], tail_lambda_expected)
+
+
+def test_repeated_showcase_schedule_uses_phase_names_not_raw_indices():
+    config = replace(
+        ShowcaseConfig(n_per_time=320),
+        phase_boundaries=(0, 2, 4, 6, 8, 10, 12, 14, 16),
+        phases=(
+            "independent",
+            "pairwise-block",
+            "pairwise+higher-order",
+            "tail-block",
+            "independent",
+            "pairwise-block",
+            "pairwise+higher-order",
+            "tail-block",
+        ),
+        pair_leaves=(1, 2, 3),
+        pair_rho=0.55,
+        phase3_mode="multiplicative_triplets",
+        triplet_blocks=((4, 5, 6),),
+    )
+    rng = np.random.default_rng(23)
+
+    x_second_independent = generate_window(8, rng, config=config, variant="multiplicative_triplets")
+    x_second_pairwise = generate_window(10, rng, config=config, variant="multiplicative_triplets")
+    x_second_higher = generate_window(12, rng, config=config, variant="multiplicative_triplets")
+
+    assert abs(_corr(x_second_independent, 0, 1)) < 0.18
+    assert _corr(x_second_pairwise, 0, 1) > 0.35
+    assert abs(_corr_vec(x_second_higher[:, 4] * x_second_higher[:, 5], x_second_higher[:, 6])) > 0.30

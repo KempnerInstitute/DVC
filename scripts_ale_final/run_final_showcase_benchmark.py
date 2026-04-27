@@ -43,6 +43,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-seed", type=int, default=2026)
     parser.add_argument("--n-per-time", type=int, default=None)
     parser.add_argument(
+        "--phase-duration",
+        type=int,
+        default=None,
+        help="Windows per phase; combine with --cycle-repeats for recurrent showcase schedules.",
+    )
+    parser.add_argument(
+        "--cycle-repeats",
+        type=int,
+        default=1,
+        help="Repeat the four-phase showcase cycle this many times.",
+    )
+    parser.add_argument(
         "--multiplicative-noise-std",
         type=float,
         default=None,
@@ -93,6 +105,10 @@ def build_command(args: argparse.Namespace) -> list[str]:
     ]
     if args.n_per_time is not None:
         cmd.extend(["--n-per-time", str(args.n_per_time)])
+    if args.phase_duration is not None:
+        cmd.extend(["--phase-duration", str(args.phase_duration)])
+    if int(args.cycle_repeats) != 1:
+        cmd.extend(["--cycle-repeats", str(args.cycle_repeats)])
     if args.multiplicative_noise_std is not None:
         cmd.extend(["--multiplicative-noise-std", str(args.multiplicative_noise_std)])
     if args.skip_mine:

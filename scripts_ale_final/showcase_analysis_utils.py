@@ -510,9 +510,10 @@ def generate_window(
     variant: str = "current",
 ) -> np.ndarray:
     phase = phase_index_of_window(t_idx, config)
-    if phase == 0:
+    phase_name = config.phases[phase]
+    if phase_name == "independent":
         return _gen_independent(config.n_per_time, config.d, rng).astype(np.float32)
-    if phase == 1:
+    if phase_name == "pairwise-block":
         return _gen_pairwise_star_block(
             config.n_per_time,
             config.d,
@@ -521,7 +522,7 @@ def generate_window(
             rho=config.pair_rho,
             rng=rng,
         ).astype(np.float32)
-    if phase == 2:
+    if phase_name == "pairwise+higher-order":
         phase3_mode = variant if variant is not None else config.phase3_mode
         if phase3_mode == "triplet_only":
             x = _gen_independent(config.n_per_time, config.d, rng).astype(np.float32)
@@ -589,6 +590,8 @@ def generate_window(
                 noise_std=config.multiplicative_noise_std,
             )
         raise ValueError(f"Unknown showcase variant: {phase3_mode}")
+    if phase_name != "tail-block":
+        raise ValueError(f"Unknown showcase phase name: {phase_name}")
     return _gen_tail_block(
         config.n_per_time,
         config.d,

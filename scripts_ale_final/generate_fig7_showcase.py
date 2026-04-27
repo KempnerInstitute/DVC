@@ -200,6 +200,14 @@ def _plot_truth(
         )
 
 
+def _ordered_legend(ax: plt.Axes, order: list[str], **kwargs) -> None:
+    handles, labels = ax.get_legend_handles_labels()
+    by_label = {label: handle for handle, label in zip(handles, labels)}
+    ordered_labels = [label for label in order if label in by_label]
+    ordered_handles = [by_label[label] for label in ordered_labels]
+    ax.legend(ordered_handles, ordered_labels, **kwargs)
+
+
 def main() -> None:
     apply_style()
 
@@ -235,11 +243,11 @@ def main() -> None:
     # NeurIPS-width compact figure: a thin phase timeline plus a 1x3 results
     # strip. This preserves temporal readability while taking much less
     # vertical space than a four-row layout.
-    fig = plt.figure(figsize=(7.0, 3.15))
+    fig = plt.figure(figsize=(7.0, 3.45))
     gs = fig.add_gridspec(
         2, 3,
         height_ratios=[0.22, 1.0],
-        hspace=0.46,
+        hspace=0.64,
         wspace=0.36,
     )
     axes = np.array(
@@ -272,7 +280,7 @@ def main() -> None:
     _phase_bands(ax, boundaries, phase_names)
     _plot_mean_with_band(
         ax, t_axis, tc_dvc, tc_dvc_std,
-        color=COLORS["black"], label="DVC (full vine)", lw=2.0, smooth_window=3, band_alpha=0.12
+        color=COLORS["black"], label="DVC", lw=2.0, smooth_window=3, band_alpha=0.12
     )
     _plot_mean_with_band(
         ax, t_axis, tc_nf, tc_nf_std,
@@ -288,8 +296,18 @@ def main() -> None:
     )
     ax.axhline(0.0, color=COLORS["gray"], lw=0.5, ls="--", alpha=0.8, zorder=0.5)
     ax.set_ylabel(r"$\mathrm{TC}(t)$  (nats)")
-    ax.legend(loc="upper left", ncol=2, handlelength=1.5, columnspacing=0.6,
-              borderpad=0.22, frameon=True, fontsize=4.8)
+    _ordered_legend(
+        ax,
+        ["DVC", "Gaussian SSM", "oracle TC", "NF-copula"],
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.015),
+        ncol=2,
+        handlelength=1.4,
+        columnspacing=0.7,
+        borderpad=0.20,
+        frameon=False,
+        fontsize=4.8,
+    )
     add_panel_label(ax, "B", fontsize=8)
 
     # -------- Panel C: DVC pair vs higher-order decomposition --------
@@ -313,8 +331,23 @@ def main() -> None:
     )
     ax.axhline(0.0, color=COLORS["gray"], lw=0.5, ls="--", alpha=0.8, zorder=0.5)
     ax.set_ylabel("nats")
-    ax.legend(loc="upper left", ncol=2, handlelength=1.4, columnspacing=0.55,
-              borderpad=0.22, fontsize=4.8)
+    _ordered_legend(
+        ax,
+        [
+            r"$\mathrm{TC}_\mathrm{pair}(t)$",
+            r"$\mathrm{TC}_\mathrm{higher}(t)$",
+            r"oracle pair",
+            r"oracle higher",
+        ],
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.015),
+        ncol=2,
+        handlelength=1.25,
+        columnspacing=0.65,
+        borderpad=0.20,
+        frameon=False,
+        fontsize=4.8,
+    )
     add_panel_label(ax, "C", fontsize=8)
 
     # -------- Panel D: pairwise MI -- MINE vs DVC rank-tau --------
@@ -322,33 +355,43 @@ def main() -> None:
     _phase_bands(ax, boundaries, phase_names)
     _plot_mean_with_band(
         ax, t_axis, mine_01, mine_01_std,
-        color=COLORS["blue"], label=r"MINE $(X_0, X_1)$", lw=1.7, smooth_window=3, band_alpha=0.10
+        color=COLORS["blue"], label=r"MINE 0--1", lw=1.7, smooth_window=3, band_alpha=0.10
     )
     _plot_mean_with_band(
         ax, t_axis, dvc_mi_01, dvc_mi_01_std,
-        color=COLORS["blue"], label=r"DVC pair $(X_0, X_1)$", ls=(0, (2, 1.5)), lw=1.3, smooth_window=3, band_alpha=0.08
+        color=COLORS["blue"], label=r"DVC 0--1", ls=(0, (2, 1.5)), lw=1.3, smooth_window=3, band_alpha=0.08
     )
     _plot_mean_with_band(
         ax, t_axis, mine_56, mine_56_std,
-        color=COLORS["red"], label=r"MINE $(X_5, X_6)$", lw=1.7, smooth_window=3, band_alpha=0.10
+        color=COLORS["red"], label=r"MINE 5--6", lw=1.7, smooth_window=3, band_alpha=0.10
     )
     _plot_mean_with_band(
         ax, t_axis, dvc_mi_56, dvc_mi_56_std,
-        color=COLORS["red"], label=r"DVC pair $(X_5, X_6)$", ls=(0, (2, 1.5)), lw=1.3, smooth_window=3, band_alpha=0.08
+        color=COLORS["red"], label=r"DVC 5--6", ls=(0, (2, 1.5)), lw=1.3, smooth_window=3, band_alpha=0.08
     )
     _plot_truth(
         ax, t_axis, truth_mi_01,
-        color=COLORS["blue"], label=r"oracle $(X_0, X_1)$", ls=(0, (4, 2)), lw=1.15
+        color=COLORS["blue"], label=r"oracle 0--1", ls=(0, (4, 2)), lw=1.15
     )
     _plot_truth(
         ax, t_axis, truth_mi_56,
-        color=COLORS["red"], label=r"oracle $(X_5, X_6)$", ls=(0, (4, 2)), lw=1.15
+        color=COLORS["red"], label=r"oracle 5--6", ls=(0, (4, 2)), lw=1.15
     )
     ax.axhline(0.0, color=COLORS["gray"], lw=0.5, ls="--", alpha=0.8, zorder=0.5)
     ax.set_ylabel("MI (nats)")
     ax.set_xlabel(r"time-window index $t$")
-    ax.legend(loc="upper left", ncol=2, handlelength=1.4, columnspacing=0.45,
-              borderpad=0.20, fontsize=4.45)
+    _ordered_legend(
+        ax,
+        [r"MINE 0--1", r"MINE 5--6", r"DVC 0--1", r"DVC 5--6", r"oracle 0--1", r"oracle 5--6"],
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.015),
+        ncol=3,
+        handlelength=1.15,
+        columnspacing=0.45,
+        borderpad=0.15,
+        frameon=False,
+        fontsize=4.25,
+    )
     add_panel_label(ax, "D", fontsize=8)
 
     for ax in axes[1:]:
