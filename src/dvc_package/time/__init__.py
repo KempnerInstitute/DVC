@@ -45,6 +45,12 @@ from .joint_dynamic_cvine import (
     JointDynamicCVineResult,
     JointDynamicEdgeFit,
 )
+from .switching_dynamic_cvine import (
+    SwitchingDynamicCVine,
+    SwitchingDynamicCVineResult,
+    SwitchingDynamicEdgeFit,
+    SwitchingEdgeState,
+)
 from .latent_state_dynamic_cvine import (
     LatentStateDynamicCVine,
     LatentStateDynamicCVineResult,
@@ -95,6 +101,10 @@ __all__ = [
     "JointDynamicCVine",
     "JointDynamicCVineResult",
     "JointDynamicEdgeFit",
+    "SwitchingDynamicCVine",
+    "SwitchingDynamicCVineResult",
+    "SwitchingDynamicEdgeFit",
+    "SwitchingEdgeState",
     "LatentStateDynamicCVine",
     "LatentStateDynamicCVineResult",
     "LatentStateEdgeFit",

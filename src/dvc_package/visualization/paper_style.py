@@ -105,6 +105,8 @@ COLOR_CYCLE = [
 # ---------------------------------------------------------------------------
 METHOD_STYLES: Dict[str, Dict[str, object]] = {
     "DVC":                {"color": COLORS["black"],  "ls": "-",                "lw": 2.3, "marker": "o", "ms": 2.6},
+    "Switching Dynamic DVC": {"color": COLORS["black"], "ls": "-",              "lw": 2.3, "marker": "o", "ms": 2.6},
+    "Windowed vine":      {"color": COLORS["gray"],   "ls": (0, (3, 1.5)),      "lw": 1.9, "marker": "s", "ms": 2.4},
     "Gaussian copula":    {"color": COLORS["blue"],   "ls": "-",                "lw": 1.9, "marker": "o", "ms": 2.5},
     "1-truncated C-vine": {"color": COLORS["cyan"],   "ls": (0, (4, 2)),        "lw": 2.0, "marker": "s", "ms": 2.5},
     "Graphical Lasso":    {"color": COLORS["green"],  "ls": (0, (1, 1.5)),      "lw": 1.9, "marker": "^", "ms": 2.5},
@@ -112,6 +114,7 @@ METHOD_STYLES: Dict[str, Dict[str, object]] = {
     "Gaussian SSM":       {"color": COLORS["purple"], "ls": (0, (7, 2)),        "lw": 2.0, "marker": "D", "ms": 2.5},
     "KDE-flow (time BW)": {"color": COLORS["orange"], "ls": (0, (2, 1.5)),      "lw": 2.1, "marker": "x", "ms": 2.7},
     "Regularized DVC":    {"color": "#8C510A",        "ls": (0, (6, 2, 1, 2)),  "lw": 2.2, "marker": "P", "ms": 2.7},
+    "Regularized windowed": {"color": "#8C510A",      "ls": (0, (6, 2, 1, 2)),  "lw": 2.2, "marker": "P", "ms": 2.7},
     "Joint Dynamic DVC":  {"color": "#B2182B",        "ls": (0, (8, 2)),        "lw": 2.2, "marker": "o", "ms": 2.6},
     "Latent-State DVC":   {"color": COLORS["purple"], "ls": (0, (3, 1.5)),      "lw": 2.1, "marker": "D", "ms": 2.6},
 }
@@ -119,13 +122,16 @@ METHOD_STYLES: Dict[str, Dict[str, object]] = {
 # Short display names for compact legends and axis labels
 SHORT_METHOD_NAMES: Dict[str, str] = {
     "DVC":                "DVC",
+    "Switching Dynamic DVC": "Switch DVC",
+    "Windowed vine":      "Windowed",
     "Gaussian copula":    "Gauss. cop.",
     "1-truncated C-vine": "1-trunc.",
     "Graphical Lasso":    "GLasso",
     "TVGL (Frobenius)":   "TVGL",
     "Gaussian SSM":       "Gauss. SSM",
     "KDE-flow (time BW)": "KDE-flow",
-    "Regularized DVC":    "Reg. DVC",
+    "Regularized DVC":    "Reg. win.",
+    "Regularized windowed": "Reg. win.",
     "Joint Dynamic DVC":  "Joint DVC",
     "Latent-State DVC":   "Latent DVC",
 }
@@ -147,7 +153,8 @@ GAP_KEY_TO_NAME = {
     "nll_gap_tvgl":            "TVGL (Frobenius)",
     "nll_gap_state_space":     "Gaussian SSM",
     "nll_gap_kde_flow":        "KDE-flow (time BW)",
-    "nll_gap_regularized_dvc": "Regularized DVC",
+    "nll_gap_windowed_vine":   "Windowed vine",
+    "nll_gap_regularized_dvc": "Regularized windowed",
     "nll_gap_joint_dynamic_dvc": "Joint Dynamic DVC",
     "nll_gap_latent_state_dvc": "Latent-State DVC",
 }
