@@ -132,6 +132,28 @@ def _latent_from_tau(tau: np.ndarray, family: str, tau_cap: float = 0.95) -> np.
     return np.log(p) - np.log1p(-p)
 
 
+def _df_from_latent(
+    latent: np.ndarray,
+    df_min: float = 2.1,
+    df_max: float = 60.0,
+) -> np.ndarray:
+    latent = np.asarray(latent, dtype=np.float64)
+    clipped = np.clip(latent, -30.0, 30.0)
+    width = float(df_max) - float(df_min)
+    return float(df_min) + width / (1.0 + np.exp(-clipped))
+
+
+def _latent_from_df(
+    df: np.ndarray,
+    df_min: float = 2.1,
+    df_max: float = 60.0,
+) -> np.ndarray:
+    df = np.asarray(df, dtype=np.float64)
+    width = float(df_max) - float(df_min)
+    p = np.clip((df - float(df_min)) / max(width, 1e-9), 1e-5, 1.0 - 1e-5)
+    return np.log(p) - np.log1p(-p)
+
+
 def _tau_to_theta(family: str, tau: float, student_df: Optional[float] = None) -> Any:
     fam = _normalize_family_name(family)
     tau = float(np.clip(tau, -0.95, 0.95))
@@ -215,6 +237,8 @@ class JointDynamicEdgeFit:
     ridge_penalty: float
     n_obs: int
     student_df: Optional[float] = None
+    df_trajectory: Optional[List[float]] = None
+    df_coefficients: Optional[List[float]] = None
 
     @property
     def edge_key(self) -> Tuple[int, int, int]:
@@ -268,6 +292,9 @@ class JointDynamicCVine:
         order is estimated once and then reused for the whole sequence.
     student_df_grid:
         Degrees-of-freedom candidates for Student copulas.
+    dynamic_student_df:
+        If true, Student copulas may use a smooth time-varying degrees-of-freedom
+        path in addition to the Kendall-tau/rho path.
     maxiter:
         Maximum number of L-BFGS iterations per edge family fit.
     """
@@ -281,6 +308,8 @@ class JointDynamicCVine:
         ridge_penalty: float = 1e-3,
         order: Optional[Sequence[int]] = None,
         student_df_grid: Sequence[float] = (4.0, 8.0, 16.0),
+        dynamic_student_df: bool = False,
+        student_df_bounds: Tuple[float, float] = (2.1, 60.0),
         maxiter: int = 80,
     ):
         fams = list(families or ["gaussian", "student", "clayton", "gumbel", "frank"])
@@ -290,6 +319,8 @@ class JointDynamicCVine:
         self.ridge_penalty = float(max(ridge_penalty, 0.0))
         self.order = [int(v) for v in order] if order is not None else None
         self.student_df_grid = [float(v) for v in student_df_grid]
+        self.dynamic_student_df = bool(dynamic_student_df)
+        self.student_df_bounds = (float(student_df_bounds[0]), float(student_df_bounds[1]))
         self.maxiter = int(max(maxiter, 10))
         self.result_: Optional[JointDynamicCVineResult] = None
 
@@ -317,12 +348,40 @@ class JointDynamicCVine:
         ridge = _ridge_penalty(beta)
         return float(raw_nll + self.smoothness_penalty * roughness + self.ridge_penalty * ridge)
 
+    def _student_dynamic_df_objective(
+        self,
+        params: np.ndarray,
+        *,
+        basis_matrix: np.ndarray,
+        uv_tensors: Sequence[torch.Tensor],
+    ) -> float:
+        n_basis = int(basis_matrix.shape[1])
+        beta_tau = np.asarray(params[:n_basis], dtype=np.float64)
+        beta_df = np.asarray(params[n_basis:], dtype=np.float64)
+        tau = _tau_from_latent(basis_matrix @ beta_tau, "student")
+        df_path = _df_from_latent(
+            basis_matrix @ beta_df,
+            df_min=self.student_df_bounds[0],
+            df_max=self.student_df_bounds[1],
+        )
+        theta_path = [_tau_to_theta("student", tau_t, student_df=df_t) for tau_t, df_t in zip(tau, df_path)]
+        raw_nll = _sum_edge_nll("student", theta_path, uv_tensors)
+        tau_roughness = _trajectory_roughness(tau)
+        df_roughness = _trajectory_roughness(np.log(np.clip(df_path, 2.1, None)))
+        ridge = _ridge_penalty(beta_tau) + _ridge_penalty(beta_df)
+        return float(
+            raw_nll
+            + self.smoothness_penalty * (tau_roughness + df_roughness)
+            + self.ridge_penalty * ridge
+        )
+
     def _fit_edge_family(
         self,
         *,
         family: str,
         basis_matrix: np.ndarray,
         u_pairs_by_time: Sequence[np.ndarray],
+        allow_dynamic_student_df: bool = True,
     ) -> JointDynamicEdgeFit:
         fam = _normalize_family_name(family)
         total_obs = int(sum(int(uv.shape[0]) for uv in u_pairs_by_time))
@@ -353,7 +412,8 @@ class JointDynamicCVine:
             )
 
         beta0 = _initial_coefficients(basis_matrix, u_pairs_by_time, fam)
-        df_candidates = self.student_df_grid if fam == "student" else [None]
+        use_dynamic_student_df = fam == "student" and self.dynamic_student_df and allow_dynamic_student_df
+        df_candidates = [] if use_dynamic_student_df else (self.student_df_grid if fam == "student" else [None])
 
         best_payload: Optional[Dict[str, Any]] = None
         for student_df in df_candidates:
@@ -397,6 +457,65 @@ class JointDynamicCVine:
             if best_payload is None or candidate["selection"] < best_payload["selection"] - 1e-9:
                 best_payload = candidate
 
+        if use_dynamic_student_df:
+            n_basis = int(basis_matrix.shape[1])
+            df_start_values = [float(np.median(self.student_df_grid))]
+            for df0 in df_start_values:
+                gamma0 = np.zeros(n_basis, dtype=np.float64)
+                gamma0[0] = float(
+                    _latent_from_df(
+                        np.asarray([df0], dtype=np.float64),
+                        df_min=self.student_df_bounds[0],
+                        df_max=self.student_df_bounds[1],
+                    )[0]
+                )
+                params0 = np.concatenate([beta0, gamma0])
+                objective_dyn = lambda params: self._student_dynamic_df_objective(
+                    params,
+                    basis_matrix=basis_matrix,
+                    uv_tensors=uv_tensors,
+                )
+                opt = minimize(
+                    objective_dyn,
+                    params0,
+                    method="L-BFGS-B",
+                    options={"maxiter": self.maxiter},
+                )
+                params_hat = np.asarray(getattr(opt, "x", params0), dtype=np.float64)
+                if params_hat.shape != params0.shape or not np.all(np.isfinite(params_hat)):
+                    params_hat = np.asarray(params0, dtype=np.float64)
+
+                beta_tau = params_hat[:n_basis]
+                beta_df = params_hat[n_basis:]
+                tau_hat = _tau_from_latent(basis_matrix @ beta_tau, fam)
+                df_path = _df_from_latent(
+                    basis_matrix @ beta_df,
+                    df_min=self.student_df_bounds[0],
+                    df_max=self.student_df_bounds[1],
+                )
+                theta_hat = [_tau_to_theta(fam, tau_t, student_df=df_t) for tau_t, df_t in zip(tau_hat, df_path)]
+                raw_nll = _sum_edge_nll(fam, theta_hat, uv_tensors)
+                roughness = _trajectory_roughness(tau_hat) + _trajectory_roughness(np.log(np.clip(df_path, 2.1, None)))
+                ridge = _ridge_penalty(beta_tau) + _ridge_penalty(beta_df)
+                penalized = raw_nll + self.smoothness_penalty * roughness + self.ridge_penalty * ridge
+                k_eff = int(params_hat.size)
+                selection = float(raw_nll + 0.5 * k_eff * np.log(max(total_obs, 2)))
+                candidate = {
+                    "coefficients": beta_tau,
+                    "tau": tau_hat,
+                    "theta": theta_hat,
+                    "raw_nll": float(raw_nll),
+                    "penalized": float(penalized),
+                    "selection": selection,
+                    "roughness": float(roughness),
+                    "ridge": float(ridge),
+                    "student_df": None,
+                    "df_trajectory": df_path,
+                    "df_coefficients": beta_df,
+                }
+                if best_payload is None or candidate["selection"] < best_payload["selection"] - 1e-9:
+                    best_payload = candidate
+
         if best_payload is None:
             raise RuntimeError(f"Failed to fit dynamic edge family {family}")
 
@@ -414,6 +533,16 @@ class JointDynamicCVine:
             ridge_penalty=float(best_payload["ridge"]),
             n_obs=total_obs,
             student_df=best_payload["student_df"],
+            df_trajectory=(
+                None
+                if best_payload.get("df_trajectory") is None
+                else np.asarray(best_payload["df_trajectory"], dtype=np.float64).tolist()
+            ),
+            df_coefficients=(
+                None
+                if best_payload.get("df_coefficients") is None
+                else np.asarray(best_payload["df_coefficients"], dtype=np.float64).tolist()
+            ),
         )
 
     def _select_edge_fit(
@@ -430,6 +559,7 @@ class JointDynamicCVine:
                 family=family,
                 basis_matrix=basis_matrix,
                 u_pairs_by_time=u_pairs_by_time,
+                allow_dynamic_student_df=(int(level) == 0),
             )
             candidate.level = int(level)
             candidate.edge = (int(edge[0]), int(edge[1]))
@@ -521,6 +651,8 @@ class JointDynamicCVine:
                 "ridge_penalty": float(self.ridge_penalty),
                 "order": list(order),
                 "student_df_grid": list(self.student_df_grid),
+                "dynamic_student_df": bool(self.dynamic_student_df),
+                "student_df_bounds": list(self.student_df_bounds),
                 "maxiter": int(self.maxiter),
             },
         )

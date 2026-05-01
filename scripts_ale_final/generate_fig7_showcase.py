@@ -3,11 +3,11 @@
 
 Four panels:
 - (A) Ground-truth phase timeline.
-- (B) Total correlation $\\TC(t)$ estimated by the windowed full-vine control,
-      NF-copula, and the Gaussian state-space baseline, against oracle/analytic
-      ground truth.
-- (C) Windowed full-vine decomposition: $\\TC_{\\mathrm{pair}}(t)$ vs $\\TC_{\\mathrm{higher}}(t)$,
-      with pairwise and higher-order oracle targets.
+- (B) Total correlation $\\TC(t)$ estimated by joint switching DVC, the
+      windowed full-vine control, NF-copula, and the Gaussian state-space
+      baseline, against oracle/analytic ground truth.
+- (C) Joint switching-DVC decomposition: $\\TC_{\\mathrm{pair}}(t)$ vs
+      $\\TC_{\\mathrm{higher}}(t)$, with the windowed control and oracle targets.
 - (D) Pairwise MI: MINE vs the full-vine rank-tau pair MI proxy for two
       representative pairs, with oracle pairwise MI targets.
 
@@ -217,16 +217,23 @@ def main() -> None:
     T, boundaries, phase_names = _summary_meta(summary)
     t_axis = np.arange(T)
 
-    tc_dvc = _series(rows, "tc_total_dvc")
-    tc_dvc_std = _series(rows, "tc_total_dvc_std")
+    tc_windowed = _series(rows, "tc_total_dvc")
+    tc_windowed_std = _series(rows, "tc_total_dvc_std")
+    tc_switching = _series(rows, "tc_total_switching_dvc")
+    tc_switching_std = _series(rows, "tc_total_switching_dvc_std")
+    has_switching = bool(np.isfinite(tc_switching).any())
     tc_nf = _series(rows, "tc_total_nf")
     tc_nf_std = _series(rows, "tc_total_nf_std")
     tc_ssm = _series(rows, "tc_total_ssm")
     tc_ssm_std = _series(rows, "tc_total_ssm_std")
-    tc_pair = _series(rows, "tc_pair_dvc")
-    tc_pair_std = _series(rows, "tc_pair_dvc_std")
-    tc_higher = _series(rows, "tc_higher_dvc")
-    tc_higher_std = _series(rows, "tc_higher_dvc_std")
+    tc_pair_windowed = _series(rows, "tc_pair_dvc")
+    tc_pair_windowed_std = _series(rows, "tc_pair_dvc_std")
+    tc_higher_windowed = _series(rows, "tc_higher_dvc")
+    tc_higher_windowed_std = _series(rows, "tc_higher_dvc_std")
+    tc_pair = _series(rows, "tc_pair_switching_dvc") if has_switching else tc_pair_windowed
+    tc_pair_std = _series(rows, "tc_pair_switching_dvc_std") if has_switching else tc_pair_windowed_std
+    tc_higher = _series(rows, "tc_higher_switching_dvc") if has_switching else tc_higher_windowed
+    tc_higher_std = _series(rows, "tc_higher_switching_dvc_std") if has_switching else tc_higher_windowed_std
     mine_01 = _series(rows, "mine_mi_pair01")
     mine_01_std = _series(rows, "mine_mi_pair01_std")
     mine_56 = _series(rows, "mine_mi_pair56")
@@ -279,10 +286,21 @@ def main() -> None:
     # -------- Panel B: total correlation trajectories --------
     ax = axes[1]
     _phase_bands(ax, boundaries, phase_names)
-    _plot_mean_with_band(
-        ax, t_axis, tc_dvc, tc_dvc_std,
-        color=COLORS["black"], label="Windowed vine", lw=2.0, smooth_window=3, band_alpha=0.12
-    )
+    if has_switching:
+        _plot_mean_with_band(
+            ax, t_axis, tc_switching, tc_switching_std,
+            color=COLORS["black"], label="DVC-switch", lw=2.0, smooth_window=3, band_alpha=0.12
+        )
+        _plot_mean_with_band(
+            ax, t_axis, tc_windowed, tc_windowed_std,
+            color=COLORS["gray"], label="Win. vine", ls=(0, (3, 1.5)), lw=1.45,
+            smooth_window=3, band_alpha=0.08
+        )
+    else:
+        _plot_mean_with_band(
+            ax, t_axis, tc_windowed, tc_windowed_std,
+            color=COLORS["black"], label="Win. vine", lw=2.0, smooth_window=3, band_alpha=0.12
+        )
     _plot_mean_with_band(
         ax, t_axis, tc_nf, tc_nf_std,
         color=COLORS["green"], label="NF-copula", ls=(0, (4, 2)), lw=1.5, smooth_window=3, band_alpha=0.10
@@ -299,7 +317,7 @@ def main() -> None:
     ax.set_ylabel(r"$\mathrm{TC}(t)$  (nats)")
     _ordered_legend(
         ax,
-        ["Windowed vine", "Gaussian SSM", "oracle TC", "NF-copula"],
+        ["DVC-switch", "Win. vine", "Gaussian SSM", "oracle TC", "NF-copula"],
         loc="lower center",
         bbox_to_anchor=(0.5, 1.015),
         ncol=2,
@@ -311,17 +329,23 @@ def main() -> None:
     )
     add_panel_label(ax, "B", fontsize=8)
 
-    # -------- Panel C: windowed full-vine pair vs higher-order decomposition --------
+    # -------- Panel C: full-vine pair vs higher-order decomposition --------
     ax = axes[2]
     _phase_bands(ax, boundaries, phase_names)
     _plot_mean_with_band(
         ax, t_axis, tc_pair, tc_pair_std,
-        color=COLORS["blue"], label=r"$\mathrm{TC}_\mathrm{pair}(t)$", lw=1.9, smooth_window=3, band_alpha=0.12
+        color=COLORS["blue"], label=r"DVC-switch pair", lw=1.9, smooth_window=3, band_alpha=0.12
     )
     _plot_mean_with_band(
         ax, t_axis, tc_higher, tc_higher_std,
-        color=COLORS["red"], label=r"$\mathrm{TC}_\mathrm{higher}(t)$", lw=1.9, smooth_window=3, band_alpha=0.12
+        color=COLORS["red"], label=r"DVC-switch higher", lw=1.9, smooth_window=3, band_alpha=0.12
     )
+    if has_switching:
+        _plot_mean_with_band(
+            ax, t_axis, tc_higher_windowed, tc_higher_windowed_std,
+            color=COLORS["gray"], label=r"Win. vine higher", ls=(0, (3, 1.5)),
+            lw=1.25, smooth_window=3, band_alpha=0.05
+        )
     _plot_truth(
         ax, t_axis, truth_pair,
         color=COLORS["blue"], label=r"oracle pair", ls=(0, (4, 2)), lw=1.2
@@ -335,8 +359,9 @@ def main() -> None:
     _ordered_legend(
         ax,
         [
-            r"$\mathrm{TC}_\mathrm{pair}(t)$",
-            r"$\mathrm{TC}_\mathrm{higher}(t)$",
+            r"DVC-switch pair",
+            r"DVC-switch higher",
+            r"Win. vine higher",
             r"oracle pair",
             r"oracle higher",
         ],

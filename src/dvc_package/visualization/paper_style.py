@@ -105,8 +105,13 @@ COLOR_CYCLE = [
 # ---------------------------------------------------------------------------
 METHOD_STYLES: Dict[str, Dict[str, object]] = {
     "DVC":                {"color": COLORS["black"],  "ls": "-",                "lw": 2.3, "marker": "o", "ms": 2.6},
+    "DVC-switch":         {"color": COLORS["black"],  "ls": "-",                "lw": 2.3, "marker": "o", "ms": 2.6},
+    "DVC-smooth":         {"color": COLORS["black"],  "ls": (0, (7, 2)),        "lw": 2.2, "marker": "o", "ms": 2.6},
+    "DVC-latent":         {"color": COLORS["purple"], "ls": (0, (3, 1.5)),      "lw": 2.1, "marker": "D", "ms": 2.6},
+    "Win. vine":          {"color": COLORS["gray"],   "ls": (0, (3, 1.5)),      "lw": 1.9, "marker": "s", "ms": 2.4},
+    "Reg. win.":          {"color": "#8C510A",        "ls": (0, (6, 2, 1, 2)),  "lw": 2.2, "marker": "P", "ms": 2.7},
     "Switching Dynamic DVC": {"color": COLORS["black"], "ls": "-",              "lw": 2.3, "marker": "o", "ms": 2.6},
-    "Joint DVC (smooth)": {"color": COLORS["black"],  "ls": "-",                "lw": 2.3, "marker": "o", "ms": 2.6},
+    "Joint DVC (smooth)": {"color": COLORS["black"],  "ls": (0, (7, 2)),        "lw": 2.2, "marker": "o", "ms": 2.6},
     "Joint DVC (switching)": {"color": COLORS["black"], "ls": "-",              "lw": 2.3, "marker": "o", "ms": 2.6},
     "Windowed vine":      {"color": COLORS["gray"],   "ls": (0, (3, 1.5)),      "lw": 1.9, "marker": "s", "ms": 2.4},
     "Gaussian copula":    {"color": COLORS["blue"],   "ls": "-",                "lw": 1.9, "marker": "o", "ms": 2.5},
@@ -124,11 +129,16 @@ METHOD_STYLES: Dict[str, Dict[str, object]] = {
 
 # Short display names for compact legends and axis labels
 SHORT_METHOD_NAMES: Dict[str, str] = {
-    "DVC":                "DVC",
-    "Switching Dynamic DVC": "DVC",
-    "Joint DVC (smooth)": "DVC",
-    "Joint DVC (switching)": "DVC",
-    "Windowed vine":      "Windowed",
+    "DVC":                "DVC-switch",
+    "DVC-switch":         "DVC-switch",
+    "DVC-smooth":         "DVC-smooth",
+    "DVC-latent":         "DVC-latent",
+    "Win. vine":          "Win. vine",
+    "Reg. win.":          "Reg. win.",
+    "Switching Dynamic DVC": "DVC-switch",
+    "Joint DVC (smooth)": "DVC-smooth",
+    "Joint DVC (switching)": "DVC-switch",
+    "Windowed vine":      "Win. vine",
     "Gaussian copula":    "Gauss. cop.",
     "1-truncated C-vine": "1-trunc.",
     "Graphical Lasso":    "GLasso",
@@ -137,9 +147,9 @@ SHORT_METHOD_NAMES: Dict[str, str] = {
     "KDE-flow (time BW)": "KDE-flow",
     "Regularized DVC":    "Reg. win.",
     "Regularized windowed": "Reg. win.",
-    "Joint Dynamic DVC":  "DVC",
-    "Latent-State DVC":   "Latent",
-    "Latent-state joint vine": "Latent",
+    "Joint Dynamic DVC":  "DVC-smooth",
+    "Latent-State DVC":   "DVC-latent",
+    "Latent-state joint vine": "DVC-latent",
 }
 
 SHORT_SCENARIO_NAMES: Dict[str, str] = {
@@ -159,10 +169,10 @@ GAP_KEY_TO_NAME = {
     "nll_gap_tvgl":            "TVGL (Frobenius)",
     "nll_gap_state_space":     "Gaussian SSM",
     "nll_gap_kde_flow":        "KDE-flow (time BW)",
-    "nll_gap_windowed_vine":   "Windowed vine",
-    "nll_gap_regularized_dvc": "Regularized windowed",
-    "nll_gap_joint_dynamic_dvc": "Joint DVC (smooth)",
-    "nll_gap_latent_state_dvc": "Latent-state joint vine",
+    "nll_gap_windowed_vine":   "Win. vine",
+    "nll_gap_regularized_dvc": "Reg. win.",
+    "nll_gap_joint_dynamic_dvc": "DVC-smooth",
+    "nll_gap_latent_state_dvc": "DVC-latent",
 }
 
 # ---------------------------------------------------------------------------
