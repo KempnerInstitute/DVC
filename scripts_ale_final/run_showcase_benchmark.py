@@ -458,14 +458,18 @@ def _run_single_seed(
         mine_01 = _run_pairwise_mine(windows, pair=(0, 1), mine_epochs=mine_epochs)
         print(f"Running MINE for pair (5, 6) [seed {seed}] ...")
         mine_56 = _run_pairwise_mine(windows, pair=(5, 6), mine_epochs=mine_epochs)
-    dvc_mi_01 = _run_pairwise_gaussian_mi(windows, pair=(0, 1))
-    dvc_mi_56 = _run_pairwise_gaussian_mi(windows, pair=(5, 6))
+    tau_gauss_mi_01 = _run_pairwise_gaussian_mi(windows, pair=(0, 1))
+    tau_gauss_mi_56 = _run_pairwise_gaussian_mi(windows, pair=(5, 6))
 
     for t_idx in range(config.t):
         rows[t_idx]["mine_mi_pair01"] = float(mine_01[t_idx])
         rows[t_idx]["mine_mi_pair56"] = float(mine_56[t_idx])
-        rows[t_idx]["dvc_pair_mi01"] = float(dvc_mi_01[t_idx])
-        rows[t_idx]["dvc_pair_mi56"] = float(dvc_mi_56[t_idx])
+        rows[t_idx]["tau_gauss_pair_mi01"] = float(tau_gauss_mi_01[t_idx])
+        rows[t_idx]["tau_gauss_pair_mi56"] = float(tau_gauss_mi_56[t_idx])
+        # Backward-compatible aliases for older plotting scripts. These are not
+        # DVC model estimates; the augmentation script adds true DVC-switch MI.
+        rows[t_idx]["dvc_pair_mi01"] = float(tau_gauss_mi_01[t_idx])
+        rows[t_idx]["dvc_pair_mi56"] = float(tau_gauss_mi_56[t_idx])
 
     for phase_name in config.phases:
         phase_rows = [row for row in rows if row["phase_name"] == phase_name]

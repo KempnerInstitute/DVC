@@ -25,7 +25,9 @@ from dvc_package.experiments.simulation_benchmarks import _fit_switching_dynamic
 from scripts_ale_final.showcase_analysis_utils import (  # noqa: E402
     FAMILIES,
     ShowcaseConfig,
+    gaussian_mi_from_tau,
     generate_sequence,
+    showcase_truth_by_phase,
     split_train_test,
 )
 
@@ -37,6 +39,82 @@ DEFAULT_SUMMARY = (
     / "proper_sota_nf_mine_1seed"
     / "summary.json"
 )
+
+
+def _dvc_sample_pair_mi(
+    vine: Any,
+    pair: tuple[int, int],
+    *,
+    n_samples: int,
+    seed: int,
+) -> float:
+    """Estimate marginal pairwise MI from samples drawn from a fitted DVC vine."""
+    try:
+        from sklearn.feature_selection import mutual_info_regression
+    except Exception:
+        mutual_info_regression = None
+
+    np_state = np.random.get_state()
+    torch_state = None
+    torch_mod = None
+    try:
+        try:
+            import torch as torch_mod  # type: ignore[no-redef]
+
+            torch_state = torch_mod.random.get_rng_state()
+            torch_mod.manual_seed(int(seed))
+        except Exception:
+            torch_mod = None
+        np.random.seed(int(seed))
+        samples = vine.sample(int(n_samples)) if hasattr(vine, "sample") else None
+    finally:
+        np.random.set_state(np_state)
+        if torch_mod is not None and torch_state is not None:
+            try:
+                torch_mod.random.set_rng_state(torch_state)
+            except Exception:
+                pass
+
+    if samples is None:
+        return float("nan")
+    try:
+        import torch
+
+        if torch.is_tensor(samples):
+            samples = samples.detach().cpu().numpy()
+    except Exception:
+        pass
+    x = np.asarray(samples, dtype=np.float64)
+    if x.ndim != 2 or x.shape[1] <= max(pair) or x.shape[0] < 20:
+        return float("nan")
+    xi = x[:, int(pair[0])]
+    xj = x[:, int(pair[1])]
+    good = np.isfinite(xi) & np.isfinite(xj)
+    xi = xi[good]
+    xj = xj[good]
+    if xi.size < 20 or np.std(xi) < 1e-12 or np.std(xj) < 1e-12:
+        return 0.0
+
+    if mutual_info_regression is not None:
+        try:
+            mi = mutual_info_regression(
+                xi.reshape(-1, 1),
+                xj,
+                n_neighbors=5,
+                random_state=int(seed),
+            )[0]
+            if np.isfinite(mi):
+                return float(max(mi, 0.0))
+        except Exception:
+            pass
+
+    try:
+        import pandas as pd
+
+        tau = float(pd.Series(xi).corr(pd.Series(xj), method="kendall"))
+        return gaussian_mi_from_tau(tau)
+    except Exception:
+        return float("nan")
 
 
 def _config_from_summary(summary: dict[str, Any]) -> ShowcaseConfig:
@@ -72,6 +150,8 @@ def augment(summary_path: Path) -> None:
         raise ValueError(f"No seeds found in {summary_path}")
 
     all_nll: list[np.ndarray] = []
+    all_pair_mi01: list[np.ndarray] = []
+    all_pair_mi56: list[np.ndarray] = []
     family_switches: list[int] = []
     parameter_drifts: list[float] = []
     for seed in seeds:
@@ -88,17 +168,46 @@ def augment(summary_path: Path) -> None:
             activation_penalty=0.0,
         )
         all_nll.append(np.asarray(nll, dtype=np.float64))
+        mi01 = []
+        mi56 = []
+        for t_idx, vine in enumerate(result.vines_by_time):
+            mi01.append(
+                _dvc_sample_pair_mi(
+                    vine,
+                    (0, 1),
+                    n_samples=1500,
+                    seed=900_000 + 101 * int(seed) + int(t_idx),
+                )
+            )
+            mi56.append(
+                _dvc_sample_pair_mi(
+                    vine,
+                    (5, 6),
+                    n_samples=1500,
+                    seed=910_000 + 101 * int(seed) + int(t_idx),
+                )
+            )
+        all_pair_mi01.append(np.asarray(mi01, dtype=np.float64))
+        all_pair_mi56.append(np.asarray(mi56, dtype=np.float64))
         family_switches.append(int(result.total_family_switches()))
         parameter_drifts.append(float(result.total_parameter_drift()))
 
     nll_stack = np.vstack(all_nll)
     nll_mean = np.nanmean(nll_stack, axis=0)
     nll_std = np.nanstd(nll_stack, axis=0)
+    mi01_stack = np.vstack(all_pair_mi01)
+    mi56_stack = np.vstack(all_pair_mi56)
+    mi01_mean = np.nanmean(mi01_stack, axis=0)
+    mi01_std = np.nanstd(mi01_stack, axis=0)
+    mi56_mean = np.nanmean(mi56_stack, axis=0)
+    mi56_std = np.nanstd(mi56_stack, axis=0)
 
     rows = summary.get("rows", [])
     if len(rows) != config.t:
         raise ValueError(f"Expected {config.t} rows, found {len(rows)}")
+    truth_by_phase = showcase_truth_by_phase(config, variant)
     for t_idx, row in enumerate(rows):
+        row.update(truth_by_phase.get(str(row.get("phase_name", "")), {}))
         nll = float(nll_mean[t_idx])
         std = float(nll_std[t_idx])
         tc_total = float(-nll)
@@ -110,12 +219,22 @@ def augment(summary_path: Path) -> None:
         row["tc_pair_switching_dvc"] = tc_pair
         row["tc_higher_switching_dvc"] = float(tc_total - tc_pair) if np.isfinite(tc_pair) else float("nan")
         row["nll_gap_windowed_vine_vs_switching_dvc"] = float(row.get("nll_dvc", np.nan) - nll)
+        if "tau_gauss_pair_mi01" not in row and "dvc_pair_mi01" in row:
+            row["tau_gauss_pair_mi01"] = float(row.get("dvc_pair_mi01", np.nan))
+        if "tau_gauss_pair_mi56" not in row and "dvc_pair_mi56" in row:
+            row["tau_gauss_pair_mi56"] = float(row.get("dvc_pair_mi56", np.nan))
+        row["dvc_switch_pair_mi01"] = float(mi01_mean[t_idx])
+        row["dvc_switch_pair_mi01_std"] = float(mi01_std[t_idx])
+        row["dvc_switch_pair_mi56"] = float(mi56_mean[t_idx])
+        row["dvc_switch_pair_mi56_std"] = float(mi56_std[t_idx])
 
     summary["include_switching_dvc"] = True
     summary["switching_dvc_summary"] = {
         "n_runs": len(seeds),
         "mean_total_family_switches": float(np.mean(family_switches)),
         "mean_total_parameter_drift": float(np.mean(parameter_drifts)),
+        "pair_mi_estimator": "sampled fitted DVC-switch vine + sklearn mutual_info_regression",
+        "pair_mi_n_samples": 1500,
         "seeds": seeds,
     }
     summary_path.write_text(json.dumps(summary, indent=2))

@@ -8,7 +8,7 @@ Four panels:
       baseline, against oracle/analytic ground truth.
 - (C) Joint switching-DVC decomposition: $\\TC_{\\mathrm{pair}}(t)$ vs
       $\\TC_{\\mathrm{higher}}(t)$, with the windowed control and oracle targets.
-- (D) Pairwise MI: MINE vs the full-vine rank-tau pair MI proxy for two
+- (D) Pairwise MI: MINE vs DVC-switch sample-based pair MI for two
       representative pairs, with oracle pairwise MI targets.
 
 Styling is delegated entirely to ``dvc_package.visualization.paper_style`` so
@@ -238,10 +238,10 @@ def main() -> None:
     mine_01_std = _series(rows, "mine_mi_pair01_std")
     mine_56 = _series(rows, "mine_mi_pair56")
     mine_56_std = _series(rows, "mine_mi_pair56_std")
-    dvc_mi_01 = _series(rows, "dvc_pair_mi01")
-    dvc_mi_01_std = _series(rows, "dvc_pair_mi01_std")
-    dvc_mi_56 = _series(rows, "dvc_pair_mi56")
-    dvc_mi_56_std = _series(rows, "dvc_pair_mi56_std")
+    dvc_mi_01 = _series(rows, "dvc_switch_pair_mi01")
+    dvc_mi_01_std = _series(rows, "dvc_switch_pair_mi01_std")
+    dvc_mi_56 = _series(rows, "dvc_switch_pair_mi56")
+    dvc_mi_56_std = _series(rows, "dvc_switch_pair_mi56_std")
     truth_tc = _series(rows, "truth_tc_total")
     truth_pair = _series(rows, "truth_tc_pair_oracle")
     truth_higher = _series(rows, "truth_tc_higher_oracle")
@@ -376,7 +376,7 @@ def main() -> None:
     )
     add_panel_label(ax, "C", fontsize=8)
 
-    # -------- Panel D: pairwise MI -- MINE vs full-vine rank-tau proxy --------
+    # -------- Panel D: pairwise MI -- MINE vs DVC-switch sample MI --------
     ax = axes[3]
     _phase_bands(ax, boundaries, phase_names)
     _plot_mean_with_band(
@@ -385,7 +385,7 @@ def main() -> None:
     )
     _plot_mean_with_band(
         ax, t_axis, dvc_mi_01, dvc_mi_01_std,
-        color=COLORS["cyan"], label=r"Vine $\tau$ star", ls=(0, (5, 1.5, 1.2, 1.5)), lw=1.35, smooth_window=3, band_alpha=0.08
+        color=COLORS["cyan"], label=r"DVC-switch star", ls=(0, (5, 1.5, 1.2, 1.5)), lw=1.35, smooth_window=3, band_alpha=0.08
     )
     _plot_mean_with_band(
         ax, t_axis, mine_56, mine_56_std,
@@ -393,7 +393,7 @@ def main() -> None:
     )
     _plot_mean_with_band(
         ax, t_axis, dvc_mi_56, dvc_mi_56_std,
-        color=COLORS["orange"], label=r"Vine $\tau$ triplet", ls=(0, (5, 1.5, 1.2, 1.5)), lw=1.35, smooth_window=3, band_alpha=0.08
+        color=COLORS["orange"], label=r"DVC-switch triplet", ls=(0, (5, 1.5, 1.2, 1.5)), lw=1.35, smooth_window=3, band_alpha=0.08
     )
     _plot_truth(
         ax, t_axis, truth_mi_01,
@@ -410,10 +410,10 @@ def main() -> None:
         ax,
         [
             r"MINE star",
-            r"Vine $\tau$ star",
+            r"DVC-switch star",
             r"oracle star",
             r"MINE triplet",
-            r"Vine $\tau$ triplet",
+            r"DVC-switch triplet",
             r"oracle triplet",
         ],
         loc="lower center",
