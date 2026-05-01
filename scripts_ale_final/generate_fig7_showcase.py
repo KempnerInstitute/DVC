@@ -3,12 +3,13 @@
 
 Four panels:
 - (A) Ground-truth phase timeline.
-- (B) Total correlation $\\TC(t)$ estimated by DVC, NF-copula, and the Gaussian
-      state-space baseline, against oracle/analytic ground truth.
-- (C) DVC decomposition: $\\TC_{\\mathrm{pair}}(t)$ vs $\\TC_{\\mathrm{higher}}(t)$,
+- (B) Total correlation $\\TC(t)$ estimated by the windowed full-vine control,
+      NF-copula, and the Gaussian state-space baseline, against oracle/analytic
+      ground truth.
+- (C) Windowed full-vine decomposition: $\\TC_{\\mathrm{pair}}(t)$ vs $\\TC_{\\mathrm{higher}}(t)$,
       with pairwise and higher-order oracle targets.
-- (D) Pairwise MI: MINE vs DVC rank-tau pair MI for two representative pairs,
-      with oracle pairwise MI targets.
+- (D) Pairwise MI: MINE vs the full-vine rank-tau pair MI proxy for two
+      representative pairs, with oracle pairwise MI targets.
 
 Styling is delegated entirely to ``dvc_package.visualization.paper_style`` so
 this figure matches the look-and-feel of the other main-paper figures.
@@ -280,7 +281,7 @@ def main() -> None:
     _phase_bands(ax, boundaries, phase_names)
     _plot_mean_with_band(
         ax, t_axis, tc_dvc, tc_dvc_std,
-        color=COLORS["black"], label="DVC", lw=2.0, smooth_window=3, band_alpha=0.12
+        color=COLORS["black"], label="Windowed vine", lw=2.0, smooth_window=3, band_alpha=0.12
     )
     _plot_mean_with_band(
         ax, t_axis, tc_nf, tc_nf_std,
@@ -298,7 +299,7 @@ def main() -> None:
     ax.set_ylabel(r"$\mathrm{TC}(t)$  (nats)")
     _ordered_legend(
         ax,
-        ["DVC", "Gaussian SSM", "oracle TC", "NF-copula"],
+        ["Windowed vine", "Gaussian SSM", "oracle TC", "NF-copula"],
         loc="lower center",
         bbox_to_anchor=(0.5, 1.015),
         ncol=2,
@@ -310,7 +311,7 @@ def main() -> None:
     )
     add_panel_label(ax, "B", fontsize=8)
 
-    # -------- Panel C: DVC pair vs higher-order decomposition --------
+    # -------- Panel C: windowed full-vine pair vs higher-order decomposition --------
     ax = axes[2]
     _phase_bands(ax, boundaries, phase_names)
     _plot_mean_with_band(
@@ -350,39 +351,46 @@ def main() -> None:
     )
     add_panel_label(ax, "C", fontsize=8)
 
-    # -------- Panel D: pairwise MI -- MINE vs DVC rank-tau --------
+    # -------- Panel D: pairwise MI -- MINE vs full-vine rank-tau proxy --------
     ax = axes[3]
     _phase_bands(ax, boundaries, phase_names)
     _plot_mean_with_band(
         ax, t_axis, mine_01, mine_01_std,
-        color=COLORS["blue"], label=r"MINE 0--1", lw=1.7, smooth_window=3, band_alpha=0.10
+        color=COLORS["blue"], label=r"MINE star", lw=1.7, smooth_window=3, band_alpha=0.10
     )
     _plot_mean_with_band(
         ax, t_axis, dvc_mi_01, dvc_mi_01_std,
-        color=COLORS["blue"], label=r"DVC 0--1", ls=(0, (2, 1.5)), lw=1.3, smooth_window=3, band_alpha=0.08
+        color=COLORS["cyan"], label=r"Vine $\tau$ star", ls=(0, (5, 1.5, 1.2, 1.5)), lw=1.35, smooth_window=3, band_alpha=0.08
     )
     _plot_mean_with_band(
         ax, t_axis, mine_56, mine_56_std,
-        color=COLORS["red"], label=r"MINE 5--6", lw=1.7, smooth_window=3, band_alpha=0.10
+        color=COLORS["red"], label=r"MINE triplet", lw=1.7, smooth_window=3, band_alpha=0.10
     )
     _plot_mean_with_band(
         ax, t_axis, dvc_mi_56, dvc_mi_56_std,
-        color=COLORS["red"], label=r"DVC 5--6", ls=(0, (2, 1.5)), lw=1.3, smooth_window=3, band_alpha=0.08
+        color=COLORS["orange"], label=r"Vine $\tau$ triplet", ls=(0, (5, 1.5, 1.2, 1.5)), lw=1.35, smooth_window=3, band_alpha=0.08
     )
     _plot_truth(
         ax, t_axis, truth_mi_01,
-        color=COLORS["blue"], label=r"oracle 0--1", ls=(0, (4, 2)), lw=1.15
+        color="#08306B", label=r"oracle star", ls=(0, (1, 1.2)), lw=1.25
     )
     _plot_truth(
         ax, t_axis, truth_mi_56,
-        color=COLORS["red"], label=r"oracle 5--6", ls=(0, (4, 2)), lw=1.15
+        color="#67000D", label=r"oracle triplet", ls=(0, (1, 1.2)), lw=1.25
     )
     ax.axhline(0.0, color=COLORS["gray"], lw=0.5, ls="--", alpha=0.8, zorder=0.5)
     ax.set_ylabel("MI (nats)")
     ax.set_xlabel(r"time-window index $t$")
     _ordered_legend(
         ax,
-        [r"MINE 0--1", r"MINE 5--6", r"DVC 0--1", r"DVC 5--6", r"oracle 0--1", r"oracle 5--6"],
+        [
+            r"MINE star",
+            r"Vine $\tau$ star",
+            r"oracle star",
+            r"MINE triplet",
+            r"Vine $\tau$ triplet",
+            r"oracle triplet",
+        ],
         loc="lower center",
         bbox_to_anchor=(0.5, 1.015),
         ncol=3,

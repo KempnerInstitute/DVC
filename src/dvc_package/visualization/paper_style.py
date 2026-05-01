@@ -106,6 +106,8 @@ COLOR_CYCLE = [
 METHOD_STYLES: Dict[str, Dict[str, object]] = {
     "DVC":                {"color": COLORS["black"],  "ls": "-",                "lw": 2.3, "marker": "o", "ms": 2.6},
     "Switching Dynamic DVC": {"color": COLORS["black"], "ls": "-",              "lw": 2.3, "marker": "o", "ms": 2.6},
+    "Joint DVC (smooth)": {"color": COLORS["black"],  "ls": "-",                "lw": 2.3, "marker": "o", "ms": 2.6},
+    "Joint DVC (switching)": {"color": COLORS["black"], "ls": "-",              "lw": 2.3, "marker": "o", "ms": 2.6},
     "Windowed vine":      {"color": COLORS["gray"],   "ls": (0, (3, 1.5)),      "lw": 1.9, "marker": "s", "ms": 2.4},
     "Gaussian copula":    {"color": COLORS["blue"],   "ls": "-",                "lw": 1.9, "marker": "o", "ms": 2.5},
     "1-truncated C-vine": {"color": COLORS["cyan"],   "ls": (0, (4, 2)),        "lw": 2.0, "marker": "s", "ms": 2.5},
@@ -117,12 +119,15 @@ METHOD_STYLES: Dict[str, Dict[str, object]] = {
     "Regularized windowed": {"color": "#8C510A",      "ls": (0, (6, 2, 1, 2)),  "lw": 2.2, "marker": "P", "ms": 2.7},
     "Joint Dynamic DVC":  {"color": "#B2182B",        "ls": (0, (8, 2)),        "lw": 2.2, "marker": "o", "ms": 2.6},
     "Latent-State DVC":   {"color": COLORS["purple"], "ls": (0, (3, 1.5)),      "lw": 2.1, "marker": "D", "ms": 2.6},
+    "Latent-state joint vine": {"color": COLORS["purple"], "ls": (0, (3, 1.5)), "lw": 2.1, "marker": "D", "ms": 2.6},
 }
 
 # Short display names for compact legends and axis labels
 SHORT_METHOD_NAMES: Dict[str, str] = {
     "DVC":                "DVC",
-    "Switching Dynamic DVC": "Switch DVC",
+    "Switching Dynamic DVC": "DVC",
+    "Joint DVC (smooth)": "DVC",
+    "Joint DVC (switching)": "DVC",
     "Windowed vine":      "Windowed",
     "Gaussian copula":    "Gauss. cop.",
     "1-truncated C-vine": "1-trunc.",
@@ -132,8 +137,9 @@ SHORT_METHOD_NAMES: Dict[str, str] = {
     "KDE-flow (time BW)": "KDE-flow",
     "Regularized DVC":    "Reg. win.",
     "Regularized windowed": "Reg. win.",
-    "Joint Dynamic DVC":  "Joint DVC",
-    "Latent-State DVC":   "Latent DVC",
+    "Joint Dynamic DVC":  "DVC",
+    "Latent-State DVC":   "Latent",
+    "Latent-state joint vine": "Latent",
 }
 
 SHORT_SCENARIO_NAMES: Dict[str, str] = {
@@ -155,8 +161,8 @@ GAP_KEY_TO_NAME = {
     "nll_gap_kde_flow":        "KDE-flow (time BW)",
     "nll_gap_windowed_vine":   "Windowed vine",
     "nll_gap_regularized_dvc": "Regularized windowed",
-    "nll_gap_joint_dynamic_dvc": "Joint Dynamic DVC",
-    "nll_gap_latent_state_dvc": "Latent-State DVC",
+    "nll_gap_joint_dynamic_dvc": "Joint DVC (smooth)",
+    "nll_gap_latent_state_dvc": "Latent-state joint vine",
 }
 
 # ---------------------------------------------------------------------------

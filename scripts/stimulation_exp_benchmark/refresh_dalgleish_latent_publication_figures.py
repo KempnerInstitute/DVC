@@ -169,8 +169,9 @@ def _plot_panel_a(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame)
             )
     ax.axhline(0.0, color="#444444", linewidth=1.0)
     ax.grid(axis="y", alpha=0.5)
-    ax.set_xticks(x, [BASELINE_LABELS[b] for b in BASELINE_ORDER])
-    ax.tick_params(axis="x", labelsize=4.8)
+    ax.set_xticks(x)
+    ax.set_xticklabels([BASELINE_LABELS[b] for b in BASELINE_ORDER], rotation=28, ha="right", rotation_mode="anchor")
+    ax.tick_params(axis="x", labelsize=4.8, pad=1.0)
     ax.set_ylabel(r"$\Delta$NLL vs DVC")
     ax.set_title("Baseline benchmark", fontsize=6.5)
     ax.text(
@@ -308,6 +309,7 @@ def _plot_panel_d(ax: plt.Axes, family_df: pd.DataFrame) -> None:
         )
         left += vals
     ax.set_yticks(y, ["Targeted", "Mixed", "Non-targeted"])
+    ax.tick_params(axis="y", labelsize=4.8, pad=1.0)
     ax.set_xlim(0.0, 1.0)
     ax.set_xlabel("Edge fraction")
     ax.set_title("Selected families", fontsize=6.5)
@@ -326,7 +328,7 @@ def _plot_panel_d(ax: plt.Axes, family_df: pd.DataFrame) -> None:
 
 def _plot_main_figure(static_df: pd.DataFrame, stats_df: pd.DataFrame, family_df: pd.DataFrame, out_path: Path) -> None:
     fig = plt.figure(figsize=(TEXTWIDTH, 2.62))
-    gs = fig.add_gridspec(1, 4, wspace=0.56, width_ratios=[1.08, 0.82, 1.08, 1.12])
+    gs = fig.add_gridspec(1, 4, wspace=0.72, width_ratios=[1.08, 0.82, 1.08, 1.18])
     ax_a = fig.add_subplot(gs[0, 0])
     ax_b = fig.add_subplot(gs[0, 1])
     ax_c = fig.add_subplot(gs[0, 2])
@@ -345,7 +347,7 @@ def _plot_main_figure(static_df: pd.DataFrame, stats_df: pd.DataFrame, family_df
         ax.xaxis.label.set_size(6.0)
         ax.yaxis.label.set_size(6.0)
         add_panel_label(ax, label, x=-0.14, y=1.18, fontsize=8)
-    fig.subplots_adjust(left=0.075, right=0.985, bottom=0.34, top=0.82)
+    fig.subplots_adjust(left=0.075, right=0.985, bottom=0.38, top=0.82)
     fig.savefig(out_path, dpi=600)
     fig.savefig(out_path.with_suffix(".pdf"))
     plt.close(fig)
