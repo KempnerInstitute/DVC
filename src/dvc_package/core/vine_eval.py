@@ -94,7 +94,7 @@ def evaluate_fit(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[torc
     
     ker_grid_all = ker_grid_fin.reshape(adu11.shape[0], adu11.shape[0], n_cop).permute(1, 0, 2)
     
-    # Add small value to avoid log(0) - matching TensorFlow's 1e-15
+    # Add small value to avoid log(0).
     ker_grid_all = ker_grid_all + 1e-15 * NORM
     
     # Normalize the grid using the requested number of iterations directly.
@@ -154,7 +154,7 @@ def evaluate_fit(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[torc
                     cdf1[:, :, i].to(device)
                 )
             
-            # Step 2: Apply the 1D calibration used in the legacy TensorFlow
+            # Step 2: Apply the 1D calibration used by the grid evaluator.
             # code so the propagated pseudo-observations remain approximately
             # uniform.
             interp_cdf, _, _ = kernel_cdf(
@@ -286,7 +286,7 @@ def evaluate_fit_bin(data_dict: dict, grid_dict: dict, par_dict: dict) -> Tuple[
     
     ker_grid_all = ker_grid_fin.reshape(adu11.shape[0], adu11.shape[0], n_cop1).permute(1, 0, 2)
     
-    # Add small value to avoid log(0) - matching TensorFlow's 1e-15
+    # Add small value to avoid log(0).
     ker_grid_all = ker_grid_all + 1e-15 * NORM
     
     pdf1 = normalize_pdf_grid(

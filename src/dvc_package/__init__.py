@@ -1,19 +1,18 @@
-"""
-DVC (Dynamic Vine Copula) Package
+"""Dynamic Vine Copulas.
 
-A GPU-accelerated Python library for vine copula modeling, multivariate
-dependency estimation, and time-dependent entropy analysis using PyTorch.
+A Python package for vine copula modeling, multivariate dependence estimation,
+and time-indexed copula diagnostics.
 
 Key Features:
 - Multiple vine types: C-vine, D-vine, R-vine with structure optimization
 - Parametric copula families: Gaussian, Student-t, Clayton, Frank, Gumbel, Joe
 - Nonparametric local-likelihood copula estimation
-- Time-dependent dependency modeling using normalizing flows
+- Time-dependent C-vine estimators and normalizing-flow helpers
 - Monte Carlo entropy and mutual information estimation
 
 Main modules:
 - core: Complete vine copula implementation
-- time: Time-dependent modeling with normalizing flows
+- time: Time-dependent vine-copula models and flow helpers
 - optimization: Vine structure optimization algorithms
 - cli: Command-line interface tools
 - experiments: Experiment runners and templates

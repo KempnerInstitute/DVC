@@ -36,7 +36,8 @@ env.bak/
 venv.bak/
 .venv/
 .pytest_cache/
-# Archive folders (keep only DVC_tensorflow for reference)
+# Local-only legacy/archive folders
+archive/DVC_tensorflow/
 archive/DVC_NF/
 archive/experiments/
 archive/md_notes/
@@ -144,6 +145,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+site/
 
 # PyBuilder
 .pybuilder/

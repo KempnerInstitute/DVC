@@ -3,7 +3,7 @@
 
 set -e  # Exit on any error
 
-echo "Installing DVC (Distributed Vine Copula) Package"
+echo "Installing Dynamic Vine Copulas"
 echo "=================================================="
 
 # Check if we're in the correct directory
@@ -14,10 +14,10 @@ fi
 
 # Check Python version
 python_version=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
-required_version="3.8"
+required_version="3.10"
 
 if [ "$(printf '%s\n' "$required_version" "$python_version" | sort -V | head -n1)" != "$required_version" ]; then
-    echo "Error: Python 3.8+ required, found Python $python_version"
+    echo "Error: Python 3.10+ required, found Python $python_version"
     exit 1
 fi
 
@@ -100,7 +100,7 @@ echo "Example usage:"
 echo "  # Fit a vine copula to data"
 echo "  dvc-fit --data examples/sample_data.csv --vine-type r-vine --optimize --output model.pkl"
 echo ""
-echo "  # Run a benchmark experiment"
-echo "  dvc-experiment --config configs/experiments/basic_vine_comparison.yaml --output-dir results/"
+echo "  # Run a configured experiment"
+echo "  dvc-experiment --config configs/finance_crisis_benchmarks.yaml --output-dir results/"
 echo ""
 echo "Happy modeling!"

@@ -1,3 +1,0 @@
-"""
-DVC_tensorflow package.
-""" 

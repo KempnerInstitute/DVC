@@ -1,26 +1,22 @@
 #!/bin/bash
-# Activation script for DVC environment
+# Activate the local Dynamic Vine Copulas development environment.
+
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "Activating DVC environment..."
-source $(conda info --base)/etc/profile.d/conda.sh
+source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate dvc-env
 
-# Set Python path
-export PYTHONPATH="${PYTHONPATH}:$(pwd)/src"
+export PYTHONPATH="${ROOT_DIR}/src:${PYTHONPATH:-}"
 
-echo "DVC environment activated!"
-echo "Working directory: $(pwd)"
+echo "DVC environment activated"
+echo "Repository: ${ROOT_DIR}"
 echo "Python: $(which python)"
-echo "Environment: $(conda info --envs | grep '*' | awk '{print $1}')"
-
-# Display usage information
-echo ""
-echo "Ready to run experiments!"
-echo ""
-echo "Usage examples:"
-echo "  python scripts/run_experiment.py --create-examples"
-echo "  python scripts/run_experiment.py drafts/configs/probability_analysis.yaml"
-echo "  python scripts/run_experiment.py drafts/configs/entropy_analysis.yaml"
-echo "  python scripts/run_experiment.py drafts/configs/time_dependent.yaml"
-echo ""
-echo "For help: python scripts/run_experiment.py --help"
+echo
+echo "Useful commands:"
+echo "  python scripts/test_installation.py"
+echo "  python -m pytest -q"
+echo "  python examples/basic_vine_example.py"
+echo "  python scripts/run_experiment.py --list-examples"

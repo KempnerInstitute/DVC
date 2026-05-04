@@ -70,8 +70,7 @@ def interp_regular_nd_grid(x: torch.Tensor,
                           y_ref: torch.Tensor,
                           axis: int = -2) -> torch.Tensor:
     """
-    Interpolate on a regular N-D grid (similar to TensorFlow's 
-    tfp.math.batch_interp_regular_nd_grid).
+    Interpolate on a regular N-D grid.
     
     Args:
         x: Query points, shape [..., N, D]

@@ -78,3 +78,25 @@ def test_joint_dynamic_cvine_is_smoother_than_windowwise_tau_control():
 
     assert pred_rmse <= emp_rmse + 0.02
     assert pred_roughness < emp_roughness
+
+
+def test_joint_dynamic_cvine_frank_family_has_independence_floor():
+    rng = np.random.default_rng(123)
+    train = [rng.normal(size=(90, 3)).astype(np.float32) for _ in range(6)]
+    test = [rng.normal(size=(40, 3)).astype(np.float32) for _ in range(6)]
+
+    model = JointDynamicCVine(
+        families=["ind", "gaussian", "frank"],
+        order=[0, 1, 2],
+        n_basis=3,
+        smoothness_penalty=1.0,
+        ridge_penalty=1e-4,
+        maxiter=35,
+    )
+    result = model.fit(train)
+    nll = result.evaluate(test)
+    trunc = result.evaluate_truncated_level0(test)
+
+    assert np.all(np.isfinite(nll))
+    assert abs(float(np.mean(nll))) < 0.1
+    assert abs(float(np.mean(trunc - nll))) < 0.1

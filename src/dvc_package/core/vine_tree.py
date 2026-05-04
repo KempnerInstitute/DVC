@@ -297,7 +297,7 @@ def prepare_vine(vine_family, dim):
 
 def flip_check_all(ind_vine, tr, binning, n_bin):
     """
-    Return the TensorFlow-legacy list of h-function directions needed after a tree.
+    Return the legacy list of h-function directions needed after a tree.
 
     A single edge can be needed by two next-tree edges with different parent
     variables. The legacy implementation emitted that edge once per conditional

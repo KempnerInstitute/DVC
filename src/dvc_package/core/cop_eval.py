@@ -1,7 +1,7 @@
 ##################################################
 # src/DVC/cop_eval.py
 ##################################################
-# Copula evaluation functions matching TensorFlow implementation
+# Copula evaluation helpers for grid-based copula densities
 
 import torch
 import torch.nn.functional as F
@@ -16,7 +16,7 @@ def eval1(adu11_col1: torch.Tensor,
           t2: torch.Tensor,
           n_cop: int):
     """
-    Single iteration of row-column normalization (matching TensorFlow).
+    Single iteration of row-column normalization.
     
     Args:
         adu11_col1: Column differences, shape [1, K, n_cop]
@@ -156,9 +156,9 @@ def cdf_grid_fun_with_kernel_smoothing(pd_grid_uv: torch.Tensor,
                                        grid_s_min: torch.Tensor,
                                        grid_s_max: torch.Tensor) -> torch.Tensor:
     """
-    CRITICAL FIX: CDF computation with kernel smoothing step that TensorFlow does.
+    CDF computation with the kernel smoothing step used by the grid pipeline.
     
-    This is the missing piece - TensorFlow calls kernel_cdf after cdf_grid_fun
+    The grid pipeline applies ``kernel_cdf`` after ``cdf_grid_fun``.
     to ensure 1D uniform margins. PyTorch was skipping this step.
     
     Args:
@@ -175,7 +175,7 @@ def cdf_grid_fun_with_kernel_smoothing(pd_grid_uv: torch.Tensor,
     # First get basic CDF
     cdf1 = cdf_grid_fun(pd_grid_uv, ex_u, u1d, u2d, n_cop)
     
-    # CRITICAL: Apply the kernel_cdf smoothing step that TensorFlow does
+    # Apply the kernel_cdf smoothing step used by the grid pipeline.
     # This ensures 1D uniform margins and is often missing in PyTorch
     cdf1_smoothed = torch.zeros_like(cdf1)
     

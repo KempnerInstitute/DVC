@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 import matplotlib.pyplot as plt
@@ -296,6 +297,15 @@ def cohort_summary_table(results: Sequence[WindowedDependenceResult]) -> pd.Data
     rows: List[Dict[str, Any]] = []
     for result in results:
         mean_abs_corr = np.asarray(result.mean_abs_corr, dtype=np.float64)
+        gap = np.asarray(result.nll_gap_truncated_level0, dtype=np.float64)
+        time = np.linspace(0.0, 1.0, len(gap), dtype=np.float64) if gap.size else np.asarray([], dtype=np.float64)
+        change = np.asarray(result.change_fraction, dtype=np.float64)
+
+        def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
+            if a.size < 2 or b.size < 2 or np.nanstd(a) <= 0 or np.nanstd(b) <= 0:
+                return float("nan")
+            return float(np.corrcoef(a, b)[0, 1])
+
         rows.append(
             {
                 "session_id": int(result.session_id),
@@ -308,6 +318,8 @@ def cohort_summary_table(results: Sequence[WindowedDependenceResult]) -> pd.Data
                 "std_gap": float(result.std_gap),
                 "positive_gap_fraction": float(result.positive_gap_fraction),
                 "gap_change_corr": float(result.gap_change_corr),
+                "gap_time_corr": _safe_corr(gap, time),
+                "gap_mean_abs_corr_corr": _safe_corr(gap, mean_abs_corr),
                 "mean_abs_corr_mean": float(np.mean(mean_abs_corr)) if mean_abs_corr.size else float("nan"),
                 "mean_abs_corr_std": float(np.std(mean_abs_corr)) if mean_abs_corr.size else float("nan"),
             }
@@ -370,6 +382,31 @@ def summarize_cohort_results(results: Sequence[WindowedDependenceResult]) -> Dic
             ),
         }
 
+    temporal_summary: Dict[str, float] = {}
+    if not table.empty:
+        gap_cv = table["std_gap"].to_numpy(dtype=np.float64) / np.maximum(
+            np.abs(table["mean_gap"].to_numpy(dtype=np.float64)), 1e-12
+        )
+
+        def _mean_std(column: str) -> Dict[str, float]:
+            vals = table[column].to_numpy(dtype=np.float64)
+            vals = vals[np.isfinite(vals)]
+            return {
+                f"{column}_mean": float(np.mean(vals)) if vals.size else float("nan"),
+                f"{column}_std": float(np.std(vals)) if vals.size else float("nan"),
+            }
+
+        temporal_summary = {
+            "n_windows_per_session": int(np.median([len(r.nll_gap_truncated_level0) for r in results])),
+            "window_gap_std_mean": float(table["std_gap"].mean()),
+            "window_gap_std_std": float(table["std_gap"].std(ddof=0)),
+            "window_gap_cv_mean": float(np.nanmean(gap_cv)),
+            "window_gap_cv_std": float(np.nanstd(gap_cv)),
+            **_mean_std("gap_time_corr"),
+            **_mean_std("gap_change_corr"),
+            **_mean_std("gap_mean_abs_corr_corr"),
+        }
+
     return {
         "n_sessions": int(len(table)),
         "n_mice_with_pairs": int(len(paired_rows)),
@@ -377,6 +414,7 @@ def summarize_cohort_results(results: Sequence[WindowedDependenceResult]) -> Dic
         "experience_summary": experience_summary,
         "paired_mouse_deltas": paired_rows,
         "paired_summary": paired_summary,
+        "temporal_summary": temporal_summary,
     }
 
 
@@ -449,69 +487,201 @@ def plot_cohort_summary(
     *,
     out_path: str,
 ) -> str:
+    from dvc_package.visualization.paper_style import COLORS, TEXTWIDTH, add_panel_label, apply_style
+
+    apply_style()
     table = cohort_summary_table(results)
     if table.empty:
         raise ValueError("Need at least one result to plot")
 
     levels = ["Familiar", "Novel"]
     xpos = {"Familiar": 0.0, "Novel": 1.0}
-    colors = {"Familiar": "#1f77b4", "Novel": "#d95f02"}
+    colors = {"Familiar": COLORS["blue"], "Novel": COLORS["orange"]}
 
-    fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.8), constrained_layout=True)
-    metrics = [
-        ("mean_gap", "Mean higher-order gap (nats)"),
-        ("mean_abs_corr_mean", "Mean abs corr"),
-    ]
+    fig, axes = plt.subplots(
+        1,
+        3,
+        figsize=(TEXTWIDTH, 2.35),
+        gridspec_kw={"width_ratios": [1.0, 1.0, 1.15], "wspace": 0.40},
+        constrained_layout=False,
+    )
 
-    for ax, (metric, ylabel) in zip(axes, metrics):
-        for mouse_id, group in table.groupby("mouse_id", dropna=False):
-            group = group.sort_values("experience_level")
-            xs: List[float] = []
-            ys: List[float] = []
-            for level in levels:
-                sub = group[group["experience_level"] == level]
-                if sub.empty:
-                    continue
-                xs.append(xpos[level])
-                ys.append(float(sub.iloc[0][metric]))
-            if len(xs) == 2:
-                ax.plot(xs, ys, color="0.75", linewidth=1.0, zorder=1)
-            for level in levels:
-                sub = group[group["experience_level"] == level]
-                if sub.empty:
-                    continue
-                ax.scatter(
-                    xpos[level],
-                    float(sub.iloc[0][metric]),
-                    color=colors[level],
-                    edgecolor="white",
-                    linewidth=0.5,
-                    s=40,
-                    zorder=2,
-                )
+    rng = np.random.default_rng(0)
 
-        grouped = table.groupby("experience_level")[metric].mean()
+    def _bar_with_points(
+        ax: plt.Axes,
+        values_by_level: Dict[str, np.ndarray],
+        *,
+        ylabel: str,
+        title: str,
+        paired_lines: bool = False,
+    ) -> None:
         for level in levels:
-            if level not in grouped:
+            vals = values_by_level.get(level, np.asarray([], dtype=np.float64))
+            vals = vals[np.isfinite(vals)]
+            if not vals.size:
                 continue
-            ax.hlines(
-                float(grouped[level]),
-                xpos[level] - 0.18,
-                xpos[level] + 0.18,
-                color="black",
-                linewidth=2.0,
+            x0 = xpos[level]
+            ax.bar(
+                x0,
+                float(np.mean(vals)),
+                yerr=float(np.std(vals, ddof=0)),
+                width=0.50,
+                color=colors[level],
+                edgecolor=colors[level],
+                alpha=0.28,
+                error_kw={"elinewidth": 0.9, "ecolor": COLORS["black"], "capsize": 2.0},
+                zorder=1,
+            )
+            jitter = rng.uniform(-0.075, 0.075, size=vals.size)
+            ax.scatter(
+                np.full(vals.size, x0, dtype=np.float64) + jitter,
+                vals,
+                color=colors[level],
+                edgecolor="white",
+                linewidth=0.35,
+                s=20,
                 zorder=3,
             )
-
+        if paired_lines:
+            for _, group in table.groupby("mouse_id", dropna=False):
+                xs: List[float] = []
+                ys: List[float] = []
+                for level in levels:
+                    sub = group[group["experience_level"] == level]
+                    if sub.empty:
+                        continue
+                    xs.append(xpos[level])
+                    ys.append(float(sub.iloc[0]["mean_gap"]))
+                if len(xs) == 2:
+                    ax.plot(xs, ys, color="0.78", linewidth=0.75, zorder=2)
+        ax.axhline(0.0, color=COLORS["gray"], lw=0.6, ls="--", zorder=0)
         ax.set_xticks([xpos[level] for level in levels])
-        ax.set_xticklabels(levels)
+        ax.set_xticklabels(["Familiar", "Novel"])
         ax.set_ylabel(ylabel)
+        ax.set_title(title)
         ax.grid(alpha=0.25, axis="y")
 
-    axes[0].set_title("Allen VBN cohort: higher-order residual", fontsize=10)
-    axes[1].set_title("Allen VBN cohort: pairwise correlation", fontsize=10)
+    # A. Session-level full-vs-1-truncated gap.
+    ax = axes[0]
+    session_values = {
+        level: table.loc[table["experience_level"] == level, "mean_gap"].to_numpy(dtype=np.float64)
+        for level in levels
+    }
+    _bar_with_points(
+        ax,
+        session_values,
+        ylabel=r"Mean $\Delta_{\rm HO}$ (nats)",
+        title="Higher-order gap",
+        paired_lines=True,
+    )
+    all_session_gaps = table["mean_gap"].to_numpy(dtype=np.float64)
+    ax.text(
+        0.03,
+        0.96,
+        f"{np.sum(all_session_gaps > 0)}/{len(all_session_gaps)} sessions > 0",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=6.6,
+        bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="0.82", lw=0.4),
+    )
+    add_panel_label(ax, "A", x=-0.12, y=1.05, fontsize=9)
+
+    # B. Temporal variation of the windowed higher-order gap within sessions.
+    ax = axes[1]
+    temporal_values = {
+        level: table.loc[table["experience_level"] == level, "std_gap"].to_numpy(dtype=np.float64)
+        for level in levels
+    }
+    _bar_with_points(
+        ax,
+        temporal_values,
+        ylabel=r"SD over windows (nats)",
+        title="Temporal variation",
+        paired_lines=False,
+    )
+    all_window_gaps = [
+        float(v)
+        for result in results
+        for v in np.asarray(result.nll_gap_truncated_level0, dtype=np.float64)
+        if np.isfinite(v)
+    ]
+    finite_windows = np.asarray(all_window_gaps, dtype=np.float64)
+    n_windows = int(np.median([len(r.nll_gap_truncated_level0) for r in results]))
+    ax.text(
+        0.03,
+        0.96,
+        f"{n_windows} windows/session\n{np.mean(finite_windows > 0):.0%} window gaps > 0",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=6.6,
+        bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="0.82", lw=0.4),
+    )
+    add_panel_label(ax, "B", x=-0.12, y=1.05, fontsize=9)
+
+    # C. Session-level temporal associations of the windowed higher-order gap.
+    ax = axes[2]
+    metrics = [
+        ("gap_change_corr", "change"),
+        ("gap_mean_abs_corr_corr", r"mean $|r|$"),
+        ("gap_time_corr", "time"),
+    ]
+    for idx, (metric, label) in enumerate(metrics):
+        vals = table[metric].to_numpy(dtype=np.float64)
+        vals = vals[np.isfinite(vals)]
+        if vals.size:
+            mean_val = float(np.mean(vals))
+            sd_val = float(np.std(vals, ddof=0))
+            ax.bar(
+                idx,
+                mean_val,
+                yerr=sd_val,
+                width=0.55,
+                color=COLORS["gray"],
+                edgecolor=COLORS["gray"],
+                alpha=0.25,
+                error_kw={"elinewidth": 0.9, "ecolor": COLORS["black"], "capsize": 2.0},
+                zorder=1,
+            )
+        jitter = rng.uniform(-0.075, 0.075, size=len(vals))
+        exp_colors = [
+            colors.get(str(v), COLORS["gray"])
+            for v in table.loc[np.isfinite(table[metric].to_numpy(dtype=np.float64)), "experience_level"]
+        ]
+        ax.scatter(
+            np.full(len(vals), idx, dtype=np.float64) + jitter,
+            vals,
+            s=14,
+            c=exp_colors,
+            edgecolor="white",
+            linewidth=0.25,
+            alpha=0.9,
+            zorder=2,
+        )
+    ax.axhline(0.0, color=COLORS["gray"], lw=0.6, ls="--", zorder=0)
+    ax.set_xticks(np.arange(len(metrics)))
+    ax.set_xticklabels([label for _, label in metrics])
+    ax.set_ylim(-0.75, 0.75)
+    ax.set_ylabel(r"Corr. with $\Delta_{\rm HO}$")
+    ax.set_title("Covariate checks")
+    ax.grid(alpha=0.25, axis="y")
+    ax.text(
+        0.03,
+        0.96,
+        "means near zero",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=6.6,
+        bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="0.82", lw=0.4),
+    )
+    add_panel_label(ax, "C", x=-0.12, y=1.05, fontsize=9)
 
     out = str(out_path)
-    fig.savefig(out, dpi=300)
+    fig.savefig(out)
+    pdf_out = str(Path(out).with_suffix(".pdf"))
+    fig.savefig(pdf_out)
     plt.close(fig)
     return out

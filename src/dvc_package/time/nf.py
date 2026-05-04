@@ -2,7 +2,7 @@
 Normalizing flow utilities for time-dependent vine copulas.
 
 This module provides bijectors, transformations, and utility functions
-for normalizing flows, similar to TensorFlow Probability's bijectors.
+for normalizing flows, similar to standard probability-library bijectors.
 """
 
 import torch

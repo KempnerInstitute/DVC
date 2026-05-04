@@ -71,5 +71,6 @@ Two options:
 - % non-Gaussian edges
 - Temporal stability score
 
-This protocol is designed to map directly into the NeurIPS draft in `drafts/dvc_neurips_2026.tex`.
-
+For paper reproduction, keep the exact run configs, seeds, result manifests,
+and figure-generation scripts in the dedicated reproduction bundle rather than
+mixing them into the public package API.

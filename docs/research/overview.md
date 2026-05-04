@@ -17,7 +17,7 @@ DVC is aimed at modeling multivariate dependency structure beyond pairwise corre
 
 - The `core/` and `optimization/` modules are the most mature for reproducible studies.
 - The `time/` modules are usable for synthetic experiments and method prototyping.
-- `archive/` preserves TensorFlow-era implementations for historical comparison.
+- Local legacy material is kept outside the public release boundary.
 
 ## Suggested Workflow
 
@@ -27,4 +27,3 @@ DVC is aimed at modeling multivariate dependency structure beyond pairwise corre
 4. Report robustness across seeds, sample sizes, and vine types.
 
 See `docs/research/analysis_protocol.md` for a concrete protocol and reporting template.
-

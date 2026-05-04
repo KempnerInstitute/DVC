@@ -1,7 +1,8 @@
-"""Baselines for dependency modeling and time-varying structure.
+"""Baseline models for dependence modeling and time-varying structure.
 
-This package contains simple, reproducible baselines used in the NeurIPS draft
-experiments (e.g., TVGL-like Gaussian structure learning).
+These implementations are intentionally small and reproducible. They are useful
+for examples, tests, and benchmark comparisons against Gaussian or learned
+non-Gaussian alternatives.
 """
 
 from .tvgl import tvgl_frobenius  # noqa: F401
