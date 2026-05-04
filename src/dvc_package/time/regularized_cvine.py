@@ -1,15 +1,14 @@
-"""
-Temporally regularized dynamic C-vine fitting.
+"""Temporally regularized dynamic C-vine fitting.
 
-This module implements a practical dynamic C-vine estimator built on top of
-the existing static fitter:
+This module implements a practical dynamic C-vine control built on top of the
+static fitting API:
 - root sequences are optimized with dynamic programming under a switch penalty
 - per-window edge families are selected with stickiness penalties
 - same-family parameters can be shrunk toward the previous window
 
 The implementation is intentionally windowed and reproducible. It does not claim
-full joint optimization over all vine states, but it provides a concrete path
-from the current static codebase toward a defensible dynamic C-vine method.
+full joint optimization over all vine states; use it as a strong local-refit
+baseline for sequence-wide dynamic-vine estimators.
 """
 
 from __future__ import annotations

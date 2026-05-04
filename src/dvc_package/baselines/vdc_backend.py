@@ -7,9 +7,8 @@ alongside) classical parametric families.
 
 Installation
 ------------
-The ``vdc`` package lives at
-``/n/holylabs/LABS/kempner_dev/Users/hsafaai/Code/vine_diffusion_copula``
-and can be installed via::
+Install an external ``vdc`` package in the active environment before using this
+optional backend. For example::
 
     pip install -e /path/to/vine_diffusion_copula
 
@@ -56,7 +55,7 @@ def _require_vdc():
     if not vdc_available():
         raise ImportError(
             "The 'vdc' (vine-diffusion-copula) package is not installed. "
-            "Install it with: pip install -e /path/to/vine_diffusion_copula"
+            "Install it in the active environment before using VDCBackend."
         )
 
 

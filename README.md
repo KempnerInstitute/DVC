@@ -1,22 +1,35 @@
-# DVC: Dynamic Vine Copula Library
+# Dynamic Vine Copulas
 
-PyTorch-based tooling for vine copula modeling, information-theoretic analysis, and time-dependent dependency modeling.
+Dynamic Vine Copulas (DVC) is a Python package for vine-copula modeling,
+dependence estimation, and time-varying copula analysis. It provides reusable
+building blocks for static C-, D-, and R-vines, parametric and nonparametric
+pair-copula fitting, information-theoretic readouts, and dynamic C-vine
+estimators used for temporal dependence diagnostics.
 
-## What This Repository Contains
+This repository is being prepared for public release. The public package is
+kept separate from paper-only orchestration: reusable library code lives under
+`src/dvc_package`, runnable examples live under `examples` and `scripts`, and
+paper-specific figure/table workflows are staged under `drafts/projects`.
 
-- Parametric pair-copula fitting (`gaussian`, `student`, `clayton`, `frank`, `gumbel`, `ind`/`independence`)
-- Static nonparametric local-likelihood vine fitting via `gen_dict={"param": False}`
-- Vine structure construction for C-vine, D-vine, and R-vine
-- Vine-level density evaluation, sampling, entropy, and mutual information utilities
-- Structure optimization routines (sequential, genetic, entropy-guided, hybrid)
-- Vine-type selection across `C-vine`, `D-vine`, and `R-vine`
-- Time-series helpers and neural flow modules for time-conditioned bandwidth modeling
-- YAML-based experiment runner and reference configurations
-- Archived TensorFlow baseline in `archive/`
+## What You Can Do
+
+- Fit static C-, D-, and R-vines with Gaussian, Student-t, Clayton, Frank,
+  Gumbel, Joe, and independence pair-copula families.
+- Fit nonparametric local-likelihood vines for exploratory dependence
+  modeling.
+- Evaluate copula log likelihoods, sample fitted vines, and estimate entropy
+  and mutual information from fitted models.
+- Compare vine structures and optimize vine type/ordering with Kendall-tau,
+  AIC-style, entropy-guided, and hybrid criteria.
+- Fit temporal C-vine variants for time-indexed dependence:
+  `JointDynamicCVine`, `SwitchingDynamicCVine`, `RegularizedDynamicCVine`,
+  `LatentStateDynamicCVine`, and experimental dynamic nonparametric C-vines.
+- Run reproducible YAML-configured experiments through the public experiment
+  runner.
 
 ## Installation
 
-### Option 1: Conda
+With conda:
 
 ```bash
 conda env create -f environment.yml
@@ -24,7 +37,7 @@ conda activate dvc-env
 pip install -e .
 ```
 
-### Option 2: venv
+With venv:
 
 ```bash
 python -m venv .venv
@@ -33,168 +46,108 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-## Quick Validation
+Validate the install:
 
 ```bash
-# Full unit test suite
-python -m pytest -q
-
-# Optional environment verification
 python scripts/test_installation.py
+python -m pytest -q
 ```
 
-## Minimal Usage
+## Quick Start
 
 ```python
 import numpy as np
+
 from dvc_package.core.vine_factory import create_vine
-from dvc_package.core.vine_model import fit_vine
-from dvc_package.core.info_estimation import vine_entropy
+from dvc_package.core.vine_model import evaluate_vine, fit_vine
 
-# Synthetic 3D data
-data = np.random.multivariate_normal(
-    mean=[0.0, 0.0, 0.0],
-    cov=[[1.0, 0.5, 0.2], [0.5, 1.0, 0.3], [0.2, 0.3, 1.0]],
+rng = np.random.default_rng(0)
+x = rng.multivariate_normal(
+    mean=np.zeros(3),
+    cov=np.array([[1.0, 0.6, 0.2], [0.6, 1.0, 0.4], [0.2, 0.4, 1.0]]),
     size=1000,
+).astype("float32")
+
+families = ["independence", "gaussian", "student", "clayton", "gumbel"]
+vine = create_vine("c-vine", vine_depth=x.shape[1], families=families)
+
+fit_vine(
+    vine,
+    x,
+    gen_dict={"param": True, "binning": False, "fitted": True},
+    npc_dict={},
+    par_dict={"param_families": families},
+    bin_dict={},
 )
 
-vine = create_vine("c-vine", vine_depth=3, families=["ind", "gaussian", "clayton"])
-
-gen_dict = {"param": True, "binning": False, "fitted": False}
-npc_dict = {}
-par_dict = {"param_families": ["ind", "gaussian", "clayton"]}
-bin_dict = {}
-
-fit_vine(vine, data, gen_dict, npc_dict, par_dict, bin_dict)
-
-entropy_bits = vine_entropy(vine, {"alpha": 0.05, "cases": 1000, "iterations": 10})
-print(entropy_bits)
+log_density = evaluate_vine(vine, x[:10])
+print(log_density)
 ```
 
-To compare `C-vine`, `D-vine`, and `R-vine` and keep the best fitted model:
-
-```python
-from dvc_package.core.vine_factory import optimize_vine_type
-
-best_vine = optimize_vine_type(
-    data,
-    selection_criterion="aic",
-    optimize_structure=True,
-    optimization_method="sequential",
-    optimization_criterion="kendall_tau",
-    par_dict={"param_families": ["ind", "gaussian", "clayton"]},
-)
-```
-
-## Running Examples
+Try the included examples:
 
 ```bash
 python examples/basic_vine_example.py
 python examples/entropy_analysis_example.py
 python examples/time_dependent_example.py
-python scripts/run_nonparametric_vine_example.py
-python scripts/run_dynamic_nonparametric_vine_example.py
-```
-
-## Running Configured Experiments
-
-```bash
-# List/create configs
-python scripts/run_experiment.py --list-examples
-python scripts/run_experiment.py --create-examples
-
-# Run one paper config
-python scripts/run_experiment.py drafts/configs/probability_analysis.yaml
-```
-
-## Joint Dynamic Example
-
-To run a compact example of the new jointly fitted dynamic vine estimators:
-
-```bash
 python scripts/run_dynamic_cvine_example.py --output-dir results/dynamic_cvine_example
 ```
 
-This saves a small synthetic benchmark figure and a JSON summary comparing
-windowed, joint, and latent-state dynamic C-vine fits.
+## Configured Experiments
 
-## Final Showcase Benchmark
-
-The paper-facing four-phase benchmark lives in `scripts_ale_final/`. The
-recommended parametric run is:
+The public experiment runner supports YAML-configured runs:
 
 ```bash
-python scripts_ale_final/run_final_showcase_benchmark.py --mode parametric
-python scripts_ale_final/generate_fig7_showcase.py
+python scripts/run_experiment.py --list-examples
+python scripts/run_experiment.py --create-examples
+python scripts/run_experiment.py configs/finance_crisis_benchmarks.yaml
 ```
 
-Use `--mode with_np` only for the repaired nonparametric DVC supplementary
-comparison. That mode enables conservative coupled log-density smoothing across
-neighboring time windows via `--np-temporal-smoothing 0.12`.
+Use `configs/` for reusable examples and project configs. Paper reproduction
+configs and figure/table generation scripts are staged outside the public
+package under `drafts/projects` until the final anonymous supplement or public
+artifact bundle is prepared.
 
-The showcase `summary.json` includes oracle ground-truth fields for total TC,
-pairwise TC, higher-order TC, representative pairwise MI, and Clayton
-lower-tail dependence, so benchmark claims can be reported against known
-targets rather than only against model-to-model gaps.
-
-## Generate Benchmark Tables
-
-Run benchmark configs and generate CSV/LaTeX tables for the paper:
-
-```bash
-python drafts/scripts/generate_benchmark_tables.py --run
-```
-
-Outputs are written under `results/benchmark_tables/`:
-- `master_summary.csv` / `.tex`
-- `probability_vine_detail.csv` / `.tex`
-- `entropy_method_detail.csv` / `.tex`
-- `time_pair_detail.csv` / `.tex`
-- `simulation_benchmark_detail.csv` / `.tex` (from `drafts/configs/simulation_benchmarks.yaml`)
-
-## Prepare Standalone Draft Assets
-
-To generate benchmark artifacts and vendor all paper assets into `drafts/`
-(tables, figures, and result JSON summaries), run:
-
-```bash
-python drafts/scripts/prepare_draft_assets.py --run --compile
-```
-
-This writes to:
-- `drafts/tables/benchmark_tables/`
-- `drafts/figures/benchmark_results/`
-- `drafts/artifacts/results/`
-- `drafts/assets_manifest.json`
-
-## Current Status and Known Gaps
-
-- Core unit tests pass under NumPy 2.x and current PyTorch.
-- Sampling-path regressions from `tests/test_vine_pipeline.py` are now covered by passing tests.
-- Time-dependent modeling APIs are available, but parts are still in active refinement and should be treated as research code.
-- Generic `C-vine`/`D-vine`/`R-vine` support is available in the parametric path.
-- Static nonparametric fit/evaluation/sampling now supports `C-vine`/`D-vine`/`R-vine` in the unbinned path through legacy edge-index bookkeeping.
-- Binning is still not implemented in the PyTorch nonparametric path.
-- For `R-vine`, use structure optimization or an explicit `r_matrix` for serious runs instead of relying on the random default initializer.
-
-## Documentation Pointers
+## Documentation
 
 - Docs index: `docs/index.md`
-- Core API reference: `docs/reference/core-api.md`
-- Time API reference: `docs/reference/time-api.md`
-- Experiment API reference: `docs/reference/experiments-api.md`
-- Time-dependent implementation status: `docs/user-guide/time-dependent.md`
-- Comparable methods and benchmark extensions: `docs/research/comparable_methods.md`
+- Setup guide: `docs/setup.md`
+- Repository structure: `docs/structure.md`
+- Static fitting: `docs/user-guide/fitting.md`
+- Evaluation: `docs/user-guide/evaluation.md`
+- Time-dependent models: `docs/user-guide/time-dependent.md`
+- Schematics: `docs/schematics.md`
+- Release plan: `docs/release-plan.md`
+- Data release plan: `docs/data-release.md`
+
+Build HTML docs locally with MkDocs:
+
+```bash
+pip install mkdocs
+mkdocs build
+```
 
 ## Repository Layout
 
 ```text
 DVC/
-├── src/dvc_package/      # library code
-├── tests/                # unit tests
-├── examples/             # runnable examples
-├── configs/              # user-created/general experiment configs
-├── docs/                 # docs and research notes
-├── drafts/               # paper drafts, paper-specific scripts/configs, figures
-└── archive/              # TensorFlow legacy baseline
+├── src/dvc_package/      # reusable package code
+├── examples/             # small runnable examples
+├── scripts/              # public command-line entry points
+├── configs/              # reusable experiment configs
+├── tests/                # public test suite
+├── docs/                 # user, API, schematic, and release docs
+├── drafts/               # ignored paper/project workspace
+└── archive/              # local-only legacy material, ignored by release
 ```
+
+## Public Release Boundary
+
+The release package should include general-purpose code, examples, tests, docs,
+and small configs. It should not include local logs, generated results, raw
+datasets, paper-only figure scripts, machine-specific paths, or exploratory notes. The
+paper reproduction bundle will be released separately with pinned configs,
+result manifests, and dataset acquisition instructions.
+
+See `docs/release-plan.md` and `docs/data-release.md` for the staged release
+checklist.

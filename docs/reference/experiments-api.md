@@ -120,7 +120,7 @@ results = run_experiment(
 The repository also provides a script interface for YAML configs:
 
 ```bash
-python scripts/run_experiment.py drafts/configs/simulation_benchmarks.yaml
+python scripts/run_experiment.py configs/finance_crisis_benchmarks.yaml
 ```
 
 Use the script path when the source of truth is a YAML file instead of a Python config object.

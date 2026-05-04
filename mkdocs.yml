@@ -1,0 +1,29 @@
+site_name: Dynamic Vine Copulas
+site_description: Vine copula modeling and temporal dependence diagnostics
+repo_name: dynamic-vine-copulas
+theme:
+  name: readthedocs
+nav:
+  - Home: index.md
+  - Setup: setup.md
+  - Structure: structure.md
+  - Schematics: schematics.md
+  - User Guide:
+      - Fitting: user-guide/fitting.md
+      - Evaluation: user-guide/evaluation.md
+      - Time-Dependent Models: user-guide/time-dependent.md
+      - Experiments: user-guide/experiments.md
+  - How To:
+      - Experiment Runner: howto/runner.md
+  - Reference:
+      - Core API: reference/core-api.md
+      - Time API: reference/time-api.md
+      - Experiments API: reference/experiments-api.md
+  - Research Notes:
+      - Overview: research/overview.md
+      - Metrics: research/metrics.md
+      - Analysis Protocol: research/analysis_protocol.md
+      - Comparable Methods: research/comparable_methods.md
+  - Release:
+      - Release Plan: release-plan.md
+      - Data Release Plan: data-release.md

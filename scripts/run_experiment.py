@@ -35,14 +35,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run probability analysis experiment
-  python scripts/run_experiment.py drafts/configs/probability_analysis.yaml
+  # Run a reusable public config
+  python scripts/run_experiment.py configs/finance_crisis_benchmarks.yaml
 
   # Run entropy analysis with debug logging
-  python scripts/run_experiment.py drafts/configs/entropy_analysis.yaml --log-level DEBUG
+  python scripts/run_experiment.py configs/finance_crisis_benchmarks.yaml --log-level DEBUG
 
-  # Run time-dependent experiment
-  python scripts/run_experiment.py drafts/configs/time_dependent.yaml
+  # Run a custom project config
+  python scripts/run_experiment.py path/to/config.yaml
 
   # Create example configuration files
   python scripts/run_experiment.py --create-examples

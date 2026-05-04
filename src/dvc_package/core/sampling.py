@@ -115,7 +115,7 @@ def _inverse_nonparametric_edge_h(cop, conditioning: np.ndarray, uniforms: np.nd
 
 
 def _evaluate_nonparametric_edge_h_sampled(cop, uv: np.ndarray, vine) -> np.ndarray:
-    """Match the TensorFlow sampler: interpolate raw h-values then rank-calibrate
+    """Interpolate raw h-values, then rank-calibrate
     them within the current sampled batch to recover approximately uniform
     pseudo-observations."""
     if getattr(cop, "family", "kercop") == "ind":

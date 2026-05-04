@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.10 or 3.11
 - `pip` (or Conda/Mamba)
 
 ## Option A: Conda
@@ -33,7 +33,7 @@ python scripts/test_installation.py
 
 ```bash
 python scripts/run_experiment.py --list-examples
-python scripts/run_experiment.py drafts/configs/probability_analysis.yaml
+python scripts/run_experiment.py configs/finance_crisis_benchmarks.yaml
 ```
 
 ## GPU Notes

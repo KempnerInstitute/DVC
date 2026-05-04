@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="300" viewBox="0 0 920 300" role="img" aria-labelledby="title desc">
+  <title id="title">Dynamic Vine Copulas architecture</title>
+  <desc id="desc">A schematic showing data transformed to pseudo-observations, fitted with static or temporal vine models, and evaluated with scores and diagnostics.</desc>
+  <defs>
+    <style>
+      .box { fill: #f8fafc; stroke: #334155; stroke-width: 1.5; rx: 8; }
+      .blue { fill: #e0f2fe; }
+      .green { fill: #dcfce7; }
+      .amber { fill: #fef3c7; }
+      .rose { fill: #ffe4e6; }
+      .text { font-family: Arial, sans-serif; font-size: 16px; fill: #0f172a; }
+      .small { font-size: 13px; fill: #334155; }
+      .arrow { stroke: #475569; stroke-width: 2; marker-end: url(#arrowhead); fill: none; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#475569" />
+    </marker>
+  </defs>
+
+  <rect x="30" y="92" width="145" height="72" class="box blue" />
+  <text x="102" y="122" text-anchor="middle" class="text">Data</text>
+  <text x="102" y="146" text-anchor="middle" class="small">windows or samples</text>
+
+  <path d="M175 128 H245" class="arrow" />
+
+  <rect x="245" y="92" width="170" height="72" class="box green" />
+  <text x="330" y="122" text-anchor="middle" class="text">Pseudo-observations</text>
+  <text x="330" y="146" text-anchor="middle" class="small">rank transform</text>
+
+  <path d="M415 128 H485" class="arrow" />
+
+  <rect x="485" y="42" width="170" height="72" class="box amber" />
+  <text x="570" y="72" text-anchor="middle" class="text">Static vines</text>
+  <text x="570" y="96" text-anchor="middle" class="small">C-, D-, R-vine</text>
+
+  <rect x="485" y="178" width="170" height="72" class="box amber" />
+  <text x="570" y="208" text-anchor="middle" class="text">Temporal vines</text>
+  <text x="570" y="232" text-anchor="middle" class="small">smooth / switch / controls</text>
+
+  <path d="M455 128 C470 90 470 78 485 78" class="arrow" />
+  <path d="M455 128 C470 166 470 214 485 214" class="arrow" />
+
+  <path d="M655 78 C705 78 705 128 745 128" class="arrow" />
+  <path d="M655 214 C705 214 705 128 745 128" class="arrow" />
+
+  <rect x="745" y="92" width="145" height="72" class="box rose" />
+  <text x="818" y="120" text-anchor="middle" class="text">Readouts</text>
+  <text x="818" y="144" text-anchor="middle" class="small">NLL, entropy, MI</text>
+
+  <text x="570" y="285" text-anchor="middle" class="small">Reusable package code stays in src/dvc_package; paper orchestration stays in drafts/projects.</text>
+</svg>

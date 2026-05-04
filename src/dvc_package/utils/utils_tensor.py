@@ -2,8 +2,7 @@
 Tensor utilities for robustness and numerical stability.
 
 This module provides utility functions for handling NaN/Inf values,
-numerical stability, and tensor operations, similar to TensorFlow's
-replace_nan_inf functionality.
+numerical stability, and tensor operations.
 """
 
 import torch
@@ -19,7 +18,7 @@ def replace_nan_inf(tensor: torch.Tensor,
                    inf_value: float = 1e6,
                    neginf_value: float = -1e6) -> torch.Tensor:
     """
-    Replace NaN and Inf values in tensor (matching TensorFlow's replace_nan_inf).
+    Replace NaN and Inf values in a tensor.
     
     Args:
         tensor: Input tensor

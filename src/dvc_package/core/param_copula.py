@@ -52,7 +52,7 @@ def _safe_empirical_corr(x: np.ndarray, y: np.ndarray) -> float:
 
 def fit_gaussian(u: torch.Tensor):
     """
-    Fit a Gaussian copula using gradient-based optimization (matching TensorFlow).
+    Fit a Gaussian copula using gradient-based optimization.
     
     Uses Nadam optimizer to minimize negative log-likelihood.
     """
@@ -60,10 +60,10 @@ def fit_gaussian(u: torch.Tensor):
     dtype = u.dtype
     n_samples = u.shape[0]
     
-    # Initialize parameter (correlation) - match TensorFlow's pos_trace = 0.5
+    # Initialize parameter (correlation).
     rho_init = torch.tensor([0.5], dtype=dtype, device=device, requires_grad=True)
     
-    # Optimization parameters from TensorFlow
+    # Optimization parameters.
     lr = 0.005
     conv_tol = 1e-3
     max_iter = 200 if u.shape[0] > 100 else 100
@@ -83,7 +83,7 @@ def fit_gaussian(u: torch.Tensor):
         if rho_init.grad is not None:
             rho_init.grad.zero_()
             
-        # Compute negative log-likelihood (matching TensorFlow's gaussian_cost)
+        # Compute negative log-likelihood.
         rho = torch.clamp(rho_init, -0.999, 0.999)
         
         # Convert to normal scores
@@ -108,7 +108,7 @@ def fit_gaussian(u: torch.Tensor):
         # Backward pass
         err.backward()
         
-        # Nadam update (matching TensorFlow)
+        # Nadam update.
         grad = rho_init.grad
         iter1 = float(iter_num + 1)
         
@@ -261,17 +261,17 @@ def clayton_kendalltau_to_alpha(tau):
 
 def fit_clayton(u: torch.Tensor):
     """
-    Fit a Clayton copula using gradient-based optimization (matching TensorFlow).
+    Fit a Clayton copula using gradient-based optimization.
     
     Uses Nadam optimizer to minimize negative log-likelihood.
     """
     device = u.device
     dtype = u.dtype
     
-    # Initialize parameter - match TensorFlow's pos_trace = 3.0
+    # Initialize parameter.
     alpha_init = torch.tensor([3.0], dtype=dtype, device=device, requires_grad=True)
     
-    # Optimization parameters from TensorFlow
+    # Optimization parameters.
     lr = 0.2
     conv_tol = 1e-3
     max_iter = 200
@@ -756,12 +756,11 @@ def parametric_fit(u: np.ndarray, families, n_cop: int):
                 # For a fair comparison, we should penalize lack of fit
                 # One approach: use the empirical copula deviation
                 
-                # Improved independence penalty to match TensorFlow behavior
+                # Improved independence penalty for stable family selection.
                 u_vals = data_i.cpu().numpy()
                 emp_corr = _safe_empirical_corr(u_vals[:, 0], u_vals[:, 1])
                 
-                # More sophisticated penalty that matches TensorFlow's implicit behavior
-                # TensorFlow tends to select Gaussian over independence when correlation exists
+                # Prefer Gaussian over independence when reliable correlation exists.
                 correlation_strength = abs(emp_corr)
                 
                 if correlation_strength > 0.1:

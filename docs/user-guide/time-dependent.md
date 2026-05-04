@@ -140,4 +140,4 @@ corrs = compute_time_varying_correlations(data)
 
 - The jointly fitted dynamic C-vine classes are the main path when you want to fit temporal dynamics and dependence simultaneously rather than refitting a separate copula per time window.
 - The time-dependent bandwidth-flow components remain research-stage and are best used with controlled synthetic benchmarks first.
-- For paper-grade claims, prefer reporting metrics from reproducible paper assets in `drafts/configs/`, `drafts/scripts/`, and `scripts/run_experiment.py`.
+- For paper-grade claims, keep exact configs, seeds, and result manifests in a dedicated reproduction bundle.

@@ -1,6 +1,7 @@
 # Running Experiments
 
-Experiments are configured with YAML files in `configs/` for general use, while the paper benchmark configs live in `drafts/configs/`. Execute them with:
+DVC experiments are configured with YAML files. Use `configs/` for reusable
+public examples and project-specific config directories for local studies.
 
 ```bash
 python scripts/run_experiment.py <config.yaml>
@@ -9,18 +10,16 @@ python scripts/run_experiment.py <config.yaml>
 ## Useful Commands
 
 ```bash
-# list available configs
+# List bundled example configs.
 python scripts/run_experiment.py --list-examples
 
-# generate baseline config files in configs/
+# Generate baseline config templates.
 python scripts/run_experiment.py --create-examples
 
-# run a provided config
-python scripts/run_experiment.py drafts/configs/probability_analysis.yaml
-python scripts/run_experiment.py drafts/configs/entropy_analysis.yaml
-python scripts/run_experiment.py drafts/configs/time_dependent.yaml
+# Run a public config.
+python scripts/run_experiment.py configs/finance_crisis_benchmarks.yaml
 
-# run the standalone joint-dynamic example
+# Run a standalone dynamic C-vine example.
 python scripts/run_dynamic_cvine_example.py --output-dir results/dynamic_cvine_example
 ```
 
@@ -37,48 +36,26 @@ Typical top-level keys:
 - `analysis_config`
 - `plot_config`
 
-Use the existing config files as templates for custom studies.
-
-For time-dependent configs (`analysis_config.experiment_type: time_dependent`), you can set:
-
-- `time_config.likelihood_training_samples`: subsample size used to build per-edge likelihood data for NLL/entropy evaluation.
+Time-dependent configs can additionally set `time_config` fields such as
+windowing, model variant, smoothness penalties, and held-out scoring options.
+Store the exact config file next to each result directory for reproducibility.
 
 ## Outputs
 
-Runs typically write:
+Runs typically write result summaries, logs, and optional plots under the
+configured `output_dir`. Generated results should stay out of version control
+unless they are small, intentional fixtures.
 
-- result summaries (`.json`/`.pkl`)
-- logs
-- plots (if enabled)
+## Paper Reproduction
 
-under the configured `output_dir`.
-
-## Paper Table Generation
-
-To run the standard benchmark configs and export paper-ready tables:
-
-```bash
-python drafts/scripts/generate_benchmark_tables.py --run
-```
-
-This creates CSV and LaTeX tables in `results/benchmark_tables/`.
-
-## Standalone Draft Asset Sync
-
-To prepare all Overleaf-ready assets directly under `drafts/`:
-
-```bash
-python drafts/scripts/prepare_draft_assets.py --run --compile
-```
-
-This command vendors:
-- tables to `drafts/tables/benchmark_tables/`
-- figures to `drafts/figures/benchmark_results/`
-- result JSONs to `drafts/artifacts/results/`
-- an asset manifest to `drafts/assets_manifest.json`
+Paper table/figure generation is staged under `drafts/projects/` and will be
+released as a separate reproduction bundle. It is not part of the public package
+API.
 
 ## Reproducibility Tips
 
-- Fix `seed` in config and avoid changing it between ablations.
-- Keep sample counts and Monte Carlo settings fixed when comparing methods.
-- Store the exact config file next to each result directory.
+- Fix `seed` and data splits before comparing methods.
+- Keep sample counts and Monte Carlo settings fixed across ablations.
+- Record package versions and hardware for runtime-sensitive experiments.
+- Use held-out copula likelihoods consistently when comparing dependence
+  models.

@@ -6,7 +6,7 @@ utilities and the public vine API. The current implementation focuses on a
 usable static nonparametric vine path:
 
 - fit edge bandwidths with a lightweight held-out likelihood objective
-- evaluate pair-copula pdf/cdf grids using the TensorFlow-style grid pipeline
+- evaluate pair-copula pdf/cdf grids using the package grid pipeline
 - propagate pseudo-observations through the fitted nonparametric h-functions
 
 The dynamic/nonparametric extensions can build on top of these primitives.
@@ -614,7 +614,7 @@ def _device_for_tensor_like(x: np.ndarray) -> torch.device:
 def make_nonparametric_uniform_grid(knots: int,
                                     device: torch.device,
                                     dtype: torch.dtype = torch.float32) -> torch.Tensor:
-    """Create the TensorFlow-style uniform grid used by the legacy code."""
+    """Create the uniform grid used by the nonparametric estimator."""
     normal = torch.distributions.Normal(0.0, 1.0)
     s_axis = torch.linspace(-3.2, 3.2, int(knots), device=device, dtype=dtype)
     u_axis = normal.cdf(s_axis).clamp(1e-6, 1.0 - 1e-6)
@@ -886,7 +886,7 @@ def _fit_nonparametric_edge(ctx: _EdgeContext,
     independence_margin = float(npc_dict.get("independence_margin", 0.0))
     prefer_kernel_on_tie = bool(npc_dict.get("prefer_kernel_on_tie", False))
     allow_independence_fallback = bool(npc_dict.get("allow_independence_fallback", True))
-    # Archive parity: the TensorFlow implementation fits/evaluates kernel edges
+    # Compatibility: the grid estimator fits/evaluates kernel edges
     # in rotated x-space against grid_x. Keep explicit overrides for diagnostics,
     # but default to x-space in the main fitter.
     data_space = _resolve_nonparametric_data_space(npc_dict.get("data_space", "x"))

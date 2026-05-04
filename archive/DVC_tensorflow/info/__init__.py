@@ -1,1 +1,0 @@
-# This file makes the info directory a Python package 
