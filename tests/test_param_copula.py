@@ -181,6 +181,17 @@ class TestFitFrank:
         assert np.isfinite(theta_hat)
         assert np.isfinite(ll)
         assert np.isfinite(aic)
+        assert abs(theta_hat) < 1.0
+        assert abs(ll) < 5.0
+
+    def test_pdf_near_independence_is_one(self):
+        """Frank density should approach independence as theta approaches zero."""
+        uv = torch.tensor(
+            [[0.2, 0.3], [0.7, 0.6], [0.4, 0.9]],
+            dtype=torch.float32,
+        )
+        pdf = copulapdf(cop_par_obj("frank", 1e-7), uv)
+        assert torch.allclose(pdf, torch.ones_like(pdf), atol=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -338,10 +349,10 @@ class TestParametricFit:
         """Independence should be competitive for independent data."""
         rng = np.random.default_rng(77)
         u = rng.uniform(0.01, 0.99, (500, 2, 1)).astype(np.float32)
-        families = ["ind", "gaussian", "clayton"]
-        aic2, _, _ = parametric_fit(u, families, n_cop=1)
-        # AIC for independence should be reasonably small
+        families = ["ind", "gaussian", "clayton", "frank"]
+        aic2, _, logps = parametric_fit(u, families, n_cop=1)
         assert np.isfinite(aic2[0, 0])
+        assert abs(float(logps[0][families.index("frank")])) < 20.0
 
     def test_independence_alias_is_supported(self):
         """Family alias 'independence' should be handled like 'ind'."""

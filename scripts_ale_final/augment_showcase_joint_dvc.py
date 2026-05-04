@@ -150,6 +150,7 @@ def augment(summary_path: Path) -> None:
         raise ValueError(f"No seeds found in {summary_path}")
 
     all_nll: list[np.ndarray] = []
+    all_trunc_nll: list[np.ndarray] = []
     all_pair_mi01: list[np.ndarray] = []
     all_pair_mi56: list[np.ndarray] = []
     family_switches: list[int] = []
@@ -168,6 +169,7 @@ def augment(summary_path: Path) -> None:
             activation_penalty=0.0,
         )
         all_nll.append(np.asarray(nll, dtype=np.float64))
+        all_trunc_nll.append(np.asarray(result.evaluate_truncated_level0(x_test_by_t), dtype=np.float64))
         mi01 = []
         mi56 = []
         for t_idx, vine in enumerate(result.vines_by_time):
@@ -195,6 +197,15 @@ def augment(summary_path: Path) -> None:
     nll_stack = np.vstack(all_nll)
     nll_mean = np.nanmean(nll_stack, axis=0)
     nll_std = np.nanstd(nll_stack, axis=0)
+    trunc_stack = np.vstack(all_trunc_nll)
+    trunc_mean = np.nanmean(trunc_stack, axis=0)
+    trunc_std = np.nanstd(trunc_stack, axis=0)
+    # tc_higher = NLL_trunc - NLL_full evaluated on the same fit/splits per seed.
+    # Compute the per-seed difference *before* taking std to capture the
+    # (typically positive) covariance between the two terms; combining marginal
+    # stds via sqrt(var_a + var_b) would assume independence and overestimate.
+    tc_higher_stack = trunc_stack - nll_stack
+    tc_higher_std_per_t = np.nanstd(tc_higher_stack, axis=0)
     mi01_stack = np.vstack(all_pair_mi01)
     mi56_stack = np.vstack(all_pair_mi56)
     mi01_mean = np.nanmean(mi01_stack, axis=0)
@@ -210,14 +221,20 @@ def augment(summary_path: Path) -> None:
         row.update(truth_by_phase.get(str(row.get("phase_name", "")), {}))
         nll = float(nll_mean[t_idx])
         std = float(nll_std[t_idx])
+        trunc_nll = float(trunc_mean[t_idx])
+        trunc_std_t = float(trunc_std[t_idx])
         tc_total = float(-nll)
-        tc_pair = float(row.get("tc_pair_dvc", np.nan))
+        tc_pair = float(-trunc_nll)
         row["nll_switching_dvc"] = nll
         row["nll_switching_dvc_std"] = std
+        row["nll_trunc_switching_dvc"] = trunc_nll
+        row["nll_trunc_switching_dvc_std"] = trunc_std_t
         row["tc_total_switching_dvc"] = tc_total
         row["tc_total_switching_dvc_std"] = std
         row["tc_pair_switching_dvc"] = tc_pair
-        row["tc_higher_switching_dvc"] = float(tc_total - tc_pair) if np.isfinite(tc_pair) else float("nan")
+        row["tc_pair_switching_dvc_std"] = trunc_std_t
+        row["tc_higher_switching_dvc"] = float(trunc_nll - nll) if np.isfinite(tc_pair) else float("nan")
+        row["tc_higher_switching_dvc_std"] = float(tc_higher_std_per_t[t_idx])
         row["nll_gap_windowed_vine_vs_switching_dvc"] = float(row.get("nll_dvc", np.nan) - nll)
         if "tau_gauss_pair_mi01" not in row and "dvc_pair_mi01" in row:
             row["tau_gauss_pair_mi01"] = float(row.get("dvc_pair_mi01", np.nan))
@@ -228,6 +245,30 @@ def augment(summary_path: Path) -> None:
         row["dvc_switch_pair_mi56"] = float(mi56_mean[t_idx])
         row["dvc_switch_pair_mi56_std"] = float(mi56_std[t_idx])
 
+    phasewise = summary.get("phasewise_summary", {})
+    for phase_name in config.phases:
+        phase_rows = [row for row in rows if str(row.get("phase_name")) == str(phase_name)]
+        if not phase_rows:
+            continue
+        payload = dict(phasewise.get(phase_name, {})) if isinstance(phasewise.get(phase_name, {}), dict) else {}
+
+        def mean_field(field: str) -> float:
+            vals = np.asarray([float(row.get(field, np.nan)) for row in phase_rows], dtype=np.float64)
+            return float(np.nanmean(vals)) if np.isfinite(vals).any() else float("nan")
+
+        payload.update(
+            {
+                "tc_total_switching_dvc": mean_field("tc_total_switching_dvc"),
+                "tc_pair_switching_dvc": mean_field("tc_pair_switching_dvc"),
+                "tc_higher_switching_dvc": mean_field("tc_higher_switching_dvc"),
+                "switching_dvc_minus_windowed": mean_field("tc_total_switching_dvc") - mean_field("tc_total_dvc"),
+                "switching_dvc_minus_gauss": mean_field("tc_total_switching_dvc") - mean_field("tc_gauss"),
+                "switching_dvc_minus_ssm": mean_field("tc_total_switching_dvc") - mean_field("tc_total_ssm"),
+            }
+        )
+        phasewise[phase_name] = payload
+    summary["phasewise_summary"] = phasewise
+
     summary["include_switching_dvc"] = True
     summary["switching_dvc_summary"] = {
         "n_runs": len(seeds),
@@ -236,6 +277,7 @@ def augment(summary_path: Path) -> None:
         "pair_mi_estimator": "sampled fitted DVC-switch vine + sklearn mutual_info_regression",
         "pair_mi_n_samples": 1500,
         "seeds": seeds,
+        "truncation_note": "tc_pair_switching_dvc and tc_higher_switching_dvc are evaluated from the nested 1-truncated version of the fitted joint switching DVC, not from the windowed control.",
     }
     summary_path.write_text(json.dumps(summary, indent=2))
     print(f"Updated {summary_path}")

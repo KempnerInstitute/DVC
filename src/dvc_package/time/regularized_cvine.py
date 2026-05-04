@@ -267,6 +267,16 @@ class RegularizedDynamicCVineResult:
             out[idx] = mean_copula_nll(fit.vine, x)
         return out
 
+    def evaluate_truncated_level0(self, data_by_time: Union[np.ndarray, Sequence[np.ndarray]]) -> np.ndarray:
+        """Evaluate the nested 1-truncated version of each fitted window vine."""
+        windows, _ = _as_window_list(data_by_time, time_points=None)
+        if len(windows) != len(self.window_fits):
+            raise ValueError("Evaluation windows must match the number of fitted windows")
+        out = np.zeros(len(windows), dtype=np.float64)
+        for idx, (fit, x) in enumerate(zip(self.window_fits, windows)):
+            out[idx] = mean_copula_nll(truncated_level0_vine(fit.vine), x)
+        return out
+
 
 def enumerate_edge_candidates(u_pair: np.ndarray, families: Sequence[str]) -> List[EdgeCandidate]:
     u_pair = np.asarray(u_pair, dtype=np.float32)
@@ -400,6 +410,35 @@ def mean_copula_nll(vine: vine_obj_bin, x: np.ndarray) -> float:
                 except Exception:
                     u_state[:, level + 1, j] = uv[:, 1]
     return float((-log_cop).mean().detach().cpu())
+
+
+def truncated_level0_vine(vine: vine_obj_bin) -> vine_obj_bin:
+    """Return the 1-truncated version of an already fitted C-vine.
+
+    The returned vine keeps the original first-tree copulas and replaces all
+    higher-tree copulas by independence.  This is the proper nested comparator
+    for decomposing a fitted dynamic vine into first-tree and higher-tree
+    held-out likelihood contributions.
+    """
+    d = int(vine.n_cop)
+    families = list(getattr(vine, "families", [])) or ["ind"]
+    if "ind" not in {_normalize_family_name(f) for f in families}:
+        families = list(families) + ["ind"]
+
+    out = create_vine("c-vine", d, families=families)
+    out.ind_vine = [[list(edge) for edge in level] for level in getattr(vine, "ind_vine", [])]
+    out.variable_order = list(getattr(vine, "variable_order", list(range(d))))
+    out.param = True
+    out.fitted = True
+
+    cops0 = []
+    if getattr(vine, "copulas", None):
+        cops0 = list(vine.copulas[0])
+    out.copulas = [cops0]
+    for level in range(1, max(d - 1, 0)):
+        edges = out.ind_vine[level] if level < len(out.ind_vine) else []
+        out.copulas.append([cop_par_obj("ind", None) for _ in edges])
+    return out
 
 
 class RegularizedDynamicCVine:
@@ -624,4 +663,5 @@ __all__ = [
     "parameter_distance",
     "select_edge_candidate",
     "solve_root_sequence",
+    "truncated_level0_vine",
 ]

@@ -36,6 +36,7 @@ from .regularized_cvine import (
     enumerate_edge_candidates,
     mean_copula_nll,
     parameter_distance,
+    truncated_level0_vine,
 )
 
 
@@ -106,6 +107,16 @@ class SwitchingDynamicCVineResult:
         out = np.zeros(len(windows), dtype=np.float64)
         for idx, (vine, x) in enumerate(zip(self.vines_by_time, windows)):
             out[idx] = mean_copula_nll(vine, x)
+        return out
+
+    def evaluate_truncated_level0(self, data_by_time: Union[np.ndarray, Sequence[np.ndarray]]) -> np.ndarray:
+        """Evaluate the nested 1-truncated version of this fitted dynamic vine."""
+        windows, _ = _as_window_list(data_by_time, time_points=None)
+        if len(windows) != len(self.vines_by_time):
+            raise ValueError("Evaluation windows must match the fitted time grid")
+        out = np.zeros(len(windows), dtype=np.float64)
+        for idx, (vine, x) in enumerate(zip(self.vines_by_time, windows)):
+            out[idx] = mean_copula_nll(truncated_level0_vine(vine), x)
         return out
 
 

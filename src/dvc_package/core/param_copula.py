@@ -427,18 +427,18 @@ def fit_frank(u: torch.Tensor):
             u_clamped = torch.clamp(u, 1e-9, 1-1e-9)
             u1, u2 = u_clamped[:, 0], u_clamped[:, 1]
             
-            # Frank copula PDF computation
-            exp_theta = torch.exp(theta)
-            exp_theta_u1 = torch.exp(theta * u1)
-            exp_theta_u2 = torch.exp(theta * u2)
-            
-            numerator = theta * (exp_theta - 1) * exp_theta_u1 * exp_theta_u2
-            denominator = (exp_theta - exp_theta_u1) * (exp_theta - exp_theta_u2) + (exp_theta - 1)
-            
-            # Clamp to avoid numerical issues
-            denominator = torch.clamp(denominator, min=1e-15)
-            
-            log_pdf = torch.log(torch.abs(numerator)) - torch.log(denominator)
+            expm1_neg_theta = torch.expm1(-theta)
+            expm1_neg_theta_u1 = torch.expm1(-theta * u1)
+            expm1_neg_theta_u2 = torch.expm1(-theta * u2)
+            denom = expm1_neg_theta + expm1_neg_theta_u1 * expm1_neg_theta_u2
+            denom_abs = torch.clamp(torch.abs(denom), min=1e-15)
+
+            log_pdf = (
+                torch.log(torch.clamp(torch.abs(theta), min=1e-15))
+                + torch.log(torch.clamp(torch.abs(expm1_neg_theta), min=1e-15))
+                - theta * (u1 + u2)
+                - 2.0 * torch.log(denom_abs)
+            )
         
         # Handle potential NaN/Inf values
         log_pdf = torch.where(torch.isfinite(log_pdf), 
@@ -944,15 +944,20 @@ def copulapdf(cop_p, uv: torch.Tensor) -> torch.Tensor:
             return torch.ones(uv.shape[0], device=uv.device)
         
         u1, u2 = uv_clamped[:, 0], uv_clamped[:, 1]
-        exp_theta = torch.exp(torch.tensor(theta))
-        exp_theta_u1 = torch.exp(theta * u1)
-        exp_theta_u2 = torch.exp(theta * u2)
-        
-        numerator = theta * (exp_theta - 1) * exp_theta_u1 * exp_theta_u2
-        denominator = (exp_theta - exp_theta_u1) * (exp_theta - exp_theta_u2) + (exp_theta - 1)
-        
-        denominator = torch.clamp(denominator, min=1e-15)
-        pdf = torch.abs(numerator) / denominator
+        theta_t = torch.tensor(theta, dtype=uv.dtype, device=uv.device)
+        expm1_neg_theta = torch.expm1(-theta_t)
+        expm1_neg_theta_u1 = torch.expm1(-theta_t * u1)
+        expm1_neg_theta_u2 = torch.expm1(-theta_t * u2)
+        denom = expm1_neg_theta + expm1_neg_theta_u1 * expm1_neg_theta_u2
+        denom_abs = torch.clamp(torch.abs(denom), min=1e-15)
+
+        log_pdf = (
+            torch.log(torch.clamp(torch.abs(theta_t), min=1e-15))
+            + torch.log(torch.clamp(torch.abs(expm1_neg_theta), min=1e-15))
+            - theta_t * (u1 + u2)
+            - 2.0 * torch.log(denom_abs)
+        )
+        pdf = torch.exp(log_pdf)
         
         return torch.clamp(pdf, 1e-15, 1e15)
 

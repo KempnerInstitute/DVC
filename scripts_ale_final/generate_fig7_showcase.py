@@ -314,7 +314,7 @@ def main() -> None:
         color=COLORS["purple"], label="oracle TC", lw=1.45
     )
     ax.axhline(0.0, color=COLORS["gray"], lw=0.5, ls="--", alpha=0.8, zorder=0.5)
-    ax.set_ylabel(r"$\mathrm{TC}(t)$  (nats)")
+    ax.set_ylabel(r"$\widehat S_{\mathrm{total}}(t)$ (nats)")
     _ordered_legend(
         ax,
         ["DVC-switch", "Win. vine", "Gaussian SSM", "oracle TC", "NF-copula"],
@@ -342,8 +342,13 @@ def main() -> None:
     )
     if has_switching:
         _plot_mean_with_band(
+            ax, t_axis, tc_pair_windowed, tc_pair_windowed_std,
+            color=COLORS["blue"], label=r"Win. vine pair", ls=(0, (3, 1.5)),
+            lw=1.25, smooth_window=3, band_alpha=0.05
+        )
+        _plot_mean_with_band(
             ax, t_axis, tc_higher_windowed, tc_higher_windowed_std,
-            color=COLORS["gray"], label=r"Win. vine higher", ls=(0, (3, 1.5)),
+            color=COLORS["red"], label=r"Win. vine higher", ls=(0, (3, 1.5)),
             lw=1.25, smooth_window=3, band_alpha=0.05
         )
     _plot_truth(
@@ -355,12 +360,13 @@ def main() -> None:
         color=COLORS["red"], label=r"oracle higher", ls=(0, (4, 2)), lw=1.2
     )
     ax.axhline(0.0, color=COLORS["gray"], lw=0.5, ls="--", alpha=0.8, zorder=0.5)
-    ax.set_ylabel("nats")
+    ax.set_ylabel("score (nats)")
     _ordered_legend(
         ax,
         [
             r"DVC-switch pair",
             r"DVC-switch higher",
+            r"Win. vine pair",
             r"Win. vine higher",
             r"oracle pair",
             r"oracle higher",

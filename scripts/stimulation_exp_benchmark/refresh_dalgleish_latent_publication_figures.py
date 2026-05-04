@@ -174,17 +174,6 @@ def _plot_panel_a(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame)
     ax.tick_params(axis="x", labelsize=4.8, pad=1.0)
     ax.set_ylabel(r"$\Delta$NLL vs DVC")
     ax.set_title("Baseline benchmark", fontsize=6.5)
-    ax.text(
-        0.98,
-        0.02,
-        "TVGL: no usable\nlatent-static output",
-        transform=ax.transAxes,
-        ha="right",
-        va="bottom",
-        fontsize=4.8,
-        color="#666666",
-    )
-
 
 def _plot_panel_b(ax: plt.Axes, static_df: pd.DataFrame, stats_df: pd.DataFrame) -> None:
     decomp = static_df[static_df["row_type"] == "decomposition_session"].copy()

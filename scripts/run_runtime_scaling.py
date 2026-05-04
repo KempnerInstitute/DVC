@@ -3,8 +3,9 @@
 
 This produces the runtime/scaling table referenced in the paper's appendix.
 Reported quantities:
-- wall-clock fit time (mean seconds per fit)
-- per-window CPU time
+- sequential wall-clock fit time for the complete T-window sequence
+- average per-window CPU time, computed as total time / T
+- number of edge-level temporal fit objects
 - memory footprint is not reported here; add with psutil if needed.
 
 Variants covered:
@@ -39,6 +40,10 @@ T_VALUES = [12, 24]
 FAMILIES = ["gaussian", "clayton", "gumbel", "independence"]
 N_PER_TIME = 80
 N_REPEATS = 2
+
+
+def _n_edges(d: int) -> int:
+    return int(d * (d - 1) // 2)
 
 
 def _gen_data(d: int, T: int, n_per_t: int, rng: np.random.Generator) -> list[np.ndarray]:
@@ -99,6 +104,8 @@ def main() -> None:
                     "mean_s": float(np.nanmean(times)),
                     "std_s": float(np.nanstd(times)),
                     "per_window_mean_s": float(np.nanmean(times) / T),
+                    "edge_fit_units": int(_n_edges(d) * (T if variant_name == "Windowed" else 1)),
+                    "compression_vs_windowed": float(1.0 if variant_name == "Windowed" else T),
                 }
                 rows.append(row)
                 print(f"d={d} T={T} {variant_name}: {row['mean_s']:.2f} +/- {row['std_s']:.2f} s (per-window {row['per_window_mean_s']:.3f} s)")
@@ -108,9 +115,9 @@ def main() -> None:
     print(f"\nWrote: {summary_path}")
 
     tex_lines = [
-        r"\begin{tabular}{rrlrr}",
+        r"\begin{tabular}{rrlrrrr}",
         r"\toprule",
-        r"d & T & variant & mean time (s) & per-window (s) \\",
+        r"d & T & variant & edge fits & compression & total time (s) & time / window (s) \\",
         r"\midrule",
     ]
     for row in rows:
@@ -120,8 +127,9 @@ def main() -> None:
         else:
             mean_str = f"{row['mean_s']:.2f}"
             per_str = f"{row['per_window_mean_s']:.3f}"
+        compression = f"{row['compression_vs_windowed']:.0f}$\\times$"
         tex_lines.append(
-            f"{row['d']} & {row['T']} & {row['variant']} & {mean_str} & {per_str} \\\\"
+            f"{row['d']} & {row['T']} & {row['variant']} & {row['edge_fit_units']} & {compression} & {mean_str} & {per_str} \\\\"
         )
     tex_lines += [r"\bottomrule", r"\end{tabular}", ""]
     tex_path = TABLE_DIR / "runtime_scaling.tex"

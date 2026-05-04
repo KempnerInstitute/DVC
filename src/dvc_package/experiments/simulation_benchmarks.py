@@ -2425,6 +2425,8 @@ def run_simulation_benchmark_suite(
                 parameter_drift_penalty=0.02,
                 activation_penalty=0.0,
             )
+            switching_trunc_nll = switching_result.evaluate_truncated_level0(x_test_list).tolist()
+            joint_trunc_nll = joint_result.evaluate_truncated_level0(x_test_list).tolist()
             latent_result, latent_dvc_nll = _fit_latent_state_dynamic_cvine_from_splits(
                 x_train_list,
                 x_test_list,
@@ -2512,7 +2514,7 @@ def run_simulation_benchmark_suite(
                 "tail_true_upper": tail_true,
                 "tail_true_lower": tail_true,
                 "nll_gap": np.asarray(gauss_nll, dtype=np.float32) - switching_dvc_arr,
-                "nll_gap_truncated_level0": np.asarray(trunc_nll, dtype=np.float32) - switching_dvc_arr,
+                "nll_gap_truncated_level0": np.asarray(switching_trunc_nll, dtype=np.float32) - switching_dvc_arr,
                 "nll_gap_glasso": np.asarray(glasso_nll, dtype=np.float32) - switching_dvc_arr,
                 "nll_gap_tvgl": np.asarray(tvgl_nll, dtype=np.float32) - switching_dvc_arr,
                 "nll_gap_state_space": np.asarray(ssm_nll, dtype=np.float32) - switching_dvc_arr,
@@ -2548,15 +2550,18 @@ def run_simulation_benchmark_suite(
                 "dvc_nll": switching_dvc_nll,
                 "windowed_vine_nll": dvc_nll,
                 "switching_dynamic_dvc_nll": switching_dvc_nll,
+                "switching_truncated_level0_nll": switching_trunc_nll,
+                "windowed_truncated_level0_nll": trunc_nll,
                 "regularized_dvc_nll": reg_dvc_nll,
                 "joint_dynamic_dvc_nll": joint_dvc_nll,
+                "joint_dynamic_truncated_level0_nll": joint_trunc_nll,
                 "latent_state_dvc_nll": latent_dvc_nll,
                 "windowed_nonparametric_dvc_nll": windowed_np_dvc_nll,
                 "joint_nonparametric_dvc_nll": joint_np_dvc_nll,
                 "gaussian_nll": gauss_nll,
                 "nll_gap": (np.asarray(gauss_nll) - np.asarray(switching_dvc_nll)).tolist(),
-                "truncated_level0_nll": trunc_nll,
-                "nll_gap_truncated_level0": (np.asarray(trunc_nll) - np.asarray(switching_dvc_nll)).tolist(),
+                "truncated_level0_nll": switching_trunc_nll,
+                "nll_gap_truncated_level0": (np.asarray(switching_trunc_nll) - np.asarray(switching_dvc_nll)).tolist(),
                 "glasso_gaussian_nll": glasso_nll,
                 "nll_gap_glasso": (np.asarray(glasso_nll) - np.asarray(switching_dvc_nll)).tolist(),
                 "tvgl_gaussian_nll": tvgl_nll,
@@ -2578,9 +2583,6 @@ def run_simulation_benchmark_suite(
                 "nll_improvement_switching_over_windowed": (np.asarray(dvc_nll) - np.asarray(switching_dvc_nll)).tolist(),
                 "nll_improvement_joint_over_windowed": (np.asarray(dvc_nll) - np.asarray(joint_dvc_nll)).tolist(),
                 "nll_improvement_latent_over_windowed": (np.asarray(dvc_nll) - np.asarray(latent_dvc_nll)).tolist(),
-                "nll_improvement_regularized_over_dvc": (np.asarray(dvc_nll) - np.asarray(reg_dvc_nll)).tolist(),
-                "nll_improvement_joint_over_dvc": (np.asarray(dvc_nll) - np.asarray(joint_dvc_nll)).tolist(),
-                "nll_improvement_latent_over_dvc": (np.asarray(dvc_nll) - np.asarray(latent_dvc_nll)).tolist(),
                 "switching_dynamic_order": list(switching_result.order),
                 "switching_dynamic_selected_families": [str(state.family) for edge_fit in switching_result.edge_fits for state in edge_fit.states[:1]],
                 "switching_dynamic_family_switch_count": int(switching_result.total_family_switches()),
@@ -2719,6 +2721,18 @@ def run_simulation_benchmark_suite(
                 parameter_drift_penalty=0.0,
                 activation_penalty=0.0,
             )
+            switching_trunc_nll = switching_result.evaluate_truncated_level0(x_test_list).tolist()
+            joint_result, joint_dvc_nll = _fit_joint_dynamic_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                families=families,
+                order=list(switching_result.order),
+                n_basis=4,
+                smoothness_penalty=0.50,
+                ridge_penalty=1e-3,
+                maxiter=25,
+            )
+            joint_trunc_nll = joint_result.evaluate_truncated_level0(x_test_list).tolist()
 
             truth_codes = np.asarray(
                 [fam_to_code.get(str(fam).lower().strip(), 0) for fam in gen["family_schedule"]],
@@ -2734,7 +2748,15 @@ def run_simulation_benchmark_suite(
             heat = np.asarray(switching_level0_codes, dtype=np.int64) if switching_level0_codes else None
             if heat is not None:
                 heat = np.vstack([truth_codes.reshape(1, -1), heat])
+            joint_level0_codes: List[List[int]] = []
+            for edge_fit in joint_result.edge_fits:
+                if int(edge_fit.level) != 0:
+                    continue
+                fam = str(edge_fit.family).lower().strip()
+                fam = "ind" if fam in {"independence", "independent"} else fam
+                joint_level0_codes.append([fam_to_code.get(fam, 0)] * len(time))
             _switch_arr = np.asarray(switching_dvc_nll, dtype=np.float32)
+            _joint_arr = np.asarray(joint_dvc_nll, dtype=np.float32)
             series = {
                 "corr_tau_mean_abs": np.asarray(tau_mean, dtype=np.float32),
                 "tail_upper_q95": np.asarray(tail_u, dtype=np.float32),
@@ -2742,11 +2764,12 @@ def run_simulation_benchmark_suite(
                 "tail_true_upper": true_tail_upper,
                 "tail_true_lower": true_tail_lower,
                 "nll_gap": np.asarray(gauss_nll, dtype=np.float32) - _switch_arr,
-                "nll_gap_truncated_level0": np.asarray(trunc_nll, dtype=np.float32) - _switch_arr,
+                "nll_gap_truncated_level0": np.asarray(switching_trunc_nll, dtype=np.float32) - _switch_arr,
                 "nll_gap_glasso": np.asarray(glasso_nll, dtype=np.float32) - _switch_arr,
                 "nll_gap_tvgl": np.asarray(tvgl_nll, dtype=np.float32) - _switch_arr,
                 "nll_gap_state_space": np.asarray(ssm_nll, dtype=np.float32) - _switch_arr,
                 "nll_gap_kde_flow": np.asarray(kde_flow_nll, dtype=np.float32) - _switch_arr,
+                "nll_gap_joint_dynamic_dvc": _joint_arr - _switch_arr,
             }
             out_png = plots_dir / "tail_switch_panel.png"
             _plot_dynamic_panel(
@@ -2773,15 +2796,21 @@ def run_simulation_benchmark_suite(
                 "tail_true_lower": true_tail_lower.tolist(),
                 "level0_family_truth_codes": truth_codes.tolist(),
                 "windowed_vine_nll": dvc_nll,
+                "windowed_truncated_level0_nll": trunc_nll,
                 "dvc_nll": switching_dvc_nll,
                 "switching_dynamic_dvc_nll": switching_dvc_nll,
+                "switching_truncated_level0_nll": switching_trunc_nll,
                 "switching_dynamic_order": list(switching_result.order),
                 "switching_dynamic_family_switch_count": int(switching_result.total_family_switches()),
                 "switching_dynamic_selected_family_paths": [edge.family_path for edge in switching_result.edge_fits],
+                "joint_dynamic_dvc_nll": joint_dvc_nll,
+                "joint_dynamic_truncated_level0_nll": joint_trunc_nll,
+                "joint_dynamic_order": list(joint_result.order),
+                "joint_dynamic_selected_families": [str(edge_fit.family) for edge_fit in joint_result.edge_fits],
                 "gaussian_nll": gauss_nll,
                 "nll_gap": (np.asarray(gauss_nll) - np.asarray(switching_dvc_nll)).tolist(),
-                "truncated_level0_nll": trunc_nll,
-                "nll_gap_truncated_level0": (np.asarray(trunc_nll) - np.asarray(switching_dvc_nll)).tolist(),
+                "truncated_level0_nll": switching_trunc_nll,
+                "nll_gap_truncated_level0": (np.asarray(switching_trunc_nll) - np.asarray(switching_dvc_nll)).tolist(),
                 "glasso_gaussian_nll": glasso_nll,
                 "nll_gap_glasso": (np.asarray(glasso_nll) - np.asarray(switching_dvc_nll)).tolist(),
                 "tvgl_gaussian_nll": tvgl_nll,
@@ -2794,12 +2823,15 @@ def run_simulation_benchmark_suite(
                 "kde_flow_bandwidths": kde_flow_bandwidths.tolist(),
                 "nll_gap_kde_flow": (np.asarray(kde_flow_nll) - np.asarray(switching_dvc_nll)).tolist(),
                 "nll_gap_windowed_vine": (np.asarray(dvc_nll) - np.asarray(switching_dvc_nll)).tolist(),
+                "nll_gap_joint_dynamic_dvc": (np.asarray(joint_dvc_nll) - np.asarray(switching_dvc_nll)).tolist(),
                 "nll_improvement_switching_over_windowed": (np.asarray(dvc_nll) - np.asarray(switching_dvc_nll)).tolist(),
+                "nll_improvement_joint_over_windowed": (np.asarray(dvc_nll) - np.asarray(joint_dvc_nll)).tolist(),
                 "tau_mean_abs": tau_mean,
                 "tail_upper_q95": tail_u,
                 "tail_lower_q05": tail_l,
                 "windowed_level0_family_codes": fam_codes,
                 "level0_family_codes": np.asarray(switching_level0_codes, dtype=np.int64).T.tolist() if switching_level0_codes else [],
+                "joint_dynamic_level0_family_codes": np.asarray(joint_level0_codes, dtype=np.int64).T.tolist() if joint_level0_codes else [],
                 "family_codebook": fam_labels,
             }
             continue
@@ -2990,7 +3022,7 @@ def run_simulation_benchmark_suite(
                 "nll_gap_tvgl": (np.asarray(tvgl_nll) - np.asarray(dvc_nll)).tolist(),
                 "nll_gap_state_space": (np.asarray(ssm_nll) - np.asarray(dvc_nll)).tolist(),
                 "nll_gap_regularized_dvc": (np.asarray(reg_dvc_nll) - np.asarray(dvc_nll)).tolist(),
-                "nll_improvement_regularized_over_dvc": (np.asarray(dvc_nll) - np.asarray(reg_dvc_nll)).tolist(),
+                "nll_improvement_regularized_over_windowed": (np.asarray(dvc_nll) - np.asarray(reg_dvc_nll)).tolist(),
                 "regularized_family_switch_count": int(reg_result.total_family_switches()),
                 "regularized_parameter_drift_total": float(reg_result.total_parameter_drift()),
                 "state_space_process_variance": float(ssm_fit.process_variance),
@@ -3095,27 +3127,44 @@ def run_simulation_benchmark_suite(
                 parameter_drift_penalty=0.0,
                 activation_penalty=0.0,
             )
+            switching_trunc_nll = switching_result.evaluate_truncated_level0(x_test_list).tolist()
+            reg_trunc_nll = reg_result.evaluate_truncated_level0(x_test_list).tolist()
+            joint_result, joint_dvc_nll = _fit_joint_dynamic_cvine_from_splits(
+                x_train_list,
+                x_test_list,
+                families=families,
+                order=list(switching_result.order),
+                n_basis=4,
+                smoothness_penalty=0.50,
+                ridge_penalty=1e-3,
+                maxiter=25,
+            )
+            joint_trunc_nll = joint_result.evaluate_truncated_level0(x_test_list).tolist()
 
             # NLL gaps.
             _windowed_arr = np.asarray(dvc_nll)
             _dvc_arr = np.asarray(switching_dvc_nll)
+            _joint_arr = np.asarray(joint_dvc_nll)
             ep_nll_gaps: Dict[str, np.ndarray] = {
                 "nll_gap": np.asarray(gauss_nll) - _dvc_arr,
-                "nll_gap_truncated_level0": np.asarray(trunc_nll) - _dvc_arr,
+                "nll_gap_truncated_level0": np.asarray(switching_trunc_nll) - _dvc_arr,
                 "nll_gap_glasso": np.asarray(glasso_nll) - _dvc_arr,
                 "nll_gap_tvgl": np.asarray(tvgl_nll) - _dvc_arr,
                 "nll_gap_state_space": np.asarray(ssm_nll) - _dvc_arr,
                 "nll_gap_regularized_dvc": np.asarray(reg_dvc_nll) - _dvc_arr,
                 "nll_gap_windowed_vine": _windowed_arr - _dvc_arr,
+                "nll_gap_joint_dynamic_dvc": _joint_arr - _dvc_arr,
             }
 
             # TC decomposition relative to the independence copula.  Since
             # copula NLL is the negative log-density contribution, the
             # 1-truncated vine gives the pairwise contribution and the
             # full-vs-truncated gap gives the higher-tree residual.
-            tc_pairwise = -np.asarray(trunc_nll)
-            tc_higher_order = np.asarray(trunc_nll) - _dvc_arr
-            reg_tc_higher_order = np.asarray(trunc_nll) - np.asarray(reg_dvc_nll)
+            tc_pairwise = -np.asarray(switching_trunc_nll)
+            tc_higher_order = np.asarray(switching_trunc_nll) - _dvc_arr
+            reg_tc_higher_order = np.asarray(reg_trunc_nll) - np.asarray(reg_dvc_nll)
+            joint_tc_pairwise = -np.asarray(joint_trunc_nll)
+            joint_tc_higher_order = np.asarray(joint_trunc_nll) - _joint_arr
             tc_pairwise_flexible_over_gaussian = np.asarray(gauss_nll) - np.asarray(trunc_nll)
 
             # --- Episode detection across all methods ---
@@ -3157,6 +3206,7 @@ def run_simulation_benchmark_suite(
 
             for mname, nll_arr in [
                 ("DVC", switching_dvc_nll),
+                ("DVC-smooth", joint_dvc_nll),
                 ("Windowed vine", dvc_nll),
                 ("Regularized windowed", reg_dvc_nll),
                 ("Gaussian copula", gauss_nll),
@@ -3293,27 +3343,37 @@ def run_simulation_benchmark_suite(
                 "tc_pairwise": tc_pairwise.tolist(),
                 "tc_pairwise_flexible_over_gaussian": tc_pairwise_flexible_over_gaussian.tolist(),
                 "tc_higher_order": tc_higher_order.tolist(),
+                "joint_dynamic_tc_pairwise": joint_tc_pairwise.tolist(),
+                "joint_dynamic_tc_higher_order": joint_tc_higher_order.tolist(),
                 "windowed_vine_nll": dvc_nll,
                 "dvc_nll": switching_dvc_nll,
                 "switching_dynamic_dvc_nll": switching_dvc_nll,
+                "switching_truncated_level0_nll": switching_trunc_nll,
+                "windowed_truncated_level0_nll": trunc_nll,
                 "switching_dynamic_order": list(switching_result.order),
                 "switching_dynamic_family_switch_count": int(switching_result.total_family_switches()),
                 "switching_dynamic_selected_family_paths": [edge.family_path for edge in switching_result.edge_fits],
+                "joint_dynamic_dvc_nll": joint_dvc_nll,
+                "joint_dynamic_truncated_level0_nll": joint_trunc_nll,
+                "joint_dynamic_order": list(joint_result.order),
+                "joint_dynamic_selected_families": [str(edge_fit.family) for edge_fit in joint_result.edge_fits],
                 "regularized_dvc_nll": reg_dvc_nll,
+                "regularized_truncated_level0_nll": reg_trunc_nll,
                 "gaussian_nll": gauss_nll,
-                "truncated_level0_nll": trunc_nll,
+                "truncated_level0_nll": switching_trunc_nll,
                 "glasso_gaussian_nll": glasso_nll,
                 "tvgl_gaussian_nll": tvgl_nll,
                 "state_space_gaussian_nll": ssm_nll,
                 "nll_gap": (np.asarray(gauss_nll) - _dvc_arr).tolist(),
-                "nll_gap_truncated_level0": (np.asarray(trunc_nll) - _dvc_arr).tolist(),
+                "nll_gap_truncated_level0": (np.asarray(switching_trunc_nll) - _dvc_arr).tolist(),
                 "nll_gap_glasso": (np.asarray(glasso_nll) - _dvc_arr).tolist(),
                 "nll_gap_tvgl": (np.asarray(tvgl_nll) - _dvc_arr).tolist(),
                 "nll_gap_state_space": (np.asarray(ssm_nll) - _dvc_arr).tolist(),
                 "nll_gap_regularized_dvc": (np.asarray(reg_dvc_nll) - _dvc_arr).tolist(),
                 "nll_gap_windowed_vine": (_windowed_arr - _dvc_arr).tolist(),
+                "nll_gap_joint_dynamic_dvc": (_joint_arr - _dvc_arr).tolist(),
                 "nll_improvement_switching_over_windowed": (_windowed_arr - _dvc_arr).tolist(),
-                "nll_improvement_regularized_over_dvc": (np.asarray(dvc_nll) - np.asarray(reg_dvc_nll)).tolist(),
+                "nll_improvement_joint_over_windowed": (_windowed_arr - _joint_arr).tolist(),
                 "nll_improvement_regularized_over_windowed": (np.asarray(dvc_nll) - np.asarray(reg_dvc_nll)).tolist(),
                 "regularized_tc_higher_order": reg_tc_higher_order.tolist(),
                 "regularized_family_switch_count": int(reg_result.total_family_switches()),
@@ -3390,30 +3450,20 @@ def run_simulation_benchmark_suite(
             gap = np.asarray(payload["nll_gap_joint_nonparametric_dvc"], dtype=np.float64)
             row["nll_gap_joint_nonparametric_dvc_mean"] = float(np.nanmean(gap))
             row["nll_gap_joint_nonparametric_dvc_std"] = float(np.nanstd(gap))
-        if "nll_improvement_regularized_over_dvc" in payload:
-            gap = np.asarray(payload["nll_improvement_regularized_over_dvc"], dtype=np.float64)
-            row["nll_improvement_regularized_over_dvc_mean"] = float(np.nanmean(gap))
-            row["nll_improvement_regularized_over_dvc_std"] = float(np.nanstd(gap))
-        if "nll_improvement_regularized_over_windowed" in payload:
-            gap = np.asarray(payload["nll_improvement_regularized_over_windowed"], dtype=np.float64)
-            row["nll_improvement_regularized_over_windowed_mean"] = float(np.nanmean(gap))
-            row["nll_improvement_regularized_over_windowed_std"] = float(np.nanstd(gap))
-        if "nll_improvement_joint_over_dvc" in payload:
-            gap = np.asarray(payload["nll_improvement_joint_over_dvc"], dtype=np.float64)
-            row["nll_improvement_joint_over_dvc_mean"] = float(np.nanmean(gap))
-            row["nll_improvement_joint_over_dvc_std"] = float(np.nanstd(gap))
-        if "nll_improvement_joint_over_windowed" in payload:
-            gap = np.asarray(payload["nll_improvement_joint_over_windowed"], dtype=np.float64)
-            row["nll_improvement_joint_over_windowed_mean"] = float(np.nanmean(gap))
-            row["nll_improvement_joint_over_windowed_std"] = float(np.nanstd(gap))
-        if "nll_improvement_latent_over_dvc" in payload:
-            gap = np.asarray(payload["nll_improvement_latent_over_dvc"], dtype=np.float64)
-            row["nll_improvement_latent_over_dvc_mean"] = float(np.nanmean(gap))
-            row["nll_improvement_latent_over_dvc_std"] = float(np.nanstd(gap))
-        if "nll_improvement_latent_over_windowed" in payload:
-            gap = np.asarray(payload["nll_improvement_latent_over_windowed"], dtype=np.float64)
-            row["nll_improvement_latent_over_windowed_mean"] = float(np.nanmean(gap))
-            row["nll_improvement_latent_over_windowed_std"] = float(np.nanstd(gap))
+        # Naming convention (paper §3): "windowed" denotes the per-time independent
+        # vine control; "DVC" denotes the joint dynamic estimator. Older saved
+        # payloads carried legacy "over_dvc" keys that were duplicates of the
+        # corresponding "over_windowed" arrays - we read either as a fallback so
+        # historical JSONs still aggregate, but the canonical row-key is "*_over_windowed_*".
+        for variant in ("regularized", "joint", "latent"):
+            canonical = f"nll_improvement_{variant}_over_windowed"
+            legacy = f"nll_improvement_{variant}_over_dvc"
+            source_key = canonical if canonical in payload else (legacy if legacy in payload else None)
+            if source_key is None:
+                continue
+            gap = np.asarray(payload[source_key], dtype=np.float64)
+            row[f"nll_improvement_{variant}_over_windowed_mean"] = float(np.nanmean(gap))
+            row[f"nll_improvement_{variant}_over_windowed_std"] = float(np.nanstd(gap))
         for k in [
             "episode_detection_accuracy",
             "order_classification_accuracy",

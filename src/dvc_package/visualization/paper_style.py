@@ -154,7 +154,7 @@ SHORT_METHOD_NAMES: Dict[str, str] = {
 
 SHORT_SCENARIO_NAMES: Dict[str, str] = {
     "multiplicative_triplet":       "Mult. triplet",
-    "higher_order_only_switch":     "HO-only switch",
+    "higher_order_only_switch":     "XOR stress",
     "dynamic_tail_df":              "Dyn. tail-DF",
     "tail_switch":                  "Tail switch",
     "hub_switch":                   "Hub switch",
