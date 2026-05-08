@@ -1,6 +1,6 @@
-"""Shared publication style for DVC paper figures.
+"""Shared publication style for DVC diagnostic figures.
 
-Provides a consistent NeurIPS-quality visual identity:
+Provides a consistent publication-quality visual identity:
 - Serif fonts (Times/DejaVu) at sizes that read well at column width
 - Wong (2011) colorblind-safe palette
 - Standardized method styling across all benchmark figures
@@ -210,7 +210,7 @@ FAMILY_COLORS = {
 # Utility functions
 # ---------------------------------------------------------------------------
 def apply_style() -> None:
-    """Apply NeurIPS publication rcParams globally."""
+    """Apply publication rcParams globally."""
     plt.rcParams.update(RCPARAMS)
     logging.getLogger("fontTools.subset").setLevel(logging.ERROR)
 

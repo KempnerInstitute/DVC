@@ -127,8 +127,8 @@ def interp_regular_nd_grid(x: torch.Tensor,
         
         return output
     else:
-        # For general N-D case, use a simpler nearest neighbor approach
-        # This is a placeholder - for production, implement proper N-D interpolation
+        # For the general N-D case, use a nearest-neighbor fallback.
+        # Callers that require smooth N-D interpolation can replace this backend.
         x_indices = (x_normalized * (torch.tensor(y_ref.shape[:n_dims], device=device) - 1)).long()
         x_indices = torch.clamp(x_indices, 0, torch.tensor(y_ref.shape[:n_dims], device=device) - 1)
         

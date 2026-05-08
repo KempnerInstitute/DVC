@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import urllib.parse
 import urllib.request
@@ -22,9 +23,7 @@ BUCKET_ROOT = "https://visual-behavior-neuropixels-data.s3.us-west-2.amazonaws.c
 PROJECT_PREFIX = "visual-behavior-neuropixels"
 SESSION_PREFIX = f"{PROJECT_PREFIX}/behavior_ecephys_sessions"
 METADATA_PREFIX = f"{PROJECT_PREFIX}/project_metadata"
-DEFAULT_OUTPUT_ROOT = Path(
-    "/n/netscratch/kempner_dev/Lab/hsafaai/results/kempner_project_b/datasets/allen_vbn"
-)
+DEFAULT_OUTPUT_ROOT = Path(os.environ.get("DVC_DATA_DIR", "data/allen_vbn")).expanduser()
 METADATA_FILES = (
     "behavior_sessions.csv",
     "channels.csv",

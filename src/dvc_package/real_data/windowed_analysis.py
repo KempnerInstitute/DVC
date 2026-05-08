@@ -487,7 +487,7 @@ def plot_cohort_summary(
     *,
     out_path: str,
 ) -> str:
-    from dvc_package.visualization.paper_style import COLORS, TEXTWIDTH, add_panel_label, apply_style
+    from dvc_package.visualization.plot_style import COLORS, TEXTWIDTH, add_panel_label, apply_style
 
     apply_style()
     table = cohort_summary_table(results)

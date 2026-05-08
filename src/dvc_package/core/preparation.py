@@ -14,7 +14,7 @@ def define_copulas(vine_type: str,
                    dim: int):
     """
     Build the vine structure (r_matrix, edges, etc.) plus default margin objects
-    and the placeholder 'cop_vine' that indicates which family is used at each edge.
+    and the 'cop_vine' template that indicates which family is used at each edge.
 
     Args:
       vine_type: 'r-vine', 'c-vine', or 'd-vine'

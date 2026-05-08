@@ -4,11 +4,11 @@ Simulation benchmark suite for Dynamic Vine Copulas (DVC).
 This module provides:
 - synthetic generators designed to isolate higher-order and non-Gaussian dependence
 - minimal baselines (Gaussian copula) and metrics (NLL, tail dependence, structure recovery)
-- publication-style multi-panel figures saved under an experiment output directory
+- multi-panel diagnostic figures saved under an experiment output directory
 
 Design constraints:
 - outputs must be file-based (Overleaf cannot run Python)
-- figures are generated under `results/<experiment>/plots/*.png` and vendored into `drafts/`
+- figures are generated under `results/<experiment>/plots/*.png` for reports or diagnostics
 """
 
 from __future__ import annotations

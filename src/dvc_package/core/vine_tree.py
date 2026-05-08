@@ -212,7 +212,7 @@ def prepare_regular(r_matrix):
     Typically used when method=='matrix'.
 
     Steps:
-      - E, ind_vine => placeholders
+      - E, ind_vine => initialized containers
       - nodes => diag reversed
       - matrix_edges => string representation
     """

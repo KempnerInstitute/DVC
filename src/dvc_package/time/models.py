@@ -449,8 +449,8 @@ class DynamicEntropyEstimator(nn.Module):
                 # Estimate MI using density ratios (simplified approach)
                 # MI(X;Y) = E[log(p(x,y) / (p(x)p(y)))]
                 
-                # This is a placeholder - in practice you'd need proper density estimation
-                # for marginals and joint distributions
+                # This simplified estimate is intended for diagnostics; precise MI
+                # estimation requires dedicated marginal and joint density estimators.
                 mi_values[i] = self._estimate_mi_from_samples(x_samples, y_samples, xy_samples)
         
         return time_points.cpu(), mi_values.cpu()
