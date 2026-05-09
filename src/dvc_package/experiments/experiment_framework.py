@@ -12,26 +12,29 @@ via YAML files to run various types of experiments including:
 
 import yaml
 import torch
-import numpy as np
-import logging
 import json
-from pathlib import Path
-from typing import Dict, List, Any, Optional, Union, Tuple
-from dataclasses import dataclass, field
+import logging
 from abc import ABC, abstractmethod
-import matplotlib.pyplot as plt
-import seaborn as sns
+from dataclasses import dataclass, field
 from datetime import datetime
-import pandas as pd
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
 
-from ..core.vine_factory import create_vine, VineType
-from ..core.param_copula import parametric_fit
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
+
 from ..core.d_vine_fix import compute_correlation_matrix, compute_kendall_tau_matrix
+from ..core.vine_factory import create_vine
 from ..core.vine_model import fit_vine
-from ..time.data import generate_synthetic_time_series, create_data_loader, preprocess_real_data
+from ..time.data import generate_synthetic_time_series
 from ..time.models import create_time_dependent_vine
-from ..utils.utils_tensor import replace_nan_inf, handle_small_sample_size
-from .simulation_benchmarks import run_simulation_benchmark_suite
+
+# NOTE: The synthetic-paper benchmark suite (`run_simulation_benchmark_suite`)
+# lives outside the public package, under
+# `drafts/projects/paper_benchmarks/run_suite.py`, because the multi-panel
+# figures and the specific scenario set are paper-specific. The reusable
+# generators and metric helpers remain in `simulation_benchmarks`.
 
 logger = logging.getLogger("DVC.experiments")
 
@@ -1016,43 +1019,6 @@ class TimeDependentExperiment(BaseExperiment):
         plt.close()
 
 
-class SimulationBenchmarksExperiment(BaseExperiment):
-    """Synthetic simulation benchmark suite.
-
-    Generates scenarios that stress-test higher-order and time-varying dependence:
-    - beyond pairwise (conditional dependence with near-zero pairwise correlation)
-    - dynamic tail dependence at stable second-order summaries
-    - matched Kendall-tau with switching tail asymmetry (Clayton ↔ Gumbel)
-    - hub/root switching recovered via structure optimization
-    """
-
-    def run(self) -> Dict[str, Any]:
-        self.logger.info(f"Running simulation benchmark suite: {self.config.name}")
-
-        scenarios = self.config.analysis_config.get("scenarios", [])
-        if not isinstance(scenarios, list) or not scenarios:
-            # Default suite if not specified in YAML.
-            scenarios = [
-                {"name": "multiplicative_triplet"},
-                {"name": "dynamic_tail_df"},
-                {"name": "tail_switch"},
-                {"name": "hub_switch"},
-            ]
-
-        results = run_simulation_benchmark_suite(
-            output_dir=self.output_dir,
-            seed=int(self.config.seed or 0),
-            scenarios=scenarios,
-        )
-
-        # Add top-level metadata for consistency with other experiments.
-        results["timestamp"] = datetime.now().isoformat()
-        results["config"] = self.config.__dict__
-
-        self.save_results(results)
-        return results
-
-
 class ExperimentRunner:
     """Main class for running experiments from YAML configurations."""
     
@@ -1078,7 +1044,11 @@ class ExperimentRunner:
         elif experiment_type == 'time_dependent':
             experiment = TimeDependentExperiment(config)
         elif experiment_type == 'simulation_benchmarks':
-            experiment = SimulationBenchmarksExperiment(config)
+            raise ValueError(
+                "experiment_type='simulation_benchmarks' is paper-specific and lives "
+                "under drafts/projects/paper_benchmarks/run_suite.py. Run it directly "
+                "via that script rather than the public YAML dispatcher."
+            )
         else:
             raise ValueError(f"Unknown experiment type: {experiment_type}")
         
@@ -1163,52 +1133,11 @@ class ExperimentRunner:
         self.logger.info(f"Example configuration files created in: {output_path}")
 
 
-def main():
-    """Main function for running experiments."""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='Run DVC experiments from YAML config')
-    parser.add_argument('config', help='Path to YAML configuration file')
-    parser.add_argument('--create-examples', action='store_true', 
-                       help='Create example configuration files')
-    parser.add_argument('--log-level', default='INFO', 
-                       choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-                       help='Logging level')
-    
-    args = parser.parse_args()
-    
-    # Setup logging
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    
-    runner = ExperimentRunner()
-    
-    if args.create_examples:
-        runner.create_example_configs()
-        print("Example configuration files created in 'example_configs/' directory")
-        return
-    
-    # Run experiment
-    try:
-        results = runner.run_from_config(args.config)
-        print(f"\nExperiment completed successfully!")
-        print(f"Results saved to: {results.get('config', {}).get('output_dir', 'results')}")
-    except Exception as e:
-        print(f"Experiment failed: {e}")
-        raise
-
-
-if __name__ == "__main__":
-    main()
-
-
 __all__ = [
     'ExperimentConfig',
-    'BaseExperiment', 
+    'BaseExperiment',
     'ProbabilityAnalysisExperiment',
     'EntropyAnalysisExperiment',
     'TimeDependentExperiment',
-    'ExperimentRunner'
+    'ExperimentRunner',
 ]

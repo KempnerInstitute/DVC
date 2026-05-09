@@ -9,8 +9,7 @@ the edge-aware ``n_edges`` interface used by ``TimeDependentVine``.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, List
-import math
+from typing import List, Optional
 
 
 class TimeBandwidthFlow(nn.Module):

@@ -95,18 +95,25 @@ python scripts/run_dynamic_cvine_example.py --output-dir results/dynamic_cvine_e
 
 ## Configured Experiments
 
-The public experiment runner supports YAML-configured runs:
+The general experiment runner consumes YAML configs whose
+`analysis_config.experiment_type` selects the experiment class
+(`probability_analysis`, `entropy_analysis`, `time_dependent`):
 
 ```bash
-python scripts/run_experiment.py --list-examples
 python scripts/run_experiment.py --create-examples
-python scripts/run_experiment.py configs/finance_crisis_benchmarks.yaml
+python scripts/run_experiment.py --list-examples
+python scripts/run_experiment.py configs/probability_analysis.yaml
 ```
 
-Use `configs/` for reusable examples and project configs. Paper reproduction
-configs and figure/table generation scripts are staged outside the public
-package under `drafts/projects` until the final anonymous supplement or public
-artifact bundle is prepared.
+The real-world finance crisis benchmark uses a dedicated entry point because it
+fetches data from public sources and orchestrates its own scenario set:
+
+```bash
+python scripts/run_finance_crisis_benchmark.py --config configs/finance_crisis_benchmarks.yaml
+```
+
+Paper-reproduction configs, figure scripts, and result manifests are staged
+under `drafts/projects` and are not part of the public package release.
 
 ## Documentation
 

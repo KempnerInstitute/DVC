@@ -18,7 +18,7 @@ Related static nonparametric support exists in `dvc_package.core.nonparametric_v
   - rank-normalized reference pairs per time slice,
   - level-0 vine edges,
   - learned time-conditioned bandwidths.
-- The NeurIPS simulation runner uses this path as the `KDE-flow (time BW)` baseline.
+- The simulation benchmark suite uses this path as the `KDE-flow (time BW)` baseline.
 - Dynamic Gaussian comparators are implemented in `dvc_package.baselines`:
   - `tvgl.py` (`tvgl_frobenius`)
   - `gaussian_state_space.py` (`gaussian_copula_state_space_nll_fit_eval`)
@@ -32,7 +32,7 @@ Related static nonparametric support exists in `dvc_package.core.nonparametric_v
 - Dynamic nonparametric vines are implemented as research-stage models in
   `dvc_package.time.nonparametric_dynamic_cvine`, but they are less mature than
   the static unbinned nonparametric path and the parametric joint/latent models.
-- For paper claims, treat this module as a controlled benchmark component, not a fully general dynamic-vine inference engine.
+- Treat this module as a controlled benchmark component, not a fully general dynamic-vine inference engine.
 
 ## Flow Modules
 
@@ -140,4 +140,4 @@ corrs = compute_time_varying_correlations(data)
 
 - The jointly fitted dynamic C-vine classes are the main path when you want to fit temporal dynamics and dependence simultaneously rather than refitting a separate copula per time window.
 - The time-dependent bandwidth-flow components remain research-stage and are best used with controlled synthetic benchmarks first.
-- For paper-grade claims, keep exact configs, seeds, and result manifests in a dedicated reproduction bundle.
+- Pin exact configs, seeds, and result manifests when reporting comparative numbers.

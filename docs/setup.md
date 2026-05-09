@@ -32,8 +32,14 @@ python scripts/test_installation.py
 ## Quick Experiment Smoke Test
 
 ```bash
-python scripts/run_experiment.py --list-examples
-python scripts/run_experiment.py configs/finance_crisis_benchmarks.yaml
+python scripts/run_experiment.py --create-examples
+python scripts/run_experiment.py configs/probability_analysis.yaml
+```
+
+For the real-world finance benchmark (separate runner):
+
+```bash
+python scripts/run_finance_crisis_benchmark.py --config configs/finance_crisis_benchmarks.yaml
 ```
 
 ## GPU Notes

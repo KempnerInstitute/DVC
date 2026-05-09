@@ -28,8 +28,13 @@ DVC/
   helpers.
 - `baselines`: Gaussian, state-space, TVGL-style, MINE, NF-copula, and optional
   backend comparators.
-- `real_data`: public dataset loaders/preprocessors that can be used outside
-  the paper workflow.
+- `real_data`: public dataset loaders (currently the Allen Visual Behavior
+  Neuropixels NWB loader and preprocessor).
+- `cli`: `click`-based command-line entry points (`dvc-fit`, `dvc-entropy`,
+  `dvc-time`, `dvc-experiment`).
+- `utils`: small data and tensor helpers shared across subpackages.
+- `visualization`: generic publication-quality matplotlib defaults
+  (rcParams, colorblind palette, panel-label helper).
 
 ## Public Scripts
 
@@ -53,6 +58,15 @@ benchmark orchestration should live under `drafts/projects/` rather than
 - paper-specific configs,
 - project-only scripts,
 - generated logs, results, and temporary artifacts.
+
+Selected modules under `drafts/projects/`:
+
+- `paper_benchmarks/`: figures and orchestration for the paper simulation
+  benchmark suite (`figures.py`, `run_suite.py`). Reusable scenario generators
+  and metric helpers stay in `dvc_package.experiments.simulation_benchmarks`.
+- `allen_vbn/`: paper-specific cohort/window analysis on Allen Visual Behavior
+  Neuropixels sessions. The general NWB loader stays in
+  `dvc_package.real_data.allen_vbn`.
 
 Keeping this directory out of the public package avoids leaking local paths,
 development notes, generated data, and venue-specific paper workflows into the

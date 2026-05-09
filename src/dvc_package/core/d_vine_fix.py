@@ -8,7 +8,7 @@ non-adjacent variables, which can be lost in standard vine sampling.
 
 import torch
 import numpy as np
-from typing import Optional, Tuple
+from typing import Optional
 from scipy.stats import kendalltau
 import logging
 

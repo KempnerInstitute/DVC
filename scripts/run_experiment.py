@@ -21,10 +21,7 @@ def setup_logging(log_level: str):
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler('experiment.log')
-        ]
+        handlers=[logging.StreamHandler()],
     )
 
 
@@ -35,20 +32,19 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run a reusable public config
-  python scripts/run_experiment.py configs/finance_crisis_benchmarks.yaml
-
-  # Run entropy analysis with debug logging
-  python scripts/run_experiment.py configs/finance_crisis_benchmarks.yaml --log-level DEBUG
-
-  # Run a custom project config
-  python scripts/run_experiment.py path/to/config.yaml
-
-  # Create example configuration files
+  # Materialize the bundled example configs (writes into configs/)
   python scripts/run_experiment.py --create-examples
 
-  # List available example configurations
-  python scripts/run_experiment.py --list-examples
+  # Run one of the example configs
+  python scripts/run_experiment.py configs/probability_analysis.yaml
+  python scripts/run_experiment.py configs/entropy_analysis.yaml
+  python scripts/run_experiment.py configs/time_dependent.yaml
+
+  # Run a custom project config (any YAML with analysis_config.experiment_type)
+  python scripts/run_experiment.py path/to/config.yaml --log-level DEBUG
+
+The finance crisis benchmark uses a separate runner:
+  python scripts/run_finance_crisis_benchmark.py --config configs/finance_crisis_benchmarks.yaml
         """
     )
     
@@ -94,29 +90,35 @@ Examples:
     # Handle special commands
     if args.create_examples:
         runner.create_example_configs("configs")
-        print("Example configuration files created in 'configs/' directory")
-        print("\nAvailable examples:")
-        print("  - probability_analysis.yaml: Probability distribution analysis")
-        print("  - entropy_analysis.yaml: Entropy and information estimation")
-        print("  - time_dependent.yaml: Time-dependent vine copula modeling")
-        print("  - comprehensive_comparison.yaml: Comprehensive comparison study")
+        print("Example configuration files created in 'configs/' directory:")
+        print("  - probability_analysis.yaml")
+        print("  - entropy_analysis.yaml")
+        print("  - time_dependent.yaml")
         print("\nUsage: python scripts/run_experiment.py <config_file>.yaml")
         return
-    
+
     if args.list_examples:
         examples_dir = Path("configs")
         if examples_dir.exists():
-            yaml_files = list(examples_dir.glob("*.yaml"))
+            yaml_files = sorted(examples_dir.glob("*.yaml"))
             if yaml_files:
-                print("Available configuration files:")
+                print("YAML configurations in configs/:")
                 for yaml_file in yaml_files:
                     print(f"  - {yaml_file}")
+                print(
+                    "\nNote: configs/finance_crisis_*.yaml are consumed by"
+                    " scripts/run_finance_crisis_benchmark.py, not this runner."
+                )
             else:
-                print("No configuration files found.")
-                print("Run with --create-examples to create them.")
+                print(
+                    "No configuration files found. Run with --create-examples"
+                    " to materialize the bundled examples."
+                )
         else:
-            print("Configs directory not found.")
-            print("Run with --create-examples to create example configuration files.")
+            print(
+                "configs/ directory not found. Run with --create-examples"
+                " to create it and the bundled example configurations."
+            )
         return
     
     # Check if config file is provided
@@ -178,7 +180,7 @@ Examples:
     except Exception as e:
         logger.error(f"Experiment failed: {e}", exc_info=True)
         print(f"\nExperiment failed: {e}")
-        print("Check experiment.log for detailed error information.")
+        print("See the per-run experiment.log under the configured output_dir for details.")
         sys.exit(1)
 
 

@@ -7,7 +7,7 @@ for time-dependent vine copula modeling.
 
 import torch
 import numpy as np
-from typing import Tuple, Optional, Dict, List
+from typing import Optional, Tuple
 from torch.utils.data import Dataset, DataLoader
 import logging
 

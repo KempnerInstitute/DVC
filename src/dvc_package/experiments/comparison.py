@@ -5,11 +5,11 @@ Provides utilities for comparing different vine copula approaches,
 optimization methods, and evaluation metrics.
 """
 
-import numpy as np
-import pandas as pd
-from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
+from typing import Any, Dict, List
+
+import numpy as np
 
 from ..core.vine_factory import create_vine
 from ..optimization.structure import optimize_vine_structure

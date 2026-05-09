@@ -47,5 +47,4 @@ I_xy = mutual_information(
 ## Practical Notes
 
 - Use larger `cases` for lower Monte Carlo variance in entropy/MI estimates.
-- Some sampling tests remain marked as known issues in `tests/test_vine_pipeline.py`.
 - For fair method comparisons, keep `info` settings fixed across models.

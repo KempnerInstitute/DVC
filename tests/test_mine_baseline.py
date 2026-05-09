@@ -1,6 +1,6 @@
 """Regression tests for the MINE (Belghazi et al. 2018) MI-estimator baseline.
 
-These tests pin two things the paper currently relies on:
+Pins two properties the baseline must satisfy:
 - independence case recovers MI near zero,
 - bivariate-Gaussian case recovers the analytic MI within a loose tolerance.
 """

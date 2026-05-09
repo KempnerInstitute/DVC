@@ -10,14 +10,17 @@ python scripts/run_experiment.py <config.yaml>
 ## Useful Commands
 
 ```bash
-# List bundled example configs.
-python scripts/run_experiment.py --list-examples
-
-# Generate baseline config templates.
+# Materialize bundled example configs into configs/.
 python scripts/run_experiment.py --create-examples
 
-# Run a public config.
-python scripts/run_experiment.py configs/finance_crisis_benchmarks.yaml
+# List the YAML configs currently in configs/.
+python scripts/run_experiment.py --list-examples
+
+# Run one of the example configs.
+python scripts/run_experiment.py configs/probability_analysis.yaml
+
+# Run the real-world finance crisis benchmark (separate runner).
+python scripts/run_finance_crisis_benchmark.py --config configs/finance_crisis_benchmarks.yaml
 
 # Run a standalone dynamic C-vine example.
 python scripts/run_dynamic_cvine_example.py --output-dir results/dynamic_cvine_example

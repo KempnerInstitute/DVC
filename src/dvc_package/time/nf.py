@@ -5,12 +5,12 @@ This module provides bijectors, transformations, and utility functions
 for normalizing flows, similar to standard probability-library bijectors.
 """
 
+import math
+from typing import List, Optional, Tuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from typing import Optional, Tuple, List, Callable
-import math
 
 
 class Bijector(nn.Module):
