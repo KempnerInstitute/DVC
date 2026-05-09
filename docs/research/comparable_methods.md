@@ -13,7 +13,7 @@ This page maps DVC to strong comparison families for high-dimensional, time-vary
 
 ## Recommended Additional Comparables
 
-Use these to strengthen the NeurIPS positioning beyond copula-specific comparisons.
+Useful comparators beyond copula-specific baselines.
 
 1. Dynamic conditional correlation (DCC)
    - Why: canonical dynamic covariance baseline with explicit temporal parameters.

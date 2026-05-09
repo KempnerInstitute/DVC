@@ -8,7 +8,7 @@ non-adjacent variables, which can be lost in standard vine sampling.
 
 import torch
 import numpy as np
-from typing import Optional, Tuple
+from typing import Optional
 from scipy.stats import kendalltau
 import logging
 
@@ -244,6 +244,6 @@ def apply_d_vine_fix(vine):
     # Mark that D-vine fixes have been applied
     vine._d_vine_fixes_applied = True
     
-    # Additional D-vine specific optimizations could go here
-    # For now, this is just a placeholder
+    # Reserved for D-vine-specific optimizations; kept as an explicit no-op
+    # for API compatibility.
     pass 

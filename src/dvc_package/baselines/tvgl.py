@@ -14,9 +14,12 @@ temporal smoothing.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from typing import List, Tuple
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -157,7 +160,7 @@ def tvgl_frobenius(
         if backtrack and cand_obj > prev_obj and eta > backtrack_min_step:
             eta = max(backtrack_min_step, eta * backtrack_shrink)
             if verbose:
-                print(f"[tvgl] backtrack step -> {eta:.4g} (obj {prev_obj:.4g} -> {cand_obj:.4g})")
+                logger.info("backtrack step -> %.4g (obj %.4g -> %.4g)", eta, prev_obj, cand_obj)
             continue
 
         Thetas = cand
@@ -165,7 +168,7 @@ def tvgl_frobenius(
         obj_hist.append(prev_obj)
 
         if verbose and (it % 25 == 0 or it == max_iter - 1):
-            print(f"[tvgl] iter={it} obj={prev_obj:.6g} step={eta:.4g}")
+            logger.info("iter=%d obj=%.6g step=%.4g", it, prev_obj, eta)
 
         # Simple convergence check: relative improvement.
         if len(obj_hist) >= 5:

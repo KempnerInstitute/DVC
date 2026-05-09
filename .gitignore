@@ -36,29 +36,25 @@ env.bak/
 venv.bak/
 .venv/
 .pytest_cache/
-# Local-only legacy/archive folders
-archive/DVC_tensorflow/
-archive/DVC_NF/
-archive/experiments/
-archive/md_notes/
-archive/notebooks/
-archive/scripts_legacy/
-archive/src_legacy/
-archive/tests_legacy/
-archive/dvc_accuracy_results/
-archive/README.md
 
+# Local-only legacy material
+archive/
 
-# Drafts (separate repo)
+# Paper/project workspace (tracked separately)
 drafts/
 
-# DVC
+# Generated experiment outputs
+results/
+logs/
+slurm/
+
+# DVC tooling (the data-versioning tool, unrelated to this package)
 .dvc/
 .dvcignore
 /dvc.lock
 /dvc.yaml
 
-# Images
+# Generated images
 *.png
 *.jpg
 *.jpeg
@@ -66,10 +62,6 @@ drafts/
 
 # Logs
 *.log
-
-# Local research notes
-scripts/stimulation_exp_benchmark/DALGLEISH_LATENT_ANALYSIS_OVERVIEW.md
-scripts/stimulation_exp_benchmark/real_data_progress.md
 
 # IDE specific files
 .idea/

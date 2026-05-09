@@ -1,12 +1,11 @@
-###############################################
-# src/DVC/info_estimation.py
-###############################################
+"""Vine-based estimators of entropy, conditional entropy, and mutual information."""
 
 import logging
-import torch
-import numpy as np
-from typing import Dict, Tuple
 from contextlib import contextmanager
+from typing import Tuple
+
+import numpy as np
+import torch
 
 
 logger = logging.getLogger(__name__)

@@ -13,7 +13,7 @@ import json
 import pickle
 import logging
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.vine_factory import create_vine, VineType
 from ..core.vine_model import fit_vine

@@ -1,54 +1,44 @@
+"""Experiment runners, benchmark datasets, and method comparison utilities.
+
+Two runner layers are exposed:
+
+- :class:`ExperimentRunner` (from :mod:`dvc_package.experiments.experiment_framework`):
+  YAML-configured dispatcher for the bundled experiment types
+  (``probability_analysis``, ``entropy_analysis``, ``time_dependent``,
+  ``simulation_benchmarks``). This is the entry point used by
+  ``scripts/run_experiment.py``.
+- :class:`BenchmarkRunner` (from :mod:`dvc_package.experiments.runner`):
+  programmatic Cartesian sweep runner used by the ``dvc-experiment`` CLI and by
+  callers that want to assemble a :class:`BenchmarkConfig` in Python.
 """
-Experimental Framework for DVC Package
-
-Provides tools for running comprehensive experiments, benchmarks,
-and comparative analyses of vine copula methods.
-
-Key Features:
-- Experiment configuration management
-- Automated experiment runners
-- Performance benchmarking
-- Comparative analysis tools
-- Result visualization and reporting
-
-Main modules:
-- runner: Main experiment execution engine
-- benchmarks: Standard benchmark datasets and tests
-- comparison: Methods for comparing different vine approaches
-- visualization: Plotting and analysis tools
-"""
-
-from .runner import (
-    run_experiment,
-    ExperimentRunner,
-    ExperimentConfig
-)
 
 from .benchmarks import (
+    BenchmarkDataset,
     generate_benchmark_data,
     run_benchmark_suite,
-    BenchmarkDataset
 )
-
 from .comparison import (
-    compare_vine_methods,
+    VineComparison,
     compare_optimization_algorithms,
-    VineComparison
+    compare_vine_methods,
 )
+from .experiment_framework import ExperimentConfig, ExperimentRunner
+from .runner import BenchmarkConfig, BenchmarkRunner, run_experiment
 
 __all__ = [
-    # Main experiment runner
-    "run_experiment",
-    "ExperimentRunner", 
+    # YAML-configured dispatcher.
+    "ExperimentRunner",
     "ExperimentConfig",
-    
-    # Benchmarking
+    # Programmatic benchmark grid runner.
+    "BenchmarkRunner",
+    "BenchmarkConfig",
+    "run_experiment",
+    # Benchmark datasets.
     "generate_benchmark_data",
     "run_benchmark_suite",
     "BenchmarkDataset",
-    
-    # Comparison tools
+    # Comparison helpers.
     "compare_vine_methods",
-    "compare_optimization_algorithms", 
+    "compare_optimization_algorithms",
     "VineComparison",
 ]

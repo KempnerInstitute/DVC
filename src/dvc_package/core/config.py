@@ -1,7 +1,7 @@
-##################################################
-# src/DVC/config.py
-##################################################
+"""Default optimizer / bandwidth / sampler configuration loader."""
+
 import copy
+import logging
 from pathlib import Path
 from typing import Any, Dict, Union
 
@@ -9,6 +9,8 @@ try:
     import yaml  # type: ignore
 except ImportError:
     yaml = None
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CFG: Dict[str, Any] = {
     "optimizer": {
@@ -52,11 +54,11 @@ def load_config(path: Union[str, Path, None] = None) -> Dict[str, Any]:
 
     path = Path(path)
     if not path.is_file():
-        print(f"[DVC] Config file '{path}' not found - using defaults.")
+        logger.warning("Config file '%s' not found; using defaults", path)
         return cfg
 
     if yaml is None:
-        print("[DVC] PyYAML not available - cannot read YAML configs. Using defaults.")
+        logger.warning("PyYAML not available; using defaults")
         return cfg
 
     try:
@@ -66,5 +68,5 @@ def load_config(path: Union[str, Path, None] = None) -> Dict[str, Any]:
             raise ValueError("Top-level YAML object must be a mapping.")
         _recursive_update(cfg, user_cfg)
     except Exception as exc:
-        print(f"[DVC] Failed to parse config '{path}': {exc}. Using defaults.")
+        logger.warning("Failed to parse config '%s': %s; using defaults", path, exc)
     return cfg

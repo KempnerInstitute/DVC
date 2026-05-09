@@ -5,12 +5,15 @@ Factory functions and enums for creating different types of vine copulas.
 Provides a unified interface for instantiating C-vine, D-vine, and R-vine objects.
 """
 
+import logging
 from enum import Enum
 from typing import List, Optional, Union, Dict, Any
 import numpy as np
 import torch
 
 from .objects import vine_obj_bin, margin_obj
+
+logger = logging.getLogger(__name__)
 
 
 class VineType(Enum):
@@ -138,11 +141,11 @@ class RVine(vine_obj_bin):
         data = self.data
         
         if data is None:
-            print("Warning: No data provided for tau-based optimization, using random structure")
+            logger.warning("No data provided for tau-based optimization; using random structure")
             self._generate_random_r_matrix()
             return
-        
-        print(f"Generating tau-based R-vine structure for {d} variables...")
+
+        logger.info("Generating tau-based R-vine structure for %d variables", d)
         
         # Compute Kendall's tau matrix
         tau_matrix = np.zeros((d, d))
@@ -153,7 +156,7 @@ class RVine(vine_obj_bin):
                     tau = 0.0
                 tau_matrix[i, j] = tau_matrix[j, i] = abs(tau)
         
-        print(f"Kendall's tau matrix computed, max tau = {np.max(tau_matrix):.4f}")
+        logger.debug("Kendall's tau matrix computed, max tau = %.4f", np.max(tau_matrix))
         
         # Initialize R-matrix
         r_matrix = np.zeros((d, d), dtype=int)
@@ -238,10 +241,10 @@ class RVine(vine_obj_bin):
                         total_tau += tau_matrix[var1_idx, var2_idx]
                         edge_count += 1
         
-        print(f"Tau-based R-vine structure generated:")
-        print(f"  Total absolute tau sum: {total_tau:.4f}")
-        print(f"  Average tau per edge: {total_tau/max(edge_count, 1):.4f}")
-        print(f"  R-matrix shape: {r_matrix.shape}")
+        logger.info(
+            "Tau-based R-vine: shape=%s, total |tau| sum=%.4f, mean per edge=%.4f",
+            r_matrix.shape, total_tau, total_tau / max(edge_count, 1),
+        )
     
     def _validate_r_matrix(self):
         """Validate that the R-matrix satisfies R-vine constraints."""
@@ -263,7 +266,7 @@ class RVine(vine_obj_bin):
                 current_col = set(r_matrix[i:j+1, j])
                 prev_col = set(r_matrix[i:j, j-1])
                 if not (current_col & prev_col):
-                    print(f"Warning: Proximity condition may be violated at ({i},{j})")
+                    logger.warning("Proximity condition may be violated at (%d,%d)", i, j)
     
     def _build_rvine_structure(self):
         """Build R-vine structure from R-matrix."""
@@ -468,7 +471,7 @@ def optimize_vine_type(data: np.ndarray,
                 best_vine.selected_n_params = int(n_params)
 
         except Exception as exc:
-            print(f"Failed to fit {vine_type_enum.value}: {exc}")
+            logger.warning("Failed to fit %s: %s", vine_type_enum.value, exc)
             continue
 
     if best_vine is None:

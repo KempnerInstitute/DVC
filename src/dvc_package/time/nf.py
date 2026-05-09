@@ -5,12 +5,12 @@ This module provides bijectors, transformations, and utility functions
 for normalizing flows, similar to standard probability-library bijectors.
 """
 
+import math
+from typing import List, Optional, Tuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from typing import Optional, Tuple, List, Callable
-import math
 
 
 class Bijector(nn.Module):
@@ -311,8 +311,8 @@ def create_flow_for_bandwidth(input_dim: int = 1,
             return self.network(x)
         
         def inverse(self, y):
-            # For bandwidth flows, inverse is not typically needed
-            # This is a placeholder - in practice, you'd need to solve numerically
+            # For bandwidth flows, inverse is not typically needed. Applications
+            # that require it should solve the inverse map numerically.
             raise NotImplementedError("Inverse not implemented for NetworkBijector")
         
         def log_abs_det_jacobian(self, x, y):

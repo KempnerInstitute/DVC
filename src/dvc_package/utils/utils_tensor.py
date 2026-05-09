@@ -5,10 +5,10 @@ This module provides utility functions for handling NaN/Inf values,
 numerical stability, and tensor operations.
 """
 
-import torch
-import numpy as np
-from typing import Optional, Union, Tuple
 import logging
+from typing import Optional, Tuple
+
+import torch
 
 logger = logging.getLogger("DVC.utils.tensor")
 

@@ -1,41 +1,59 @@
 # Experiment API Reference
 
-## `ExperimentConfig`
+The package provides two complementary runner layers:
 
-Import:
+| Layer | Module | Purpose | Driven by |
+| --- | --- | --- | --- |
+| `ExperimentRunner` | `dvc_package.experiments.experiment_framework` | YAML-configured dispatcher across the bundled experiment types | `scripts/run_experiment.py` |
+| `BenchmarkRunner` | `dvc_package.experiments.runner` | Programmatic Cartesian sweep over scenarios, dimensions, vine types, families, and optimization methods | `dvc-experiment` CLI; direct Python use |
+
+Both classes are re-exported from `dvc_package.experiments`.
+
+## YAML Dispatcher: `ExperimentRunner`
 
 ```python
-from dvc_package.experiments.runner import ExperimentConfig
+from dvc_package.experiments import ExperimentRunner, ExperimentConfig
+
+runner = ExperimentRunner()
+results = runner.run_from_config("configs/probability_analysis.yaml")
 ```
 
-Purpose:
-- stores the configuration passed to `ExperimentRunner`
+Supported `analysis_config.experiment_type` values:
 
-Required fields:
-- `name`
-- `description`
-- `output_dir`
-- `data_config`
-- `vine_types`
-- `copula_families`
-- `dimensions`
-- `optimization_methods`
-
-Common optional fields:
-- `optimization_enabled`
+- `probability_analysis`
+- `entropy_analysis`
 - `time_dependent`
-- `time_config`
-- `evaluation_metrics`
-- `n_monte_carlo_samples`
-- `n_bootstrap_runs`
-- `n_parallel_jobs`
-- `random_seed`
-- `device`
 
-Example:
+The paper-specific `simulation_benchmarks` suite (multi-panel diagnostic
+figures and the manuscript scenario set) lives outside the public package
+under `drafts/projects/paper_benchmarks/run_suite.py` because the figure
+layouts are paper-bound. The reusable scenario generators and metric helpers
+remain importable from `dvc_package.experiments.simulation_benchmarks`.
+
+Each config is a YAML file with at minimum:
+
+```yaml
+name: my_experiment
+description: Brief description.
+output_dir: results/my_experiment
+seed: 0
+analysis_config:
+  experiment_type: probability_analysis
+```
+
+`scripts/run_experiment.py --create-examples` materializes one starter config
+for each of the first three experiment types under `configs/`.
+
+## Programmatic Benchmark Runner: `BenchmarkRunner`
+
+`BenchmarkRunner` consumes a `BenchmarkConfig` dataclass and runs every
+combination of (scenario × dimension × vine type × family × optimization
+method).
 
 ```python
-cfg = ExperimentConfig(
+from dvc_package.experiments import BenchmarkConfig, BenchmarkRunner
+
+cfg = BenchmarkConfig(
     name="basic_benchmark",
     description="Static benchmark run",
     output_dir="results/basic_benchmark",
@@ -45,60 +63,27 @@ cfg = ExperimentConfig(
     dimensions=[3, 5],
     optimization_methods=["sequential"],
 )
-```
 
-## `ExperimentRunner`
-
-Import:
-
-```python
-from dvc_package.experiments.runner import ExperimentRunner
-```
-
-Constructor:
-
-```python
-ExperimentRunner(config)
-```
-
-Main method:
-
-```python
-runner.run()
-```
-
-Behavior:
-- prepares datasets from `config.data_config`
-- generates the experiment grid
-- runs the configured fits and evaluations
-- writes outputs under `config.output_dir`
-
-Example:
-
-```python
-runner = ExperimentRunner(cfg)
+runner = BenchmarkRunner(cfg)
 results = runner.run()
 ```
 
-## `run_experiment`
+`BenchmarkConfig` fields:
 
-Import:
+- Required: `name`, `description`, `output_dir`, `data_config`, `vine_types`,
+  `copula_families`, `dimensions`, `optimization_methods`.
+- Optional: `optimization_enabled`, `time_dependent`, `time_config`,
+  `evaluation_metrics`, `n_monte_carlo_samples`, `n_bootstrap_runs`,
+  `n_parallel_jobs`, `random_seed`, `device`, `save_models`,
+  `save_detailed_results`, `create_plots`.
 
-```python
-from dvc_package.experiments.runner import run_experiment
-```
+### `run_experiment` Helper
 
-Signature:
-
-```python
-run_experiment(config, output_dir=None, n_runs=1, seed=42, verbose=False)
-```
-
-Use this helper when the configuration is already available as a dictionary or an `ExperimentConfig` instance.
-
-Example:
+For one-shot benchmark runs from a Python dict:
 
 ```python
+from dvc_package.experiments import run_experiment
+
 results = run_experiment(
     {
         "name": "quick_run",
@@ -115,12 +100,18 @@ results = run_experiment(
 )
 ```
 
-## Config File Runner
+## CLI Entry Point
 
-The repository also provides a script interface for YAML configs:
+The `dvc-experiment` CLI wraps `run_experiment` (the function) and accepts a
+`--config` YAML pointing at a `BenchmarkConfig`-shaped document:
 
 ```bash
-python scripts/run_experiment.py configs/finance_crisis_benchmarks.yaml
+dvc-experiment --config configs/your_benchmark.yaml --output-dir results/
 ```
 
-Use the script path when the source of truth is a YAML file instead of a Python config object.
+For YAML configs that target the higher-level `ExperimentRunner` dispatcher,
+use the script runner instead:
+
+```bash
+python scripts/run_experiment.py configs/probability_analysis.yaml
+```

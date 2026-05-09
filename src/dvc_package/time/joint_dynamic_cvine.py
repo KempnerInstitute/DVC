@@ -19,7 +19,7 @@ and regularized methods retained as controls.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np

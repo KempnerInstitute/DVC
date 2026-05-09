@@ -8,14 +8,13 @@ Implements various algorithms for optimizing vine copula structures:
 4. Hybrid approaches combining multiple methods
 """
 
-import math
-import numpy as np
-import torch
-from typing import List, Tuple, Optional, Dict, Any, Callable, Union
-from scipy.stats import kendalltau
-from scipy.optimize import differential_evolution
 import logging
+import math
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import numpy as np
+from scipy.stats import kendalltau
 
 from ..core.objects import vine_obj_bin
 from ..core.vine_factory import create_vine, VineType
