@@ -11,8 +11,8 @@ model
     estimate_a ~ N(mu, se_a^2 + tau^2)
 
 by restricted maximum likelihood (REML), with the DerSimonian-Laird moment estimate of tau^2 as a check.  Intervals for
-mu use the Hartung-Knapp-Sidik-Jonkman variance with a t distribution on k - 1 degrees of freedom, which keeps its
-level with few animals; the 95% prediction interval for a new animal uses t on k - 2 degrees of freedom.
+mu use the modified Hartung-Knapp-Sidik-Jonkman variance with a floor at the inverse sum of random-effects weights
+and a t distribution on k - 1 degrees of freedom. The prediction interval for a new animal uses t on k - 2 degrees of freedom.
 
 Written before the computation (26 November 2026): this is a description of the recorded estimates, not a test with
 a decision.  We expected the random-effects interval of the independent cohort's three-way contrast to be much wider

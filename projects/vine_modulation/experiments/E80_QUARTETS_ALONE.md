@@ -58,16 +58,7 @@ The paired datasets are reported beside the rule and do not change it.
 
 ## Results (26 November 2026, after the run)
 
-**Run.** Job 63796295 (partition `test`, 32 cores: two datasets side by side with 16 workers each), 00:10 to 00:51,
-from the pinned copy `run_trees/dvc_vine_modulation/e80_beffc6f055`: `git archive` of `beffc6f` (tag
-`vinemodel-a2`), byte-identical to E31's copy `eabaf6c055` except for its COMMIT file, plus the three E80 files
-(`MANIFEST_E80.txt`). Python `Code/DVC/.venv`, as E31. All 14 datasets completed: 1.9 to 3.2 minutes per dataset at
-n = 300 and 5.2 to 9.3 at n = 1000. Checks before the run: for every seed the law plants exactly the four
-fourth-order episodes of `nested` and nothing else; the pinned copy reproduces the planted design of E31's six
-`nested` datasets; with seed 990000 the paired data differ from E31's only in the eight coupled leaves. Scores:
-`e80_summary.py` (E31's receipts checked against `v3/paper/evidence/worked.json`), written to
-`verification/e80_episodes.tsv`, `e80_datasets.tsv` and `e80_summary.json`. Outputs in
-`RESULTS_ROOT/e80/`, mirrored to holylfs06 (`netscratch_records/.../vine_modulation_20261109/e80/`).
+**Run.** All 14 datasets completed with the frozen E31 estimator. Each generating seed planted the same four fourth-order episodes as the corresponding nested design. The paired simulations used the original seeds and differed only in the eight coupled leaves for the checked seed. The scoring script is `e80_summary.py`. The episode-level results distributed with the study are in `figures/evidence/e80_episodes.tsv`.
 
 **Fourth-order episodes** (k of 12 per size):
 
@@ -80,8 +71,7 @@ fourth-order episodes of `nested` and nothing else; the pinned copy reproduces t
 | `quartets`, paired (E31's seeds 990000 to 990002) | 300 | 10 | 10 | 8 | 8 |
 | | 1000 | 11 | 11 | 11 | 11 |
 
-Over both sizes, all three endpoints: `quartets` 20 of 24 (Wilson 95% 0.64 to 0.93), `nested` 4 of 24 (0.07 to 0.36),
-paired `quartets` 19 of 24 (0.60 to 0.91).
+Across both sample sizes, 20 of 24 episodes met all three criteria in fresh simulations without the constant triples, compared with 4 of 24 in the original nested design. On the original seeds the count without the triples was 19 of 24. Recovery improved in every matched dataset. Across the two sample sizes the gains were five, four and six additional episodes for the three seeds. Because four episodes share each fitted population, the manuscript reports these counts descriptively.
 
 **Paired, episode by episode** (the same data apart from the constant triples; counts both, with triples only,
 without triples only, neither; exact McNemar test): all three endpoints 4, 0, 15, 5 (p = 0.0001); declared changing
@@ -95,7 +85,7 @@ planted: no term at n = 300; at n = 1000 two terms within block 0 (a triple and 
 
 **Expectations.** (q1) to (q6) hold; (q2) at its bound (two retained terms over the two datasets with nothing planted).
 
-**Decision.** 20 of 24 is above 12: the nested design, not the order of the episodes, was the main obstacle in E31.
+**Decision.** The count of 20 crossed the prespecified threshold of 12. The persistent terms in this design accounted for much of the difficulty in E31.
 
 **Where `nested` lost its episodes** (paired receipts). Of its 15 retained fourth-order episodes, 6 were declared
 changing, all at n = 1000. In 8 of the 9 others the change test of the vine's own orientation gave p below 0.05 (most
