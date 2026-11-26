@@ -46,7 +46,7 @@ python figures/make_hippocampus_table.py plots/animal_contrasts.tex
 python figures/make_calibration_table.py plots/change_calibration.tex
 ~~~
 
-The workbook includes the plotted estimates, the simulated example trajectories, the timing profiles and the empirical pairwise-model ranges. The small input file `figures/evidence/figures/hippocampus_examples.json` also contains the illustrated place fields, spike rasters and decoded location profiles. Selection rules and hashes are in the accompanying `receipt.json`. With the study outputs available, run `python figures/export_figure_data.py RESULTS_ROOT OUTPUT_DIRECTORY` to regenerate these inputs.
+The workbook includes the plotted estimates, the simulated example trajectories, the timing profiles and the empirical pairwise-model ranges. The small input file `figures/evidence/figures/hippocampus_examples.json` also contains the illustrated place fields, the running rate maps of every place cell on one running direction, spike rasters and decoded location profiles. All figure scripts share `figures/figstyle.py`: text in the Times core font at 8 to 12 pt, formulas drawn as vector outlines, and a blue and orange palette in which marker shapes, line styles or labels, never colour alone, identify each series. Selection rules and hashes are in the accompanying `receipt.json`. With the study outputs available, run `python figures/export_figure_data.py RESULTS_ROOT OUTPUT_DIRECTORY` to regenerate these inputs.
 
 | Figure | From observations to the plotted quantities |
 | --- | --- |
@@ -56,6 +56,19 @@ The workbook includes the plotted estimates, the simulated example trajectories,
 | 5 | The E64 checks stratify ripple events by state or stillness. `experiments/e65_pairwise_fit.py` fits the session-level pairwise models and simulates the reference distributions. |
 | 6 | The two `*_posthoc_content.py` drivers fit and simulate the track-stretch replay model. The exported recording examples identify the source session, trios and ripples. |
 | 7 | `experiments/e69_replay_vine.py` scores whole held-out ripples. `experiments/e71_blind_timing.py` fits the change-point profiles. The fold and schedule audits described above supply the held-out comparisons. |
+
+## Analyses added after review (E77 to E80)
+
+Each driver states its question, design and decision rule in its header. The three that fit models (E78 to E80) wrote their expectations and decision rules, in the notes beside them, before they were run.
+
+| Analysis | Driver | Question |
+| --- | --- | --- |
+| E77 | `experiments/e77_random_effects.py EVIDENCE OUT.json OUT.tsv` with `EVIDENCE=figures/evidence/hippocampus` | How large is the class contrast across animals, treated as a random sample rather than as fixed? |
+| E78 | `real_data/shared_factor_content.py fit/study/simulate/summary COHORT ...`, then `experiments/e78_tables.py RESULTS_ROOT VERIFICATION` ([note](experiments/E78_SHARED_FACTORS.md)) | Does the replay model still reproduce the rise when each cell keeps one rate factor for both rests? |
+| E79 | `experiments/e79_synchrony.py study_all/check/summary ...` ([note](experiments/E79_SYNCHRONY.md)) | Is the persistent whole-ripple three-cell term population synchrony? |
+| E80 | `experiments/e80_quartets.py OUT.json quartets N G SEED WORKERS`, then `experiments/e80_summary.py RESULTS_ROOT WORKED_JSON VERIFICATION` ([note](experiments/E80_QUARTETS_ALONE.md)) | Were fourth-order episodes hard to find because of their order, or because each shared its pair with a constant third-order term? |
+
+Their small results tables are in `figures/evidence` (`e80_episodes.tsv` and, under `hippocampus`, `random_effects.tsv`, `shared_factor_content.tsv`, `shared_factor_fit.tsv`, `synchrony_recordings.tsv` and `synchrony_summary.json`); Figs 3, 6 and 7 and S1 Data read them.
 
 ## Repeat one population fit
 

@@ -1,10 +1,10 @@
 {
- "code_revision": "fe09f6adece6210c5ac47357f11755798f5d05e0",
+ "code_revision": "594971543bf947a439f40767ae5ffcc3f447d8bc",
  "script": "export_figure_data.py",
  "code_sha256": {
-  "export_figure_data.py": "3aa60c1ba598d3c1ea460c3d3ba86f2972378d4f50866dc316a3d3b712fbf7d1",
-  "dryad_posthoc_content.py": "d91b74018206608d12fbd7f41944bf179de5548f94ff80bd877da06aafda5bc3",
-  "replay_sequences.py": "69ec3f89e9b27ba9f489557a94b85dc804b2e8b081ae892560992ed7371b9e5a"
+  "export_figure_data.py": "12011e0e577c50bf5c9c1b4ad9c3981c4a05ad792f9bdaf1d7c5bfc8bf77a490",
+  "dryad_posthoc_content.py": "bc64c6bec819659f2e2d699a3194f6620e2d138142d5a66f8a9968b28c1a80fc",
+  "replay_sequences.py": "6a1c66669e5930ebcf62d7a58da4a04f853351a8d7ea467a5c2d1bc1dd7dded2"
  },
  "inputs": {
   "e17_joint_trajectories_n100.json": "400b314b03660e1fd461a0984bde2301a618b099593c0bde35d8ed52debeba2e",
@@ -49,7 +49,7 @@
   "e66_check.tsv": "3c662fdb37ec13ffb8a4ce8f46fc5f7bdae20bd1ba47bf83ec54593ad6ff6952",
   "e66_check_above.tsv": "1c82432fb553d85906b3fd745e531f3fbb35365ecc259dc72c107381f186e0d3",
   "e66_check_truth.tsv": "afa738bb1b92b398b7490fc429237a7ee351d391bed0f3fa7e84d9278b8b8a1b",
-  "hippocampus_examples.json": "b72fc3866e6e239fc4be8c2a79eaab4a0bbeaca98f02a4e16bee54af947ffa9a",
+  "hippocampus_examples.json": "d2503e9af0400ffa7b5039ffac49ee26840a7d988eea1f4a27c8caebb95da900",
   "known_edge_examples.tsv": "a98d4eed27b5517b356fb8e849ee49d10fed607b126bf3777b2d536f356bcf28",
   "timing_profiles.tsv": "96af5794e20e973df7405fd9298ac7ac61b7761237f59a2a82b4ab139f7344b3"
  }

@@ -16,17 +16,21 @@ C,Five rats,RAT4_SESS2,,0.052939,0.19262
 C,Five rats,RAT5_SESS1,,0.24517,0.31373
 C,Five rats,RAT5_SESS2,,0.10094299999999999,0.29957
 D,pairs,Achilles,recorded,0.184,0.1241;0.2439
-D,pairs,Achilles,simulated,0.1758,0.1473;0.2058
-D,pairs,Achilles,relative,0.006727,-0.0214;0.0348
+D,pairs,Achilles,simulated from the model,0.1758,0.1473;0.2058
+D,pairs,Achilles,"simulated, one factor per cell",0.1906,0.1586;0.2221
+D,pairs,Achilles,relative to replay,0.006727,-0.0214;0.0348
 D,pairs,Five rats,recorded,0.4525,0.4142;0.4908
-D,pairs,Five rats,simulated,0.4763,0.4413;0.5130
-D,pairs,Five rats,relative,-0.008785,-0.0381;0.0206
+D,pairs,Five rats,simulated from the model,0.4763,0.4413;0.5130
+D,pairs,Five rats,"simulated, one factor per cell",0.4722,0.4399;0.5056
+D,pairs,Five rats,relative to replay,-0.008785,-0.0381;0.0206
 D,trios,Achilles,recorded,0.2009,0.1221;0.2797
-D,trios,Achilles,simulated,0.1124,0.0288;0.1843
-D,trios,Achilles,relative,0.1164,0.0426;0.1902
+D,trios,Achilles,simulated from the model,0.1124,0.0288;0.1843
+D,trios,Achilles,"simulated, one factor per cell",0.0977,0.0215;0.1723
+D,trios,Achilles,relative to replay,0.1164,0.0426;0.1902
 D,trios,Five rats,recorded,0.2957,0.1828;0.4086
-D,trios,Five rats,simulated,0.2799,0.1709;0.3928
-D,trios,Five rats,relative,-0.07822,-0.1562;-0.0002
+D,trios,Five rats,simulated from the model,0.2799,0.1709;0.3928
+D,trios,Five rats,"simulated, one factor per cell",0.2495,0.1523;0.3331
+D,trios,Five rats,relative to replay,-0.07822,-0.1562;-0.0002
 E,same,plain_trios,,-0.008038,-0.1149;0.1167
 E,same,adjusted_trios,,-0.01526,-0.1093;0.0761
 E,rare,plain_trios,,0.1224,0.0115;0.2560

@@ -1,0 +1,2173 @@
+{
+ "groups": {
+  "cohort": {
+   "recordings": 9,
+   "ripples": 17436,
+   "pairs": {
+    "total": 7681.513872588631,
+    "se": 241.00733469465695,
+    "z": 31.872531524074514,
+    "per_1000_ripples": 440.55482178186685,
+    "recordings_positive": 9
+   },
+   "synchrony": {
+    "total": 10.6746411195246,
+    "se": 4.674737652693382,
+    "z": 2.2834738358791817,
+    "per_1000_ripples": 0.6122184629229526,
+    "recordings_positive": 8
+   },
+   "modulation_e69": {
+    "total": 39.82081835221204,
+    "se": 11.757070534874718,
+    "z": 3.386967717348679,
+    "per_1000_ripples": 2.28382761827323,
+    "recordings_positive": 8
+   },
+   "modulation": {
+    "total": 33.4872611966458,
+    "se": 10.524698510431433,
+    "z": 3.18177866695709,
+    "per_1000_ripples": 1.9205816240333677,
+    "recordings_positive": 6
+   },
+   "common_modulation": {
+    "total": 8.285544890518285,
+    "se": 6.789728873365565,
+    "z": 1.2203057066122975,
+    "per_1000_ripples": 0.4751975734410578,
+    "recordings_positive": 5
+   },
+   "class_difference": {
+    "total": 25.201716306127512,
+    "se": 8.291175661427491,
+    "z": 3.0395829657031452,
+    "per_1000_ripples": 1.4453840505923097,
+    "recordings_positive": 6
+   },
+   "time_varying": {
+    "total": 3.56880497917132,
+    "se": 6.852231274295353,
+    "z": 0.5208237778778587,
+    "per_1000_ripples": 0.20468025803919018,
+    "recordings_positive": 3
+   },
+   "class_change": {
+    "total": -2.6735676914997035,
+    "se": 5.11536680166847,
+    "z": -0.5226541507497899,
+    "per_1000_ripples": -0.15333606856502086,
+    "recordings_positive": 2
+   },
+   "synchrony_k": {
+    "total": 9.809503384474295,
+    "se": 9.254412069197548,
+    "z": 1.0599812620322275,
+    "per_1000_ripples": 0.5626005611650777,
+    "recordings_positive": 6
+   },
+   "modulation_k": {
+    "total": 33.55212573818585,
+    "se": 10.295426236191785,
+    "z": 3.258935081312046,
+    "per_1000_ripples": 1.9243017743855158,
+    "recordings_positive": 6
+   }
+  },
+  "rat1": {
+   "recordings": 1,
+   "ripples": 2485,
+   "pairs": {
+    "total": 641.553283721402,
+    "se": 89.02377616504826,
+    "z": 7.206538650213796,
+    "per_1000_ripples": 258.1703355015702,
+    "recordings_positive": 1
+   },
+   "synchrony": {
+    "total": 0.4068526607803178,
+    "se": 1.7012229812164672,
+    "z": 0.2391530477030095,
+    "per_1000_ripples": 0.16372340474057054,
+    "recordings_positive": 1
+   },
+   "modulation_e69": {
+    "total": -1.0547703035890827,
+    "se": 1.5884019410066965,
+    "z": -0.6640449601318108,
+    "per_1000_ripples": -0.4244548505388663,
+    "recordings_positive": 0
+   },
+   "modulation": {
+    "total": -1.5738368986339428,
+    "se": 0.8738886104163518,
+    "z": -1.8009582455641693,
+    "per_1000_ripples": -0.6333347680619489,
+    "recordings_positive": 0
+   },
+   "common_modulation": {
+    "total": -1.2397735261173644,
+    "se": 0.8980795508303503,
+    "z": -1.380471835675458,
+    "per_1000_ripples": -0.49890282741141423,
+    "recordings_positive": 0
+   },
+   "class_difference": {
+    "total": -0.33406337251657847,
+    "se": 0.3444842186223744,
+    "z": -0.9697494237980774,
+    "per_1000_ripples": -0.1344319406505346,
+    "recordings_positive": 0
+   },
+   "time_varying": {
+    "total": 2.2906185980193547,
+    "se": 2.8853129413380567,
+    "z": 0.7938891359760394,
+    "per_1000_ripples": 0.921778107854871,
+    "recordings_positive": 1
+   },
+   "class_change": {
+    "total": -0.7503040757122843,
+    "se": 0.8734754362555103,
+    "z": -0.8589870356615321,
+    "per_1000_ripples": -0.3019332296628911,
+    "recordings_positive": 0
+   },
+   "synchrony_k": {
+    "total": -0.15991924318022654,
+    "se": 2.0275319696758975,
+    "z": -0.07887384542981571,
+    "per_1000_ripples": -0.06435382019325012,
+    "recordings_positive": 0
+   },
+   "modulation_k": {
+    "total": -1.6083134061010114,
+    "se": 0.8102638894979033,
+    "z": -1.9849254384243087,
+    "per_1000_ripples": -0.6472086141251555,
+    "recordings_positive": 0
+   }
+  },
+  "rat2": {
+   "recordings": 2,
+   "ripples": 3698,
+   "pairs": {
+    "total": 1481.7496398688213,
+    "se": 118.51637151925915,
+    "z": 12.502489072811633,
+    "per_1000_ripples": 400.6894645399733,
+    "recordings_positive": 2
+   },
+   "synchrony": {
+    "total": 0.5088227060995552,
+    "se": 1.5335900967710534,
+    "z": 0.3317853363626123,
+    "per_1000_ripples": 0.13759402544606683,
+    "recordings_positive": 1
+   },
+   "modulation_e69": {
+    "total": 6.846580959728235,
+    "se": 3.877468140858362,
+    "z": 1.7657349360483967,
+    "per_1000_ripples": 1.8514280583364615,
+    "recordings_positive": 2
+   },
+   "modulation": {
+    "total": 7.530053329407014,
+    "se": 4.092160660808515,
+    "z": 1.8401167387008828,
+    "per_1000_ripples": 2.0362502242852933,
+    "recordings_positive": 2
+   },
+   "common_modulation": {
+    "total": 0.9063183024055625,
+    "se": 2.348420097424101,
+    "z": 0.38592682092938607,
+    "per_1000_ripples": 0.2450833700393625,
+    "recordings_positive": 1
+   },
+   "class_difference": {
+    "total": 6.623735027001452,
+    "se": 2.7761872649215995,
+    "z": 2.3859107455377324,
+    "per_1000_ripples": 1.7911668542459305,
+    "recordings_positive": 2
+   },
+   "time_varying": {
+    "total": -0.7101928413336669,
+    "se": 1.5141989835543435,
+    "z": -0.4690221358269579,
+    "per_1000_ripples": -0.19204782080412844,
+    "recordings_positive": 0
+   },
+   "class_change": {
+    "total": -1.274405321605773,
+    "se": 1.4747611873040134,
+    "z": -0.8641435186774153,
+    "per_1000_ripples": -0.34462015186743455,
+    "recordings_positive": 0
+   },
+   "synchrony_k": {
+    "total": 3.4598174693882227,
+    "se": 4.358736851173562,
+    "z": 0.7937660812115072,
+    "per_1000_ripples": 0.9355915276874588,
+    "recordings_positive": 2
+   },
+   "modulation_k": {
+    "total": 7.17555435265411,
+    "se": 4.147054585990409,
+    "z": 1.7302772856896043,
+    "per_1000_ripples": 1.9403878725403219,
+    "recordings_positive": 2
+   }
+  },
+  "rat3": {
+   "recordings": 2,
+   "ripples": 3977,
+   "pairs": {
+    "total": 2916.9223875235957,
+    "se": 140.65988167731268,
+    "z": 20.73741533648732,
+    "per_1000_ripples": 733.4479224348996,
+    "recordings_positive": 2
+   },
+   "synchrony": {
+    "total": 4.943154570380426,
+    "se": 2.8245688459648775,
+    "z": 1.7500563236198396,
+    "per_1000_ripples": 1.2429355218457194,
+    "recordings_positive": 2
+   },
+   "modulation_e69": {
+    "total": 25.04264490636445,
+    "se": 8.847807552814308,
+    "z": 2.830378571965989,
+    "per_1000_ripples": 6.2968682188494975,
+    "recordings_positive": 2
+   },
+   "modulation": {
+    "total": 22.44101931470567,
+    "se": 7.390078876000835,
+    "z": 3.0366413797804683,
+    "per_1000_ripples": 5.642700355721818,
+    "recordings_positive": 2
+   },
+   "common_modulation": {
+    "total": 4.39391912211197,
+    "se": 3.454625188692771,
+    "z": 1.2718945998812183,
+    "per_1000_ripples": 1.104832567792801,
+    "recordings_positive": 2
+   },
+   "class_difference": {
+    "total": 18.0471001925937,
+    "se": 6.757790408817726,
+    "z": 2.6705622845368824,
+    "per_1000_ripples": 4.537867787929017,
+    "recordings_positive": 2
+   },
+   "time_varying": {
+    "total": -0.03271540856035848,
+    "se": 1.905262182536512,
+    "z": -0.017171079581710814,
+    "per_1000_ripples": -0.008226152517062732,
+    "recordings_positive": 1
+   },
+   "class_change": {
+    "total": 0.7154605925244395,
+    "se": 3.5049376279659428,
+    "z": 0.2041293365153691,
+    "per_1000_ripples": 0.17989957066241877,
+    "recordings_positive": 1
+   },
+   "synchrony_k": {
+    "total": 7.440197251841092,
+    "se": 4.53245614834831,
+    "z": 1.6415376141151201,
+    "per_1000_ripples": 1.8708064500480492,
+    "recordings_positive": 2
+   },
+   "modulation_k": {
+    "total": 22.888411203294872,
+    "se": 6.985319056189458,
+    "z": 3.276645063623002,
+    "per_1000_ripples": 5.755195173068864,
+    "recordings_positive": 2
+   }
+  },
+  "rat4": {
+   "recordings": 2,
+   "ripples": 3950,
+   "pairs": {
+    "total": 491.2935111496531,
+    "se": 56.82922161287175,
+    "z": 8.645086052672164,
+    "per_1000_ripples": 124.37810408851978,
+    "recordings_positive": 2
+   },
+   "synchrony": {
+    "total": 0.3199096518683948,
+    "se": 0.8794902524666954,
+    "z": 0.3637443973610261,
+    "per_1000_ripples": 0.08098978528313792,
+    "recordings_positive": 2
+   },
+   "modulation_e69": {
+    "total": 1.0223597364940238,
+    "se": 1.6853913561330196,
+    "z": 0.6066007949867128,
+    "per_1000_ripples": 0.25882524974532245,
+    "recordings_positive": 2
+   },
+   "modulation": {
+    "total": 0.5471957612639282,
+    "se": 2.766233496091027,
+    "z": 0.19781257151183088,
+    "per_1000_ripples": 0.13853057247188058,
+    "recordings_positive": 1
+   },
+   "common_modulation": {
+    "total": 2.0306531081161237,
+    "se": 2.1087704999921257,
+    "z": 0.9629559537767178,
+    "per_1000_ripples": 0.5140893944597781,
+    "recordings_positive": 1
+   },
+   "class_difference": {
+    "total": -1.4834573468521954,
+    "se": 1.9366602634365757,
+    "z": -0.7659873932766204,
+    "per_1000_ripples": -0.3755588219878976,
+    "recordings_positive": 1
+   },
+   "time_varying": {
+    "total": -3.076794247372186,
+    "se": 2.322481002664272,
+    "z": -1.3247876920597375,
+    "per_1000_ripples": -0.7789352524992876,
+    "recordings_positive": 0
+   },
+   "class_change": {
+    "total": -0.8737158215118228,
+    "se": 0.6232040189604316,
+    "z": -1.4019739843290333,
+    "per_1000_ripples": -0.2211938788637526,
+    "recordings_positive": 0
+   },
+   "synchrony_k": {
+    "total": -3.286028196338224,
+    "se": 4.769893951440241,
+    "z": -0.6889101161978721,
+    "per_1000_ripples": -0.8319058724906896,
+    "recordings_positive": 0
+   },
+   "modulation_k": {
+    "total": 0.4451360433170972,
+    "se": 2.8682237801802843,
+    "z": 0.15519571603618665,
+    "per_1000_ripples": 0.11269266919420183,
+    "recordings_positive": 1
+   }
+  },
+  "rat5": {
+   "recordings": 2,
+   "ripples": 3326,
+   "pairs": {
+    "total": 2149.995050325159,
+    "se": 114.44828348754832,
+    "z": 18.785734349253676,
+    "per_1000_ripples": 646.4206405066624,
+    "recordings_positive": 2
+   },
+   "synchrony": {
+    "total": 4.495901530395905,
+    "se": 2.8027525104790563,
+    "z": 1.604102222221344,
+    "per_1000_ripples": 1.3517442965712283,
+    "recordings_positive": 2
+   },
+   "modulation_e69": {
+    "total": 7.964003053214411,
+    "se": 6.288615518338518,
+    "z": 1.2664159591233108,
+    "per_1000_ripples": 2.3944687472081814,
+    "recordings_positive": 2
+   },
+   "modulation": {
+    "total": 4.5428296899031295,
+    "se": 5.567270876271756,
+    "z": 0.8159886218694884,
+    "per_1000_ripples": 1.3658537852985957,
+    "recordings_positive": 1
+   },
+   "common_modulation": {
+    "total": 2.194427884001993,
+    "se": 4.83709066735588,
+    "z": 0.4536668908878532,
+    "per_1000_ripples": 0.6597798809386629,
+    "recordings_positive": 1
+   },
+   "class_difference": {
+    "total": 2.3484018059011356,
+    "se": 3.3910654013704584,
+    "z": 0.6925262499956671,
+    "per_1000_ripples": 0.7060739043599324,
+    "recordings_positive": 1
+   },
+   "time_varying": {
+    "total": 5.097888878418177,
+    "se": 5.226021633445581,
+    "z": 0.9754817786808654,
+    "per_1000_ripples": 1.532738688640462,
+    "recordings_positive": 1
+   },
+   "class_change": {
+    "total": -0.490603065194263,
+    "se": 3.249019327906784,
+    "z": -0.1510003529312149,
+    "per_1000_ripples": -0.14750543150759562,
+    "recordings_positive": 1
+   },
+   "synchrony_k": {
+    "total": 2.355436102763431,
+    "se": 4.386299451244338,
+    "z": 0.5369984719340636,
+    "per_1000_ripples": 0.7081888462908693,
+    "recordings_positive": 2
+   },
+   "modulation_k": {
+    "total": 4.6513375450207795,
+    "se": 5.578514327767074,
+    "z": 0.8337950342564742,
+    "per_1000_ripples": 1.3984779149190558,
+    "recordings_positive": 1
+   }
+  },
+  "achilles": {
+   "recordings": 4,
+   "ripples": 17002,
+   "pairs": {
+    "total": 2715.518766250817,
+    "se": 192.03505431383095,
+    "z": 14.140745167353733,
+    "per_1000_ripples": 159.7176077079648,
+    "recordings_positive": 4
+   },
+   "synchrony": {
+    "total": 0.3263754702462771,
+    "se": 0.7497341144892394,
+    "z": 0.43532162127719404,
+    "per_1000_ripples": 0.019196298685229804,
+    "recordings_positive": 2
+   },
+   "modulation_e69": {
+    "total": 2.749560823518486,
+    "se": 2.999800868846503,
+    "z": 0.9165811144576939,
+    "per_1000_ripples": 0.1617198461074277,
+    "recordings_positive": 3
+   },
+   "modulation": {
+    "total": 1.0091453244436028,
+    "se": 3.3237118668844516,
+    "z": 0.30361997816301256,
+    "per_1000_ripples": 0.05935450679000134,
+    "recordings_positive": 2
+   },
+   "common_modulation": {
+    "total": 2.778945884395023,
+    "se": 3.258556251896939,
+    "z": 0.8528150719439891,
+    "per_1000_ripples": 0.16344817576726406,
+    "recordings_positive": 3
+   },
+   "class_difference": {
+    "total": -1.7698005599514204,
+    "se": 1.2085478976331239,
+    "z": -1.464402497755761,
+    "per_1000_ripples": -0.1040936689772627,
+    "recordings_positive": 1
+   },
+   "time_varying": {
+    "total": 4.209267204271916,
+    "se": 3.997266855799771,
+    "z": 1.0530363260998066,
+    "per_1000_ripples": 0.24757482674226067,
+    "recordings_positive": 1
+   },
+   "class_change": {
+    "total": -2.124714794213581,
+    "se": 2.321021517685172,
+    "z": -0.91542227334998,
+    "per_1000_ripples": -0.12496852101009183,
+    "recordings_positive": 2
+   },
+   "synchrony_k": {
+    "total": 11.514054790383668,
+    "se": 7.205372354377748,
+    "z": 1.5979819257207581,
+    "per_1000_ripples": 0.677217667943987,
+    "recordings_positive": 3
+   },
+   "modulation_k": {
+    "total": 0.7354046678793873,
+    "se": 3.300118843324082,
+    "z": 0.2228418741243399,
+    "per_1000_ripples": 0.04325400940356354,
+    "recordings_positive": 2
+   }
+  },
+  "cicero": {
+   "recordings": 6,
+   "ripples": 26682,
+   "pairs": {
+    "total": 558.6794856516752,
+    "se": 57.27432803485243,
+    "z": 9.754448543014053,
+    "per_1000_ripples": 20.938441108300548,
+    "recordings_positive": 6
+   },
+   "synchrony": {
+    "total": -0.939756601486458,
+    "se": 1.5045937747717422,
+    "z": -0.6245915789655756,
+    "per_1000_ripples": -0.03522062069884034,
+    "recordings_positive": 2
+   },
+   "modulation_e69": {
+    "total": -2.692515087054529,
+    "se": 3.515015672301503,
+    "z": -0.7660037217676384,
+    "per_1000_ripples": -0.10091129177177606,
+    "recordings_positive": 1
+   },
+   "modulation": {
+    "total": -1.4593266343435243,
+    "se": 3.761958874967214,
+    "z": -0.3879166899069949,
+    "per_1000_ripples": -0.05469330014030149,
+    "recordings_positive": 1
+   },
+   "common_modulation": {
+    "total": 2.6030738748510864,
+    "se": 2.789482184517079,
+    "z": 0.9331745831894374,
+    "per_1000_ripples": 0.09755917378199111,
+    "recordings_positive": 3
+   },
+   "class_difference": {
+    "total": -4.06240050919461,
+    "se": 2.572287388218541,
+    "z": -1.5792949605090818,
+    "per_1000_ripples": -0.15225247392229255,
+    "recordings_positive": 1
+   },
+   "time_varying": {
+    "total": 2.509867783594075,
+    "se": 3.3482967524393,
+    "z": 0.7495953821194572,
+    "per_1000_ripples": 0.09406595396125009,
+    "recordings_positive": 2
+   },
+   "class_change": {
+    "total": -6.2861660376348985,
+    "se": 9.418351282554015,
+    "z": -0.6674380524836669,
+    "per_1000_ripples": -0.23559575884996994,
+    "recordings_positive": 1
+   },
+   "synchrony_k": {
+    "total": 3.8732747828926612,
+    "se": 5.049361762005992,
+    "z": 0.7670820522382022,
+    "per_1000_ripples": 0.1451643348659269,
+    "recordings_positive": 2
+   },
+   "modulation_k": {
+    "total": -1.069608425298401,
+    "se": 3.861315173217624,
+    "z": -0.2770062471764249,
+    "per_1000_ripples": -0.04008726577087179,
+    "recordings_positive": 2
+   }
+  },
+  "gatsby": {
+   "recordings": 3,
+   "ripples": 11566,
+   "pairs": {
+    "total": 937.6361409583515,
+    "se": 64.84639198755092,
+    "z": 14.459341718477676,
+    "per_1000_ripples": 81.0683158359287,
+    "recordings_positive": 3
+   },
+   "synchrony": {
+    "total": -0.04296815403213827,
+    "se": 1.2792892941841985,
+    "z": -0.03358751943557772,
+    "per_1000_ripples": -0.003715040120364713,
+    "recordings_positive": 1
+   },
+   "modulation_e69": {
+    "total": 4.6077641270094984,
+    "se": 3.9538915757491093,
+    "z": 1.165374426367902,
+    "per_1000_ripples": 0.3983887365562423,
+    "recordings_positive": 1
+   },
+   "modulation": {
+    "total": 6.7826340878783355,
+    "se": 4.2100304837612095,
+    "z": 1.6110653150945313,
+    "per_1000_ripples": 0.5864286778383483,
+    "recordings_positive": 2
+   },
+   "common_modulation": {
+    "total": 8.303423950612828,
+    "se": 3.226746549283167,
+    "z": 2.573311483809431,
+    "per_1000_ripples": 0.7179166479865838,
+    "recordings_positive": 2
+   },
+   "class_difference": {
+    "total": -1.5207898627344916,
+    "se": 2.130274900768691,
+    "z": -0.7138937149312174,
+    "per_1000_ripples": -0.1314879701482355,
+    "recordings_positive": 1
+   },
+   "time_varying": {
+    "total": -3.7620861279188036,
+    "se": 2.2909456368091687,
+    "z": -1.6421542560733309,
+    "per_1000_ripples": -0.32527115060684797,
+    "recordings_positive": 1
+   },
+   "class_change": {
+    "total": -9.845782440805547,
+    "se": 7.703384124311712,
+    "z": -1.278111318599896,
+    "per_1000_ripples": -0.8512694484528398,
+    "recordings_positive": 0
+   },
+   "synchrony_k": {
+    "total": -0.507024890238017,
+    "se": 2.601213463138849,
+    "z": -0.19491860142312079,
+    "per_1000_ripples": -0.043837531578593894,
+    "recordings_positive": 1
+   },
+   "modulation_k": {
+    "total": 6.52074445137254,
+    "se": 4.04224444259511,
+    "z": 1.61314946287272,
+    "per_1000_ripples": 0.5637856174453173,
+    "recordings_positive": 1
+   }
+  }
+ },
+ "coefficients": {
+  "cohort": {
+   "persistent0": {
+    "a": {
+     "estimate": 0.04703494724260751,
+     "se": 0.007327937962449752,
+     "z": 6.4185787985142255,
+     "recordings": 9,
+     "recordings_positive": 9
+    },
+    "b": {
+     "estimate": -0.0028805297120801992,
+     "se": 0.0018329115864658388,
+     "z": -1.5715595522173245,
+     "recordings": 9,
+     "recordings_positive": 3
+    },
+    "d_o": {
+     "estimate": 0.0005527123169502381,
+     "se": 0.004127577379504705,
+     "z": 0.13390719691766545,
+     "recordings": 9,
+     "recordings_positive": 4
+    },
+    "d_s": {
+     "estimate": -0.042743653099796344,
+     "se": 0.00520699387118737,
+     "z": -8.208892531315646,
+     "recordings": 9,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.047063060936649644,
+     "se": 0.007233766848251073,
+     "z": 6.50602402924117,
+     "recordings": 9,
+     "recordings_positive": 8
+    }
+   },
+   "sync": {
+    "a": {
+     "estimate": 0.06521814596512117,
+     "se": 0.006234471033504205,
+     "z": 10.460894856137307,
+     "recordings": 9,
+     "recordings_positive": 8
+    },
+    "b": {
+     "estimate": -0.005494414429090909,
+     "se": 0.0017655316533933324,
+     "z": -3.112045268931149,
+     "recordings": 9,
+     "recordings_positive": 0
+    },
+    "e": {
+     "estimate": -0.018891794901214277,
+     "se": 0.005565801071870303,
+     "z": -3.394263405620779,
+     "recordings": 9,
+     "recordings_positive": 2
+    }
+   },
+   "persistent": {
+    "a": {
+     "estimate": 0.04470542284038461,
+     "se": 0.0073286131506406175,
+     "z": 6.100120434993457,
+     "recordings": 9,
+     "recordings_positive": 9
+    },
+    "b": {
+     "estimate": -0.003525507748683305,
+     "se": 0.0018531819769824012,
+     "z": -1.902407746498813,
+     "recordings": 9,
+     "recordings_positive": 1
+    },
+    "e": {
+     "estimate": 0.03565741757378157,
+     "se": 0.006352535821576762,
+     "z": 5.613099803808906,
+     "recordings": 9,
+     "recordings_positive": 6
+    },
+    "d_o": {
+     "estimate": -0.0022257050242901048,
+     "se": 0.004111542920637092,
+     "z": -0.5413308500608398,
+     "recordings": 9,
+     "recordings_positive": 4
+    },
+    "d_s": {
+     "estimate": -0.057136954616688856,
+     "se": 0.00632775214365293,
+     "z": -9.029581645987864,
+     "recordings": 9,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.06564791110412474,
+     "se": 0.008042951758066677,
+     "z": 8.162166463112648,
+     "recordings": 9,
+     "recordings_positive": 8
+    }
+   },
+   "persistent_k": {
+    "a": {
+     "estimate": 0.042974755822001685,
+     "se": 0.007335228434269227,
+     "z": 5.8586799589266025,
+     "recordings": 9,
+     "recordings_positive": 8
+    },
+    "b": {
+     "estimate": -0.003264015996299244,
+     "se": 0.0018560292240548872,
+     "z": -1.7586016179035764,
+     "recordings": 9,
+     "recordings_positive": 2
+    },
+    "g1": {
+     "estimate": -0.01336961626689356,
+     "se": 0.025741708851853378,
+     "z": -0.5193756305704996,
+     "recordings": 9,
+     "recordings_positive": 4
+    },
+    "g2": {
+     "estimate": 0.0057948531424542515,
+     "se": 0.042012229325506856,
+     "z": 0.1379325314435534,
+     "recordings": 9,
+     "recordings_positive": 5
+    },
+    "g3": {
+     "estimate": 0.020970475063049672,
+     "se": 0.023253102349342386,
+     "z": 0.9018355808184335,
+     "recordings": 9,
+     "recordings_positive": 3
+    },
+    "d_o": {
+     "estimate": -0.0018295362570782776,
+     "se": 0.00415712849230612,
+     "z": -0.4400961530210877,
+     "recordings": 9,
+     "recordings_positive": 3
+    },
+    "d_s": {
+     "estimate": -0.05799112143082469,
+     "se": 0.006403041849970147,
+     "z": -9.056808121767165,
+     "recordings": 9,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.06552208828940795,
+     "se": 0.008138567560105532,
+     "z": 8.050813340985318,
+     "recordings": 9,
+     "recordings_positive": 8
+    }
+   }
+  },
+  "rat1": {
+   "persistent0": {
+    "a": {
+     "estimate": 0.11905504880390154,
+     "se": 0.05027771524966312,
+     "z": 2.3679486669732723,
+     "recordings": 1,
+     "recordings_positive": 1
+    },
+    "b": {
+     "estimate": -0.021122296906477493,
+     "se": 0.01478768872385829,
+     "z": -1.4283704033071116,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "d_o": {
+     "estimate": -0.00453818871537646,
+     "se": 0.01532240969928676,
+     "z": -0.29617983100841555,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "d_s": {
+     "estimate": -0.027772923825624164,
+     "se": 0.02164124375145333,
+     "z": -1.2833330720078904,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.023234735110247706,
+     "se": 0.027464058021296485,
+     "z": 0.8460051712762465,
+     "recordings": 1,
+     "recordings_positive": 1
+    }
+   },
+   "sync": {
+    "a": {
+     "estimate": 0.12539336935272694,
+     "se": 0.045642730676391526,
+     "z": 2.747280180096368,
+     "recordings": 1,
+     "recordings_positive": 1
+    },
+    "b": {
+     "estimate": -0.018852656125682456,
+     "se": 0.01783128711268497,
+     "z": -1.0572796011046728,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "e": {
+     "estimate": -0.040305587820956286,
+     "se": 0.03504626816283804,
+     "z": -1.1500678940673936,
+     "recordings": 1,
+     "recordings_positive": 0
+    }
+   },
+   "persistent": {
+    "a": {
+     "estimate": 0.12373111549973671,
+     "se": 0.05201885780831566,
+     "z": 2.3785819357217264,
+     "recordings": 1,
+     "recordings_positive": 1
+    },
+    "b": {
+     "estimate": -0.017864228429956754,
+     "se": 0.017764460106622217,
+     "z": -1.0056161753712596,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "e": {
+     "estimate": -0.02864322033998862,
+     "se": 0.03732395552137335,
+     "z": -0.7674218860213313,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "d_o": {
+     "estimate": -0.002409693541614609,
+     "se": 0.01523556676091405,
+     "z": -0.15816238276061617,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "d_s": {
+     "estimate": -0.013799936790227483,
+     "se": 0.019311663514839768,
+     "z": -0.7145907849742267,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.011390243248612875,
+     "se": 0.02595407547339477,
+     "z": 0.4388614520401192,
+     "recordings": 1,
+     "recordings_positive": 1
+    }
+   },
+   "persistent_k": {
+    "a": {
+     "estimate": 0.11500059111983726,
+     "se": 0.05393402318886602,
+     "z": 2.1322457387821507,
+     "recordings": 1,
+     "recordings_positive": 1
+    },
+    "b": {
+     "estimate": -0.028048026518114857,
+     "se": 0.020780331233590688,
+     "z": -1.349739145292169,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "g1": {
+     "estimate": 0.0398498708881296,
+     "se": 0.0688042701985082,
+     "z": 0.5791772919494409,
+     "recordings": 1,
+     "recordings_positive": 1
+    },
+    "g2": {
+     "estimate": -0.0009753077438166227,
+     "se": 0.10544705518480164,
+     "z": -0.009249264876172628,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "g3": {
+     "estimate": -0.029019256349384757,
+     "se": 0.0633225685017814,
+     "z": -0.45827667822047335,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "d_o": {
+     "estimate": -0.002065018880968643,
+     "se": 0.01523440072160299,
+     "z": -0.13554972845373325,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "d_s": {
+     "estimate": -0.010351625599515073,
+     "se": 0.02048146269652601,
+     "z": -0.5054143716635471,
+     "recordings": 1,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.00828660671854643,
+     "se": 0.02658832411757035,
+     "z": 0.3116633708053226,
+     "recordings": 1,
+     "recordings_positive": 1
+    }
+   }
+  },
+  "rat2": {
+   "persistent0": {
+    "a": {
+     "estimate": 0.07992239010110799,
+     "se": 0.01612286507027979,
+     "z": 4.957083604726902,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -6.369359092576936e-05,
+     "se": 0.0047763943835333845,
+     "z": -0.013335077845613622,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_o": {
+     "estimate": 0.010099533856890396,
+     "se": 0.00926083909556521,
+     "z": 1.090563582054548,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_s": {
+     "estimate": -0.0477772000559765,
+     "se": 0.009443402146327572,
+     "z": -5.0593207104450695,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.05510553021562449,
+     "se": 0.013277563550386734,
+     "z": 4.150274258263252,
+     "recordings": 2,
+     "recordings_positive": 2
+    }
+   },
+   "sync": {
+    "a": {
+     "estimate": 0.09849422232958753,
+     "se": 0.013638591028737506,
+     "z": 7.221730024901621,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.004233989518355285,
+     "se": 0.004831365693276565,
+     "z": -0.8763545935360261,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "e": {
+     "estimate": -0.023101244589826656,
+     "se": 0.011092048250084825,
+     "z": -2.0826851875306254,
+     "recordings": 2,
+     "recordings_positive": 0
+    }
+   },
+   "persistent": {
+    "a": {
+     "estimate": 0.07967970947208783,
+     "se": 0.016060643869944487,
+     "z": 4.961177778258229,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.0005300256220738588,
+     "se": 0.0049232918033756045,
+     "z": -0.10765675552898413,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "e": {
+     "estimate": 0.004427173470169769,
+     "se": 0.0152815640584317,
+     "z": 0.2897068293037091,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_o": {
+     "estimate": 0.010268663412616789,
+     "se": 0.009535144363036114,
+     "z": 1.0769279437891082,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_s": {
+     "estimate": -0.04493757293200986,
+     "se": 0.014108719215778567,
+     "z": -3.1850922996435895,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.06625423980678033,
+     "se": 0.015296268426143884,
+     "z": 4.331398871998137,
+     "recordings": 2,
+     "recordings_positive": 2
+    }
+   },
+   "persistent_k": {
+    "a": {
+     "estimate": 0.08427696344287929,
+     "se": 0.016471776370315865,
+     "z": 5.116446553679333,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": 0.0013593639229515081,
+     "se": 0.00489443219303464,
+     "z": 0.27773679751576597,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "g1": {
+     "estimate": -0.10890502717615802,
+     "se": 0.04391578423417845,
+     "z": -2.4798606941738326,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "g2": {
+     "estimate": 0.08521176774842759,
+     "se": 0.07171704621251106,
+     "z": 1.1881661647905735,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "g3": {
+     "estimate": -0.009172330272029681,
+     "se": 0.04249665858306547,
+     "z": -0.21583650521843076,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_o": {
+     "estimate": 0.008385008251409963,
+     "se": 0.009441395262014998,
+     "z": 0.888111133864384,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_s": {
+     "estimate": -0.04316317388749009,
+     "se": 0.014216953648524133,
+     "z": -3.0360353529021227,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.06392406309695944,
+     "se": 0.015331148498890754,
+     "z": 4.169554753290956,
+     "recordings": 2,
+     "recordings_positive": 2
+    }
+   }
+  },
+  "rat3": {
+   "persistent0": {
+    "a": {
+     "estimate": 0.03983930917022098,
+     "se": 0.011218486660170826,
+     "z": 3.5512195518904632,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.0024787833982845404,
+     "se": 0.0024038228989832354,
+     "z": -1.0311838693828117,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_o": {
+     "estimate": -0.0006237948343144008,
+     "se": 0.00853880172584758,
+     "z": -0.07305414206142391,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_s": {
+     "estimate": -0.07420312086711663,
+     "se": 0.013116918975658455,
+     "z": -5.65705414547563,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.06934861189843415,
+     "se": 0.01595828568373425,
+     "z": 4.345617898614191,
+     "recordings": 2,
+     "recordings_positive": 2
+    }
+   },
+   "sync": {
+    "a": {
+     "estimate": 0.05550369505968369,
+     "se": 0.00904261584339556,
+     "z": 6.138013161337803,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.004757950843237435,
+     "se": 0.002283532132495448,
+     "z": -2.0835926832515983,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "e": {
+     "estimate": -0.036975705224061496,
+     "se": 0.011261044697493769,
+     "z": -3.2835057685447886,
+     "recordings": 2,
+     "recordings_positive": 0
+    }
+   },
+   "persistent": {
+    "a": {
+     "estimate": 0.03701548693950492,
+     "se": 0.011134157719703981,
+     "z": 3.324498167831687,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.003277869896896065,
+     "se": 0.0024026356599017797,
+     "z": -1.364280881867068,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "e": {
+     "estimate": 0.05714630510882457,
+     "se": 0.010219038531340662,
+     "z": 5.5921410740905975,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "d_o": {
+     "estimate": -0.004261265468171182,
+     "se": 0.008450785897905171,
+     "z": -0.5042448737492555,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_s": {
+     "estimate": -0.11804907437342696,
+     "se": 0.01563088627543254,
+     "z": -7.552295646790526,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.11405679473555552,
+     "se": 0.018580657345629695,
+     "z": 6.138469302453527,
+     "recordings": 2,
+     "recordings_positive": 2
+    }
+   },
+   "persistent_k": {
+    "a": {
+     "estimate": 0.03625433892604333,
+     "se": 0.011342322972722503,
+     "z": 3.196376880929285,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.002992166419850555,
+     "se": 0.0023891120868564466,
+     "z": -1.2524177648724708,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "g1": {
+     "estimate": 0.05418981921924754,
+     "se": 0.05039325705024074,
+     "z": 1.0753386939292637,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "g2": {
+     "estimate": -0.1297747135296298,
+     "se": 0.08144403301116045,
+     "z": -1.5934219946088193,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "g3": {
+     "estimate": 0.11601219976604797,
+     "se": 0.043039912887276585,
+     "z": 2.6954561936472548,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_o": {
+     "estimate": -0.00370661654595005,
+     "se": 0.00861009632398348,
+     "z": -0.4304965248327415,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_s": {
+     "estimate": -0.11967635992096129,
+     "se": 0.014802208355656168,
+     "z": -8.085034141221973,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.11552822834149867,
+     "se": 0.01821078811547907,
+     "z": 6.34394445802707,
+     "recordings": 2,
+     "recordings_positive": 2
+    }
+   }
+  },
+  "rat4": {
+   "persistent0": {
+    "a": {
+     "estimate": 0.00984356775088814,
+     "se": 0.017045026923180547,
+     "z": 0.577503795989978,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.0025667132518976243,
+     "se": 0.005571934104347127,
+     "z": -0.4606503242554715,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_o": {
+     "estimate": -0.022295843313644526,
+     "se": 0.008365082453503292,
+     "z": -2.665346508844876,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_s": {
+     "estimate": -0.021430545236666054,
+     "se": 0.009227808680063926,
+     "z": -2.3223872513704515,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.0042544756116693885,
+     "se": 0.014854276108412784,
+     "z": 0.2864142002355704,
+     "recordings": 2,
+     "recordings_positive": 1
+    }
+   },
+   "sync": {
+    "a": {
+     "estimate": 0.008051303702886963,
+     "se": 0.017406751544632032,
+     "z": 0.46253912927078333,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "b": {
+     "estimate": -0.0071115682363504205,
+     "se": 0.005346518184047791,
+     "z": -1.3301307489365592,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "e": {
+     "estimate": 0.009947195316805064,
+     "se": 0.009787743538550844,
+     "z": 1.016290964064004,
+     "recordings": 2,
+     "recordings_positive": 2
+    }
+   },
+   "persistent": {
+    "a": {
+     "estimate": 0.0034857034849375087,
+     "se": 0.017062407155770988,
+     "z": 0.2042914257709848,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.005024582712813627,
+     "se": 0.005548147370443898,
+     "z": -0.9056325251165092,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "e": {
+     "estimate": 0.044437533468176464,
+     "se": 0.011447572776773543,
+     "z": 3.881830177864222,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "d_o": {
+     "estimate": -0.026752446447074533,
+     "se": 0.007947150014730092,
+     "z": -3.3662943819468243,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_s": {
+     "estimate": -0.047800201088202814,
+     "se": 0.010313400712566872,
+     "z": -4.6347662056763,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.041198386501316006,
+     "se": 0.016506136329196397,
+     "z": 2.4959436708664184,
+     "recordings": 2,
+     "recordings_positive": 1
+    }
+   },
+   "persistent_k": {
+    "a": {
+     "estimate": 0.0012700131085800954,
+     "se": 0.016171783140837143,
+     "z": 0.07853265762468989,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "b": {
+     "estimate": -0.00598964484905173,
+     "se": 0.005748677173067604,
+     "z": -1.0419170652185954,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "g1": {
+     "estimate": 0.004947067114206194,
+     "se": 0.057016410403576814,
+     "z": 0.08676567113204042,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "g2": {
+     "estimate": 0.08613706316108292,
+     "se": 0.10248184073021618,
+     "z": 0.8405104996878331,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "g3": {
+     "estimate": -0.035294966097506444,
+     "se": 0.05430163764868922,
+     "z": -0.649979772725297,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o": {
+     "estimate": -0.02600204788130097,
+     "se": 0.008207408863911584,
+     "z": -3.1681189901033644,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_s": {
+     "estimate": -0.04567775687659328,
+     "se": 0.010660907226501593,
+     "z": -4.284603168015989,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.0384205721879526,
+     "se": 0.0173096047368354,
+     "z": 2.2196100241499086,
+     "recordings": 2,
+     "recordings_positive": 1
+    }
+   }
+  },
+  "rat5": {
+   "persistent0": {
+    "a": {
+     "estimate": 0.05712044309995147,
+     "se": 0.018281011758833034,
+     "z": 3.124577777942294,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.005601709218288448,
+     "se": 0.004768254810505498,
+     "z": -1.1747923382673822,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o": {
+     "estimate": 0.017683489330916197,
+     "se": 0.008228148036134256,
+     "z": 2.1491457437637744,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_s": {
+     "estimate": -0.0499307927440143,
+     "se": 0.012933192136853885,
+     "z": -3.8606704528678266,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.07237388631812772,
+     "se": 0.01654407264017632,
+     "z": 4.3746112515470905,
+     "recordings": 2,
+     "recordings_positive": 2
+    }
+   },
+   "sync": {
+    "a": {
+     "estimate": 0.0881812184049033,
+     "se": 0.01517648555120122,
+     "z": 5.810384631369661,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.007504951663282908,
+     "se": 0.0045610617288987685,
+     "z": -1.6454396167742544,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "e": {
+     "estimate": -0.04018553914846194,
+     "se": 0.014121500518340234,
+     "z": -2.845698946529879,
+     "recordings": 2,
+     "recordings_positive": 0
+    }
+   },
+   "persistent": {
+    "a": {
+     "estimate": 0.058227795858096974,
+     "se": 0.018662442080018465,
+     "z": 3.1200523280091197,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.005288294559432465,
+     "se": 0.004936265859026178,
+     "z": -1.071314777295187,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "e": {
+     "estimate": -0.00043560454951130834,
+     "se": 0.019712394671221243,
+     "z": -0.02209800264131589,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_o": {
+     "estimate": 0.017772703954879936,
+     "se": 0.008447935496317345,
+     "z": 2.103792573064446,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_s": {
+     "estimate": -0.06136474591308393,
+     "se": 0.016275243904265786,
+     "z": -3.770434794958745,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.07441744140774476,
+     "se": 0.017865140052180886,
+     "z": 4.165511224114935,
+     "recordings": 2,
+     "recordings_positive": 2
+    }
+   },
+   "persistent_k": {
+    "a": {
+     "estimate": 0.05470701558566376,
+     "se": 0.01838306004186866,
+     "z": 2.9759471742498165,
+     "recordings": 2,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.005735199577600798,
+     "se": 0.004952425801202426,
+     "z": -1.158058658083947,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "g1": {
+     "estimate": 0.06428981639243583,
+     "se": 0.1132382908448686,
+     "z": 0.5677391976933845,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "g2": {
+     "estimate": -0.050609452542773235,
+     "se": 0.16614136011911748,
+     "z": -0.30461681851218775,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "g3": {
+     "estimate": 0.002643756191441149,
+     "se": 0.0773008396760584,
+     "z": 0.034200872882108845,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_o": {
+     "estimate": 0.017494079115297937,
+     "se": 0.00845058234442695,
+     "z": 2.0701625523872984,
+     "recordings": 2,
+     "recordings_positive": 1
+    },
+    "d_s": {
+     "estimate": -0.06170615298582365,
+     "se": 0.016446705033517705,
+     "z": -3.7518854299429014,
+     "recordings": 2,
+     "recordings_positive": 0
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.07443965671240338,
+     "se": 0.018031988871889927,
+     "z": 4.1282000139456265,
+     "recordings": 2,
+     "recordings_positive": 2
+    }
+   }
+  },
+  "achilles": {
+   "persistent0": {
+    "a": {
+     "estimate": -0.001078411836933491,
+     "se": 0.011645964909443352,
+     "z": -0.09259961242533371,
+     "recordings": 4,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.002865858272333574,
+     "se": 0.0035983160594788596,
+     "z": -0.7964442880953134,
+     "recordings": 4,
+     "recordings_positive": 2
+    },
+    "d_o": {
+     "estimate": 0.006152538640696901,
+     "se": 0.004115230681916187,
+     "z": 1.4950653113404755,
+     "recordings": 4,
+     "recordings_positive": 3
+    },
+    "d_s": {
+     "estimate": -0.003522764486300252,
+     "se": 0.005025836142441097,
+     "z": -0.7009310264916857,
+     "recordings": 4,
+     "recordings_positive": 2
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.008656760345698228,
+     "se": 0.006482393907480716,
+     "z": 1.3354264596152174,
+     "recordings": 4,
+     "recordings_positive": 4
+    }
+   },
+   "sync": {
+    "a": {
+     "estimate": 0.0015098941326615162,
+     "se": 0.011329631986873973,
+     "z": 0.13326947727965172,
+     "recordings": 4,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.0030274056881659963,
+     "se": 0.0036172923450237655,
+     "z": -0.8369259101578383,
+     "recordings": 4,
+     "recordings_positive": 2
+    },
+    "e": {
+     "estimate": -0.004648365100854974,
+     "se": 0.005077876791247008,
+     "z": -0.9154151020102723,
+     "recordings": 4,
+     "recordings_positive": 0
+    }
+   },
+   "persistent": {
+    "a": {
+     "estimate": -0.0008136776179526993,
+     "se": 0.011652516004822604,
+     "z": -0.06982849177087112,
+     "recordings": 4,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.0027640950233723664,
+     "se": 0.003632102588570743,
+     "z": -0.7610178831595329,
+     "recordings": 4,
+     "recordings_positive": 2
+    },
+    "e": {
+     "estimate": -0.008565983160517529,
+     "se": 0.00742853180192116,
+     "z": -1.1531192689115501,
+     "recordings": 4,
+     "recordings_positive": 1
+    },
+    "d_o": {
+     "estimate": 0.0071638866338468365,
+     "se": 0.004129657429107354,
+     "z": 1.7347411393867957,
+     "recordings": 4,
+     "recordings_positive": 3
+    },
+    "d_s": {
+     "estimate": -0.00020957359201135536,
+     "se": 0.006904419859025174,
+     "z": -0.030353541107064827,
+     "recordings": 4,
+     "recordings_positive": 3
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.007014023067127639,
+     "se": 0.00749130845879944,
+     "z": 0.9362881138459634,
+     "recordings": 4,
+     "recordings_positive": 3
+    }
+   },
+   "persistent_k": {
+    "a": {
+     "estimate": 0.0008042846395728654,
+     "se": 0.011653438888001548,
+     "z": 0.06901693545593325,
+     "recordings": 4,
+     "recordings_positive": 2
+    },
+    "b": {
+     "estimate": -0.002165200695157472,
+     "se": 0.003672175725004413,
+     "z": -0.589623388775838,
+     "recordings": 4,
+     "recordings_positive": 2
+    },
+    "g1": {
+     "estimate": -0.14790196407177,
+     "se": 0.02749871115201435,
+     "z": -5.378505314454921,
+     "recordings": 4,
+     "recordings_positive": 0
+    },
+    "g2": {
+     "estimate": 0.2639600996321015,
+     "se": 0.048859465730527726,
+     "z": 5.4024352433141205,
+     "recordings": 4,
+     "recordings_positive": 4
+    },
+    "g3": {
+     "estimate": -0.15474012938791296,
+     "se": 0.027622895493344773,
+     "z": -5.601879405625479,
+     "recordings": 4,
+     "recordings_positive": 0
+    },
+    "d_o": {
+     "estimate": 0.00636644051878861,
+     "se": 0.004126470670405288,
+     "z": 1.5428294606449535,
+     "recordings": 4,
+     "recordings_positive": 3
+    },
+    "d_s": {
+     "estimate": 0.0007265787080499785,
+     "se": 0.006978507522928364,
+     "z": 0.10411663320025873,
+     "recordings": 4,
+     "recordings_positive": 3
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.005238671078080352,
+     "se": 0.00766849594964889,
+     "z": 0.6831419241109739,
+     "recordings": 4,
+     "recordings_positive": 3
+    }
+   }
+  },
+  "cicero": {
+   "persistent0": {
+    "a": {
+     "estimate": -0.004558070415472312,
+     "se": 0.01633386839017239,
+     "z": -0.2790563941493963,
+     "recordings": 6,
+     "recordings_positive": 3
+    },
+    "b": {
+     "estimate": 0.0012087541959748857,
+     "se": 0.007158917409281192,
+     "z": 0.16884594790935764,
+     "recordings": 6,
+     "recordings_positive": 2
+    },
+    "d_o": {
+     "estimate": -0.003558636797625591,
+     "se": 0.004471152999686834,
+     "z": -0.7959103161700892,
+     "recordings": 6,
+     "recordings_positive": 4
+    },
+    "d_s": {
+     "estimate": 0.003847141263663921,
+     "se": 0.006134589304101968,
+     "z": 0.6271228721198147,
+     "recordings": 5,
+     "recordings_positive": 2
+    },
+    "d_o_minus_d_s": {
+     "estimate": -0.008189913198526962,
+     "se": 0.00935980861172576,
+     "z": -0.875008618046615,
+     "recordings": 5,
+     "recordings_positive": 2
+    }
+   },
+   "sync": {
+    "a": {
+     "estimate": -0.005815269651382333,
+     "se": 0.01657051326786933,
+     "z": -0.35094082828793827,
+     "recordings": 6,
+     "recordings_positive": 3
+    },
+    "b": {
+     "estimate": 0.0018030683521376022,
+     "se": 0.00721632945706808,
+     "z": 0.24985948367027164,
+     "recordings": 6,
+     "recordings_positive": 3
+    },
+    "e": {
+     "estimate": -0.004023538418463423,
+     "se": 0.006275525871323088,
+     "z": -0.641147610728458,
+     "recordings": 6,
+     "recordings_positive": 4
+    }
+   },
+   "persistent": {
+    "a": {
+     "estimate": -0.004327312313954253,
+     "se": 0.01659659434798257,
+     "z": -0.26073495701726707,
+     "recordings": 6,
+     "recordings_positive": 3
+    },
+    "b": {
+     "estimate": 0.0013182060524793118,
+     "se": 0.007340599417214875,
+     "z": 0.17957744014581542,
+     "recordings": 6,
+     "recordings_positive": 3
+    },
+    "e": {
+     "estimate": -0.0028868414786859813,
+     "se": 0.007317440743095316,
+     "z": -0.39451518366035065,
+     "recordings": 6,
+     "recordings_positive": 4
+    },
+    "d_o": {
+     "estimate": -0.003523584751634223,
+     "se": 0.0044891862491128354,
+     "z": -0.7849050041821194,
+     "recordings": 6,
+     "recordings_positive": 4
+    },
+    "d_s": {
+     "estimate": 0.010274188745555208,
+     "se": 0.008812988131695447,
+     "z": 1.1658008148909937,
+     "recordings": 5,
+     "recordings_positive": 2
+    },
+    "d_o_minus_d_s": {
+     "estimate": -0.01367930205963539,
+     "se": 0.010303012591499272,
+     "z": -1.327699247006822,
+     "recordings": 5,
+     "recordings_positive": 2
+    }
+   },
+   "persistent_k": {
+    "a": {
+     "estimate": -0.0014268668350939614,
+     "se": 0.01671548840580387,
+     "z": -0.08536195894811734,
+     "recordings": 6,
+     "recordings_positive": 3
+    },
+    "b": {
+     "estimate": 0.0018208203204495921,
+     "se": 0.0075558441024530035,
+     "z": 0.24098172166607607,
+     "recordings": 6,
+     "recordings_positive": 3
+    },
+    "g1": {
+     "estimate": -0.09450401569511996,
+     "se": 0.022956233713814313,
+     "z": -4.116703849301313,
+     "recordings": 6,
+     "recordings_positive": 0
+    },
+    "g2": {
+     "estimate": 0.19806217746939336,
+     "se": 0.03761756342567536,
+     "z": 5.265151685348357,
+     "recordings": 6,
+     "recordings_positive": 6
+    },
+    "g3": {
+     "estimate": -0.11890210321636693,
+     "se": 0.021338251768429562,
+     "z": -5.572251396540618,
+     "recordings": 6,
+     "recordings_positive": 1
+    },
+    "d_o": {
+     "estimate": -0.004515785088214607,
+     "se": 0.0044986567881606255,
+     "z": -1.0038074253850748,
+     "recordings": 6,
+     "recordings_positive": 4
+    },
+    "d_s": {
+     "estimate": 0.014029193119819882,
+     "se": 0.008911977260177225,
+     "z": 1.5741953452359791,
+     "recordings": 5,
+     "recordings_positive": 2
+    },
+    "d_o_minus_d_s": {
+     "estimate": -0.018821299062070397,
+     "se": 0.010638069871919915,
+     "z": -1.7692400302568803,
+     "recordings": 5,
+     "recordings_positive": 2
+    }
+   }
+  },
+  "gatsby": {
+   "persistent0": {
+    "a": {
+     "estimate": 0.02034199547912508,
+     "se": 0.014974561740639856,
+     "z": 1.3584367830891777,
+     "recordings": 3,
+     "recordings_positive": 3
+    },
+    "b": {
+     "estimate": -0.0022459255879601066,
+     "se": 0.006896226255946339,
+     "z": -0.325674579778112,
+     "recordings": 3,
+     "recordings_positive": 0
+    },
+    "d_o": {
+     "estimate": -0.019351363638185425,
+     "se": 0.005661722119688128,
+     "z": -3.4179288967384682,
+     "recordings": 3,
+     "recordings_positive": 0
+    },
+    "d_s": {
+     "estimate": -0.02518887954270964,
+     "se": 0.01032865146542475,
+     "z": -2.438738457486888,
+     "recordings": 3,
+     "recordings_positive": 1
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.009929720914267371,
+     "se": 0.011132318981482302,
+     "z": 0.891972367193632,
+     "recordings": 3,
+     "recordings_positive": 2
+    }
+   },
+   "sync": {
+    "a": {
+     "estimate": 0.012658806185741825,
+     "se": 0.01492242873297896,
+     "z": 0.8483073641870059,
+     "recordings": 3,
+     "recordings_positive": 3
+    },
+    "b": {
+     "estimate": -0.004576576949512,
+     "se": 0.007081667777982983,
+     "z": -0.6462569401717276,
+     "recordings": 3,
+     "recordings_positive": 0
+    },
+    "e": {
+     "estimate": -0.012978691321620332,
+     "se": 0.01029346022723516,
+     "z": -1.2608676805570587,
+     "recordings": 3,
+     "recordings_positive": 1
+    }
+   },
+   "persistent": {
+    "a": {
+     "estimate": 0.018301777475916343,
+     "se": 0.015174981115469933,
+     "z": 1.2060494399731962,
+     "recordings": 3,
+     "recordings_positive": 3
+    },
+    "b": {
+     "estimate": -0.0035754770865867023,
+     "se": 0.007049258181072491,
+     "z": -0.5072132407048142,
+     "recordings": 3,
+     "recordings_positive": 0
+    },
+    "e": {
+     "estimate": 0.007002916828832531,
+     "se": 0.011548696686890236,
+     "z": 0.6063815700330973,
+     "recordings": 3,
+     "recordings_positive": 2
+    },
+    "d_o": {
+     "estimate": -0.020601480735990874,
+     "se": 0.0057162950645474435,
+     "z": -3.603991834459631,
+     "recordings": 3,
+     "recordings_positive": 0
+    },
+    "d_s": {
+     "estimate": -0.03378891647172792,
+     "se": 0.01144348168334651,
+     "z": -2.952677987932669,
+     "recordings": 3,
+     "recordings_positive": 1
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.018258875488459683,
+     "se": 0.011882167779801014,
+     "z": 1.5366619817891056,
+     "recordings": 3,
+     "recordings_positive": 2
+    }
+   },
+   "persistent_k": {
+    "a": {
+     "estimate": 0.02041653437294169,
+     "se": 0.015171379733794883,
+     "z": 1.3457269365859328,
+     "recordings": 3,
+     "recordings_positive": 3
+    },
+    "b": {
+     "estimate": -0.003476948309548683,
+     "se": 0.007126160062750645,
+     "z": -0.4879133051926715,
+     "recordings": 3,
+     "recordings_positive": 0
+    },
+    "g1": {
+     "estimate": -0.06774506812151322,
+     "se": 0.03924909647066948,
+     "z": -1.7260287296584915,
+     "recordings": 3,
+     "recordings_positive": 0
+    },
+    "g2": {
+     "estimate": 0.14999555228473646,
+     "se": 0.08109216323417985,
+     "z": 1.849692329104303,
+     "recordings": 3,
+     "recordings_positive": 3
+    },
+    "g3": {
+     "estimate": -0.08747120512773175,
+     "se": 0.04904101940138558,
+     "z": -1.7836335010046789,
+     "recordings": 3,
+     "recordings_positive": 0
+    },
+    "d_o": {
+     "estimate": -0.02084035615749927,
+     "se": 0.005852318629140549,
+     "z": -3.5610426359440743,
+     "recordings": 3,
+     "recordings_positive": 1
+    },
+    "d_s": {
+     "estimate": -0.03453320753734458,
+     "se": 0.011250235583159842,
+     "z": -3.0695541690732555,
+     "recordings": 3,
+     "recordings_positive": 1
+    },
+    "d_o_minus_d_s": {
+     "estimate": 0.01701837451680314,
+     "se": 0.011672337661890504,
+     "z": 1.4580090989285834,
+     "recordings": 3,
+     "recordings_positive": 2
+    }
+   }
+  }
+ },
+ "expectations": {
+  "s0_largest_per_ripple_difference": 0.0,
+  "s0_reproduces_e73": true,
+  "s1_cohort_synchrony": {
+   "total": 10.6746411195246,
+   "se": 4.674737652693382,
+   "z": 2.2834738358791817,
+   "per_1000_ripples": 0.6122184629229526,
+   "recordings_positive": 8
+  },
+  "s2_cohort_decision": "class-specific three-cell term beyond synchrony",
+  "s4_cohort_decision": "class-specific three-cell term beyond synchrony",
+  "s3_cohort_no_change_gain": true,
+  "s1_achilles_synchrony": {
+   "total": 0.3263754702462771,
+   "se": 0.7497341144892394,
+   "z": 0.43532162127719404,
+   "per_1000_ripples": 0.019196298685229804,
+   "recordings_positive": 2
+  },
+  "s2_achilles_decision": "persistent gain is synchrony",
+  "s4_achilles_decision": "persistent gain is synchrony",
+  "s3_achilles_no_change_gain": true
+ },
+ "note": "E79 study (experiments/e79_synchrony.py, design in experiments/E79_SYNCHRONY.md); Slurm 63796930; outputs RESULTS_ROOT/e79/study_v1; per-recording rows in e79_study_recordings.tsv and e79_study_coefficients.tsv. Groups: cohort = the nine independent-cohort sessions. Coefficients are per training (all-ripple) SD of each count, pooled by inverse-variance weights with blocked sandwich errors."
+}
