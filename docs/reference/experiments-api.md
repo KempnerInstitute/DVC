@@ -24,11 +24,7 @@ Supported `analysis_config.experiment_type` values:
 - `entropy_analysis`
 - `time_dependent`
 
-The paper-specific `simulation_benchmarks` suite (multi-panel diagnostic
-figures and the manuscript scenario set) lives outside the public package
-under `drafts/projects/paper_benchmarks/run_suite.py` because the figure
-layouts are paper-bound. The reusable scenario generators and metric helpers
-remain importable from `dvc_package.experiments.simulation_benchmarks`.
+Reusable scenario generators and metrics are available in `dvc_package.experiments.simulation_benchmarks`. The [vine modulation study](../user-guide/vine-modulation.md) supplies its own simulation designs and figure commands.
 
 Each config is a YAML file with at minimum:
 

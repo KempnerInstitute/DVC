@@ -18,15 +18,15 @@ pip install -e .
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .
+python -m pip install -e .
 ```
 
 ## Verify Installation
 
 ```bash
-pytest -q
 python scripts/test_installation.py
+python -m pip install pytest
+python -m pytest -q tests
 ```
 
 ## Quick Experiment Smoke Test
@@ -51,3 +51,5 @@ python scripts/run_finance_crisis_benchmark.py --config configs/finance_crisis_b
 ```bash
 python -c "import torch; print(torch.cuda.is_available())"
 ```
+
+For the paper figures, use the pinned scientific Python environment in the [vine modulation guide](user-guide/vine-modulation.md).

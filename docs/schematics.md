@@ -1,6 +1,6 @@
 # Schematics
 
-This page summarizes the model and repository boundaries used by DVC.
+This page summarizes the static and temporal models and their use in a research project.
 
 ## Model Flow
 
@@ -25,24 +25,22 @@ fixed vine factorization
 held-out copula scores, sampling, entropy, MI, diagnostics
 ```
 
-## Release Boundary
+## From observations to a figure
 
 ```text
-public repository
-  src/dvc_package/      reusable library
-  examples/             runnable minimal examples
-  scripts/              general entry points
-  configs/              reusable configs
-  docs/                 public documentation
-  tests/                public regression tests
-
-project workspace
-  drafts/projects/      paper-only scripts and runbooks
-  drafts/figures/       generated paper figures
-  drafts/tables/        generated paper tables
-  drafts/logs/          local run logs
+simulated observations or public recordings
+       |
+       v
+study-specific preprocessing and data splits
+       |
+       v
+dvc_package.modulation       fit conditional trajectories or binary contrasts
+       |
+       v
+held-out predictions, estimated effects and simulation controls
+       |
+       v
+projects/vine_modulation/figures/       source tables and figures
 ```
 
-The public package should remain useful without the paper workspace. The paper
-workspace can depend on the public package, but the package should not depend on
-paper-only scripts.
+The [project guide](user-guide/vine-modulation.md) gives the commands for both worked examples and all seven figures.
