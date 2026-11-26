@@ -31,22 +31,14 @@ B,separate trio,cell 28,41,16.420268183731444,1.6600000000000001
 B,separate trio,cell 69,10,2.673138964655716,0.42000000000000004
 C,"ripple: place cells fired, spike steps",ripple 726,33,48,
 C,pattern of the overlapping trio in this ripple,011,,,
-D,counts_before,000,132,-1,
-D,counts_before,100,7,1,
-D,counts_before,010,8,1,
-D,counts_before,001,6,1,
-D,counts_before,110,0,-1,
-D,counts_before,101,0,-1,
-D,counts_before,011,1,-1,
-D,counts_before,111,0,1,
-D,counts_after,000,1209,-1,
-D,counts_after,100,46,1,
-D,counts_after,010,85,1,
-D,counts_after,001,120,1,
-D,counts_after,110,3,-1,
-D,counts_after,101,9,-1,
-D,counts_after,011,16,-1,
-D,counts_after,111,1,1,
+D,overlapping trio,000,132,1209,-1
+D,overlapping trio,100,7,46,1
+D,overlapping trio,010,8,85,1
+D,overlapping trio,001,6,120,1
+D,overlapping trio,110,0,3,-1
+D,overlapping trio,101,0,9,-1
+D,overlapping trio,011,1,16,-1
+D,overlapping trio,111,0,1,1
 D,admissible shifts u,overlapping trio of B,1,0,0
 E,pairs,Achilles (2 sessions),2,0.18399,0.030523
 E,pairs,Cicero (3),3,0.0096206,0.0386

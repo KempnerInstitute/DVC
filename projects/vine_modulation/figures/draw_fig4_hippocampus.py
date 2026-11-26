@@ -11,8 +11,9 @@ B  running rate maps, in 4-cm bins, of the 24 place cells of rat 3, second sessi
 C  one ripple of the rest after the tracks in the same session (the first ripple of the recorded rule): spikes of its 96
    place cells in ten 10-ms steps, cells ordered by running direction and field peak, and the pattern of the overlapping
    trio of B in this ripple.
-D  the estimator, with the counts of the eight patterns of the overlapping trio of B over the ripples of each rest.
-   The tables A - u s and B + u s keep every pair margin; the relative probabilities are Eq. 4 of Methods.
+D  the estimator, with the counts of the eight patterns of the overlapping trio of B over the ripples of each rest
+   (source rows: pattern, ripples before, ripples after, s(x)).  The tables A - u s and B + u s keep every pair margin;
+   the relative probabilities are the shift likelihood of Methods.
 E, F  change from the rest before to the rest after, overlapping minus separate classes, with 95% intervals
    (estimate +/- 1.96 standard errors including the cohort adjustments of S1 Text): pair term (E) and three-way term
    (F); evidence/hippocampus/first_cohort_*.tsv and second_cohort.tsv.
@@ -249,8 +250,9 @@ def estimator(fig, rect, trio, word, records):
                     fontweight="bold" if value == 0 else "normal", color=fs.INK, zorder=5)
             if p == word and key == "counts_after":
                 ax.add_patch(plt.Circle(P, 0.026, facecolor="none", edgecolor=fs.INK, lw=0.9, zorder=5))
-        for p in PATTERNS:
-            records.append(("D", key, p, counts[p], 1 if p.count("1") % 2 else -1, ""))
+    for p, before, after in zip(PATTERNS, trio["counts_before"], trio["counts_after"]):
+        # one row per pattern: ripples of the rest before, of the rest after, and s(x) (+1 odd, -1 even)
+        records.append(("D", "overlapping trio", p, before, after, 1 if p.count("1") % 2 else -1))
     us = admissible(trio["counts_before"], trio["counts_after"])
     yf = top - 0.425
     fs.smath(ax, 0.0, yf, r"$P_\delta(u)\ \propto\ e^{\,\delta u}\ /\ \Pi_x\,[A(x)-u\,s(x)]!\;[B(x)+u\,s(x)]!$", size=8.5,
