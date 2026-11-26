@@ -1,0 +1,13 @@
+group	scenario	comparison	cohorts	crossings	proportion	lower	upper	same_generated_ripples_as_primary
+cohort	replay	time_varying	24	0	0.0	0.0	0.14247359772252563	1
+cohort	replay	class_change	24	0	0.0	0.0	0.14247359772252563	1
+cohort	apart	time_varying	24	24	1.0	0.8575264022774743	1.0	0
+cohort	apart	class_change	24	0	0.0	0.0	0.14247359772252563	0
+cohort	class	time_varying	24	0	0.0	0.0	0.14247359772252563	1
+cohort	class	class_change	24	24	1.0	0.8575264022774743	1.0	1
+achilles	replay	time_varying	24	0	0.0	0.0	0.14247359772252563	1
+achilles	replay	class_change	24	0	0.0	0.0	0.14247359772252563	1
+achilles	apart	time_varying	24	24	1.0	0.8575264022774743	1.0	0
+achilles	apart	class_change	24	0	0.0	0.0	0.14247359772252563	0
+achilles	class	time_varying	24	0	0.0	0.0	0.14247359772252563	1
+achilles	class	class_change	24	24	1.0	0.8575264022774743	1.0	1

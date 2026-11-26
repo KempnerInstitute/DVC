@@ -26,8 +26,13 @@ src/DVC_pyolder/
 src/DVC_tensorflow/
 src/DVC_pytorch/_archive_tests_debug/
 results/
-# Environments
+# Environments and local credentials
 .env
+.env.*
+!.env.example
+*.pem
+*.p12
+.dryad_token
 .venv
 env/
 venv/
@@ -35,6 +40,7 @@ ENV/
 env.bak/
 venv.bak/
 .venv/
+.venv-study/
 .pytest_cache/
 
 # Local-only legacy material
@@ -42,6 +48,11 @@ archive/
 
 # Paper/project workspace (tracked separately)
 drafts/
+
+# Local recordings and run artifacts
+/data/
+/slurm-*.out
+/slurm-*.err
 
 # Generated experiment outputs
 results/

@@ -1,27 +1,18 @@
-# Contributing
+# Contributing to DVC
 
-Thank you for improving Dynamic Vine Copulas. The project is organized as a
-reusable scientific Python package with a separate paper/project workspace.
+Keep estimators and shared statistical routines in `src/dvc_package/`, runnable examples in `examples/`, and configuration-driven tools in `scripts/`. A study under `projects/` contains its protocols, figure scripts, compact figure inputs and reproduction guide. Document changes to public methods in `docs/reference/` or `docs/user-guide/`.
 
-## Development Rules
+For a behavioral change, include a focused test and state the inputs and expected result in the pull request. Preserve the original source citations and random seeds when updating a published analysis.
 
-- Keep reusable code under `src/dvc_package`.
-- Keep public entry points under `scripts`.
-- Keep paper-only scripts, generated artifacts, local runbooks, and exploratory
-  notes under `drafts/projects`.
-- Add focused tests for behavioral changes.
-- Prefer deterministic seeds in tests and examples.
-- Use logging in library code instead of print statements.
-- Document public APIs in `docs/reference` and user-facing workflows in
-  `docs/user-guide`.
+## Check a change
 
-## Before Opening a Pull Request
+From the repository root, install the library and development tools in a Python 3.10 or 3.11 environment.
 
 ```bash
+python -m pip install -e . pytest mkdocs
 python scripts/test_installation.py
-python -m pytest -q
-mkdocs build
+python -m pytest -q tests
+mkdocs build --strict
 ```
 
-Also scan for local paths, machine-specific notes, generated data, and placeholder
-metadata before publishing a branch.
+Changes to a paper project should also pass the tests and worked examples in its study guide. Submit only the source, documentation and compact reference data needed to reproduce the change. Keep credentials, raw recordings, environment files and machine-specific settings outside Git.

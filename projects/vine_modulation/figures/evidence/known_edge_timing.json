@@ -1,0 +1,59 @@
+{
+  "addendum_generation_pin": "67b4172",
+  "cells": [
+    {
+      "datasets": 240,
+      "half_gamml": 94,
+      "half_joint": 150,
+      "half_smooth_x": 67,
+      "half_switching": 83,
+      "n": 100,
+      "state_joint": 131,
+      "state_switching": 36
+    },
+    {
+      "datasets": 240,
+      "half_gamml": 192,
+      "half_joint": 211,
+      "half_smooth_x": 173,
+      "half_switching": 186,
+      "n": 250,
+      "state_joint": 206,
+      "state_switching": 30
+    },
+    {
+      "datasets": 240,
+      "half_gamml": 240,
+      "half_joint": 240,
+      "half_smooth_x": 240,
+      "half_switching": 240,
+      "n": 1000,
+      "state_joint": 238,
+      "state_switching": 0
+    }
+  ],
+  "csv_sha256": "89daa9998b956f4dba64a67bb22f6641103ba2e24f965e34b79d2b54c0dea92c",
+  "exact": "Every active window and no inactive window selected",
+  "half_peak": "Absolute slope >= 0.5 times its own peak. An all-zero path selects no windows.",
+  "input_sha256": {
+    "e17_joint_trajectories_n100.json": "400b314b03660e1fd461a0984bde2301a618b099593c0bde35d8ed52debeba2e",
+    "e17_joint_trajectories_n1000a.json": "88c41db4db57b2441a1a1e1848f63c3ab7b1c9e373aed1877f0ac60c6a5f26ec",
+    "e17_joint_trajectories_n1000b.json": "829d63a127a25cc9f5dfe749da4f0195fa410074173538be8f04dbd989b5c427",
+    "e17_joint_trajectories_n250.json": "400208713715ce7d1d1da918f8d0825baa4e264d1bf306fe8570e29f00315f81",
+    "e17b_addendum_n100.json": "a6bd8f7ee6cb1cd679d4e875402c22c8b802f64020589c65a0fd7abba58476e5",
+    "e17b_addendum_n1000a.json": "88aa0e6aa1197bc72f1d54f43ce3de3f98c215cccd5f39a1bc642f457d20240c",
+    "e17b_addendum_n1000b.json": "fb5402469ec149b658838bdb0e59dc01741396eb05c7d5f705c6439368ac7188",
+    "e17b_addendum_n250.json": "cc9f104b3fb3e580f1d7ca69aeb5d9a3afc970456392cd9b62eb35368885fc98"
+  },
+  "original_generation_pin": "180ba61",
+  "time_grid": 24,
+  "totals": {
+    "datasets": 720,
+    "half_gamml": 526,
+    "half_joint": 601,
+    "half_smooth_x": 480,
+    "half_switching": 509,
+    "state_joint": 575,
+    "state_switching": 66
+  }
+}

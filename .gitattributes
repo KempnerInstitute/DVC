@@ -1,0 +1,2 @@
+# Empty final fields in the study's tab-separated data are significant.
+projects/vine_modulation/figures/evidence/**/*.tsv whitespace=-blank-at-eol

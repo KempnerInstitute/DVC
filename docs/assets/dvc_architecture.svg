@@ -47,5 +47,5 @@
   <text x="818" y="120" text-anchor="middle" class="text">Readouts</text>
   <text x="818" y="144" text-anchor="middle" class="small">NLL, entropy, MI</text>
 
-  <text x="570" y="285" text-anchor="middle" class="small">Reusable package code stays in src/dvc_package; paper orchestration stays in drafts/projects.</text>
+  <text x="570" y="285" text-anchor="middle" class="small">Library estimators: src/dvc_package/     Research workflows: projects/</text>
 </svg>

@@ -9,15 +9,14 @@ evaluation, simulation, and reproducible experiment configuration.
 ## Start Here
 
 - [Setup](setup.md): install the package and validate the environment.
-- [Repository structure](structure.md): understand what belongs in the public
-  release and what belongs in project workspaces.
+- [Repository structure](structure.md): find the estimators, examples and research projects.
 - [Static fitting](user-guide/fitting.md): fit C-, D-, and R-vines.
 - [Evaluation](user-guide/evaluation.md): score, sample, and compute
   information-theoretic summaries.
 - [Time-dependent models](user-guide/time-dependent.md): fit and compare
   temporal C-vine variants.
 - [Experiments](user-guide/experiments.md): run YAML-configured benchmarks.
-- [Schematics](schematics.md): model and release-boundary diagrams.
+- [Schematics](schematics.md): model and study workflow diagrams.
 
 ## Reference
 
@@ -27,8 +26,9 @@ evaluation, simulation, and reproducible experiment configuration.
 
 ## Release and Paper Reproduction
 
-- [Release plan](release-plan.md)
-- [Data release plan](data-release.md)
+- [Software and study releases](release-plan.md)
+- [Research data](data-release.md)
 
-The paper-specific workspace under `drafts/` is intentionally excluded from the
-public package boundary until a dedicated reproduction bundle is prepared.
+The [vine modulation study](user-guide/vine-modulation.md) provides
+two runnable examples, the analysis and figure scripts, and instructions for
+using the public hippocampal recordings.

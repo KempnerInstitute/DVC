@@ -1,160 +1,54 @@
 # Dynamic Vine Copulas
 
-Dynamic Vine Copulas (DVC) is a Python package for vine-copula modeling,
-dependence estimation, and time-varying copula analysis. It provides reusable
-building blocks for static C-, D-, and R-vines, parametric and nonparametric
-pair-copula fitting, information-theoretic readouts, and dynamic C-vine
-estimators used for temporal dependence diagnostics.
+Dynamic Vine Copulas (DVC) is a Python library for fitting multivariate dependence models. A vine represents a joint distribution through conditional bivariate copulas. DVC supports static C-, D- and R-vines, time-dependent C-vines, and models in which other variables modulate a pair's association.
 
-This repository is being prepared for public release. The public package is
-kept separate from paper-only orchestration: reusable library code lives under
-`src/dvc_package`, runnable examples live under `examples` and `scripts`, and
-paper-specific figure/table workflows are staged under `drafts/projects`.
-
-## What You Can Do
-
-- Fit static C-, D-, and R-vines with Gaussian, Student-t, Clayton, Frank,
-  Gumbel, Joe, and independence pair-copula families.
-- Fit nonparametric local-likelihood vines for exploratory dependence
-  modeling.
-- Evaluate copula log likelihoods, sample fitted vines, and estimate entropy
-  and mutual information from fitted models.
-- Compare vine structures and optimize vine type/ordering with Kendall-tau,
-  AIC-style, entropy-guided, and hybrid criteria.
-- Fit temporal C-vine variants for time-indexed dependence:
-  `JointDynamicCVine`, `SwitchingDynamicCVine`, `RegularizedDynamicCVine`,
-  `LatentStateDynamicCVine`, and experimental dynamic nonparametric C-vines.
-- Run reproducible YAML-configured experiments through the public experiment
-  runner.
+**Studying changing interactions?** The vine modulation project includes a continuous example in which pairwise distributions stay fixed while a three-variable association reverses. A second example uses three binary spike indicators and holds all pair margins fixed. Both run on a CPU with simulated data. [Study guide](projects/vine_modulation/README.md)
 
 ## Installation
 
-With conda:
-
-```bash
-conda env create -f environment.yml
-conda activate dvc-env
-pip install -e .
-```
-
-With venv:
+From a checkout of this repository, use Python 3.10 or 3.11.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .
-```
-
-Validate the install:
-
-```bash
+python -m pip install -e .
 python scripts/test_installation.py
-python -m pytest -q
 ```
 
-## Quick Start
+The study guide gives a separate, version-pinned Python 3.10 environment for reproducing its figures. Conda users can follow the [setup guide](docs/setup.md).
+
+## Fit a static vine
+
+The example fits a three-variable C-vine and evaluates its copula density on ten held-out observations. Each row is an observation and each column is a variable.
 
 ```python
 import numpy as np
 
-from dvc_package.core.vine_factory import create_vine
-from dvc_package.core.vine_model import evaluate_vine, fit_vine
+from dvc_package import create_vine, evaluate_vine, fit_vine
 
 rng = np.random.default_rng(0)
-x = rng.multivariate_normal(
-    mean=np.zeros(3),
-    cov=np.array([[1.0, 0.6, 0.2], [0.6, 1.0, 0.4], [0.2, 0.4, 1.0]]),
-    size=1000,
-).astype("float32")
-
+covariance = [[1.0, 0.6, 0.2], [0.6, 1.0, 0.4], [0.2, 0.4, 1.0]]
+samples = rng.multivariate_normal(np.zeros(3), covariance, size=510).astype("float32")
+train, held_out = samples[:500], samples[500:]
 families = ["independence", "gaussian", "student", "clayton", "gumbel"]
-vine = create_vine("c-vine", vine_depth=x.shape[1], families=families)
-
+vine = create_vine("c-vine", vine_depth=train.shape[1], families=families)
 fit_vine(
-    vine,
-    x,
+    vine, train,
     gen_dict={"param": True, "binning": False, "fitted": True},
-    npc_dict={},
-    par_dict={"param_families": families},
-    bin_dict={},
+    npc_dict={}, par_dict={"param_families": families}, bin_dict={},
 )
-
-log_density = evaluate_vine(vine, x[:10])
-print(log_density)
+joint_density, copula_density, log_marginal_density = evaluate_vine(vine, held_out)
+print(copula_density)
 ```
 
-Try the included examples:
+## Choose an analysis
 
-```bash
-python examples/basic_vine_example.py
-python examples/entropy_analysis_example.py
-python examples/time_dependent_example.py
-python scripts/run_dynamic_cvine_example.py --output-dir results/dynamic_cvine_example
-```
+| Question | Where to start |
+| --- | --- |
+| Which copula families and vine structure fit the observations? | [Static fitting](docs/user-guide/fitting.md) |
+| How do density, sampling, entropy and mutual information work with a fitted vine? | [Evaluation](docs/user-guide/evaluation.md) |
+| How does a pair's association or tail shape evolve over time? | [Time-dependent models](docs/user-guide/time-dependent.md) |
+| Does a third variable modulate a pair, and does that modulation change? | [Estimators, examples and study reproduction](projects/vine_modulation/README.md) |
+| How do I run a configured benchmark? | [Experiment runner](docs/howto/runner.md) |
 
-## Configured Experiments
-
-The general experiment runner consumes YAML configs whose
-`analysis_config.experiment_type` selects the experiment class
-(`probability_analysis`, `entropy_analysis`, `time_dependent`):
-
-```bash
-python scripts/run_experiment.py --create-examples
-python scripts/run_experiment.py --list-examples
-python scripts/run_experiment.py configs/probability_analysis.yaml
-```
-
-The real-world finance crisis benchmark uses a dedicated entry point because it
-fetches data from public sources and orchestrates its own scenario set:
-
-```bash
-python scripts/run_finance_crisis_benchmark.py --config configs/finance_crisis_benchmarks.yaml
-```
-
-Paper-reproduction configs, figure scripts, and result manifests are staged
-under `drafts/projects` and are not part of the public package release.
-
-## Documentation
-
-- Docs index: `docs/index.md`
-- Setup guide: `docs/setup.md`
-- Repository structure: `docs/structure.md`
-- Static fitting: `docs/user-guide/fitting.md`
-- Evaluation: `docs/user-guide/evaluation.md`
-- Time-dependent models: `docs/user-guide/time-dependent.md`
-- Schematics: `docs/schematics.md`
-- Release plan: `docs/release-plan.md`
-- Data release plan: `docs/data-release.md`
-
-Build HTML docs locally with MkDocs:
-
-```bash
-pip install mkdocs
-mkdocs build
-```
-
-## Repository Layout
-
-```text
-DVC/
-├── src/dvc_package/      # reusable package code
-├── examples/             # small runnable examples
-├── scripts/              # public command-line entry points
-├── configs/              # reusable experiment configs
-├── tests/                # public test suite
-├── docs/                 # user, API, schematic, and release docs
-├── drafts/               # ignored paper/project workspace
-└── archive/              # local-only legacy material, ignored by release
-```
-
-## Public Release Boundary
-
-The release package should include general-purpose code, examples, tests, docs,
-and small configs. It should not include local logs, generated results, raw
-datasets, paper-only figure scripts, machine-specific paths, or exploratory notes. The
-paper reproduction bundle will be released separately with pinned configs,
-result manifests, and dataset acquisition instructions.
-
-See `docs/release-plan.md` and `docs/data-release.md` for the staged release
-checklist.
+The reusable package lives in `src/dvc_package/`. Runnable examples are in `examples/`, study workflows in `projects/`, and command-line tools in `scripts/`. [Documentation](docs/index.md) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)

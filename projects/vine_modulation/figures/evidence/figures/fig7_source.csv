@@ -1,0 +1,49 @@
+panel,group_or_recording,comparison_or_boundary,value_or_best_split,se_or_gain,note
+B,achilles,pairs,159.7176,11.2949,4 of 4 recordings positive
+B,cohort,pairs,440.5548,13.8224,9 of 9 recordings positive
+B,achilles,modulation,0.1617,0.1764,3 of 4 recordings positive
+B,cohort,modulation,2.2838,0.6743,8 of 9 recordings positive
+B,achilles,time_varying,0.2350,0.2267,1 of 4 recordings positive
+B,cohort,time_varying,0.2065,0.3941,4 of 9 recordings positive
+B,achilles,class_change,-0.1314,0.1355,2 of 4 recordings positive
+B,cohort,class_change,-0.1629,0.2996,2 of 9 recordings positive
+C,cohort,replay; time_varying,primary,0,24
+C,cohort,replay; time_varying,common count,0,24
+C,cohort,replay; class_change,primary,0,24
+C,cohort,replay; class_change,common count,0,24
+C,cohort,apart; time_varying,primary,24,24
+C,cohort,apart; time_varying,common count,24,24
+C,cohort,apart; class_change,primary,0,24
+C,cohort,apart; class_change,common count,0,24
+C,cohort,class; time_varying,primary,23,24
+C,cohort,class; time_varying,common count,0,24
+C,cohort,class; class_change,primary,20,24
+C,cohort,class; class_change,common count,24,24
+C,achilles,replay; time_varying,primary,0,24
+C,achilles,replay; time_varying,common count,0,24
+C,achilles,replay; class_change,primary,0,24
+C,achilles,replay; class_change,common count,0,24
+C,achilles,apart; time_varying,primary,24,24
+C,achilles,apart; time_varying,common count,24,24
+C,achilles,apart; class_change,primary,14,24
+C,achilles,apart; class_change,common count,0,24
+C,achilles,class; time_varying,primary,24,24
+C,achilles,class; time_varying,common count,0,24
+C,achilles,class; class_change,primary,24,24
+C,achilles,class; class_change,common count,24,24
+D,Achilles-10252013_left,0.6092,0.25,356.4963,
+D,Achilles-10252013_right,0.6015,0.60,423.6817,
+D,Achilles-11012013_left,0.4908,0.75,431.2324,
+D,Achilles-11012013_right,0.4989,0.50,460.0808,
+D,RAT1_SESS1,0.2653,0.20,110.4067,
+D,RAT1or4_SESS,0.0515,0.20,175.1424,
+D,RAT2_SESS1,0.2756,0.10,676.8975,
+D,RAT2_SESS2,0.2895,0.25,346.5117,
+D,RAT3_SESS1,0.2931,0.30,801.6641,
+D,RAT3_SESS2,0.0937,0.10,357.4968,
+D,RAT4_SESS2,0.1419,0.50,198.6589,
+D,RAT5_SESS1,0.3376,0.35,375.7529,
+D,RAT5_SESS2,0.4136,0.40,464.2903,
+E,schedule_minus_stationary,nine sessions,1010.40,506.45,6 of 9 positive
+E,learned_minus_schedule,nine sessions,276.94,801.34,6 of 9 positive
+E,given_minus_schedule,nine sessions,1485.48,499.16,8 of 9 positive

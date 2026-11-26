@@ -8,8 +8,7 @@ There are two experiment entry points in `scripts/`:
 - `run_finance_crisis_benchmark.py` is a dedicated runner for the real-world
   multi-asset crisis benchmark.
 
-The paper-specific simulation benchmark orchestrator lives outside the public
-package, under `drafts/projects/paper_benchmarks/run_suite.py`.
+For simulation designs and hippocampal figure reproduction, use the [vine modulation study](../user-guide/vine-modulation.md).
 
 ## Materialize and Run an Example
 

@@ -51,9 +51,7 @@ unless they are small, intentional fixtures.
 
 ## Paper Reproduction
 
-Paper table/figure generation is staged under `drafts/projects/` and will be
-released as a separate reproduction bundle. It is not part of the public package
-API.
+The [vine modulation project](vine-modulation.md) contains the configurations, worked examples, analyses and figure inputs for the neural dependence study.
 
 ## Reproducibility Tips
 

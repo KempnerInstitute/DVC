@@ -1,0 +1,39 @@
+panel,quantity_or_term,row,series,value_or_before,after_or_interval
+B,726,33,direction 1; 1.28-1.72 m,0.8870673947330163,24 fields; 14 inside
+B,703,30,direction 4; 0.84-1.84 m,0.9719216178181359,17 fields; 9 inside
+B,1363,29,direction 2; 1.12-2.00 m,0.8613529058408862,19 fields; 13 inside
+C,Achilles,Achilles-10252013_left,,0.05085389,0.16986
+C,Achilles,Achilles-10252013_right,,0.030155453,0.15788
+C,Achilles,Achilles-11012013_left,,0.041282,0.22313
+C,Achilles,Achilles-11012013_right,,0.0337212,0.9894999999999999
+C,Five rats,RAT1_SESS1,,0.20412545599999998,0.33985
+C,Five rats,RAT1or4_SESS,,0.3634297,0.22731
+C,Five rats,RAT2_SESS1,,0.033523,0.19392
+C,Five rats,RAT2_SESS2,,0.11358,0.34578
+C,Five rats,RAT3_SESS1,,0.039813,0.26104
+C,Five rats,RAT3_SESS2,,0.10771,0.26888
+C,Five rats,RAT4_SESS2,,0.052939,0.19262
+C,Five rats,RAT5_SESS1,,0.24517,0.31373
+C,Five rats,RAT5_SESS2,,0.10094299999999999,0.29957
+D,pairs,Achilles,recorded,0.184,0.1241;0.2439
+D,pairs,Achilles,simulated,0.1758,0.1473;0.2058
+D,pairs,Achilles,relative,0.006727,-0.0214;0.0348
+D,pairs,Five rats,recorded,0.4525,0.4142;0.4908
+D,pairs,Five rats,simulated,0.4763,0.4413;0.5130
+D,pairs,Five rats,relative,-0.008785,-0.0381;0.0206
+D,trios,Achilles,recorded,0.2009,0.1221;0.2797
+D,trios,Achilles,simulated,0.1124,0.0288;0.1843
+D,trios,Achilles,relative,0.1164,0.0426;0.1902
+D,trios,Five rats,recorded,0.2957,0.1828;0.4086
+D,trios,Five rats,simulated,0.2799,0.1709;0.3928
+D,trios,Five rats,relative,-0.07822,-0.1562;-0.0002
+E,same,plain_trios,,-0.008038,-0.1149;0.1167
+E,same,adjusted_trios,,-0.01526,-0.1093;0.0761
+E,rare,plain_trios,,0.1224,0.0115;0.2560
+E,rare,adjusted_trios,,0.01405,-0.0787;0.0814
+E,replay,plain_trios,,-0.07028,-0.1915;0.0300
+E,replay,adjusted_trios,,-0.04409,-0.1208;0.0153
+E,stronger,plain_trios,,0.4531,0.3022;0.5649
+E,stronger,adjusted_trios,,-0.01034,-0.0880;0.0575
+E,planted,plain_trios,,0.3674,0.2407;0.5012
+E,planted,adjusted_trios,,0.2166,0.1348;0.2857

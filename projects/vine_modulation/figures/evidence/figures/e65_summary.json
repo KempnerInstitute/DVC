@@ -1,0 +1,555 @@
+{
+ "cohorts": 200,
+ "sessions": {
+  "RAT1_SESS1": {
+   "trios": {
+    "usable": 200,
+    "mean": 0.012285230959821284,
+    "sd": 0.5322200528787618,
+    "se": 0.6103807430749577,
+    "reject": 0.025,
+    "largest": 1.5403671349151729,
+    "recorded": 0.46210263183661004,
+    "share_at_or_above_recorded": 0.19
+   },
+   "pairs": {
+    "usable": 200,
+    "mean": 0.4791807720107834,
+    "sd": 0.11616289202105111,
+    "se": 0.11925100580899699,
+    "reject": 0.98,
+    "largest": 0.8043476071242873,
+    "recorded": 0.4059462312561179,
+    "share_at_or_above_recorded": 0.725
+   }
+  },
+  "RAT1or4_SESS": {
+   "trios": {
+    "usable": 2,
+    "mean": -1.9548970224423048,
+    "sd": 0.23413721198139859,
+    "se": 2.483782283764042,
+    "reject": 0.0,
+    "largest": -1.7893370121221457,
+    "recorded": -0.4208159870741402,
+    "share_at_or_above_recorded": 0.0
+   },
+   "pairs": {
+    "usable": 200,
+    "mean": 0.6392242962401109,
+    "sd": 0.49754369978017693,
+    "se": 0.48971724626722385,
+    "reject": 0.26,
+    "largest": 1.7921362774457974,
+    "recorded": 0.6193814691083543,
+    "share_at_or_above_recorded": 0.525
+   }
+  },
+  "RAT2_SESS1": {
+   "trios": {
+    "usable": 200,
+    "mean": 0.023620411402390892,
+    "sd": 0.1583966604083328,
+    "se": 0.16421956900097015,
+    "reject": 0.04,
+    "largest": 0.37474470782587915,
+    "recorded": 0.4663822423768219,
+    "share_at_or_above_recorded": 0.0
+   },
+   "pairs": {
+    "usable": 200,
+    "mean": 0.5141569722491846,
+    "sd": 0.04403310190135828,
+    "se": 0.04386922400965177,
+    "reject": 1.0,
+    "largest": 0.6527960096738509,
+    "recorded": 0.5549664264594767,
+    "share_at_or_above_recorded": 0.185
+   }
+  },
+  "RAT2_SESS2": {
+   "trios": {
+    "usable": 200,
+    "mean": -0.016876662480089243,
+    "sd": 0.3411987249373198,
+    "se": 0.3618528989253884,
+    "reject": 0.02,
+    "largest": 0.9451837444573322,
+    "recorded": 0.8012626979006152,
+    "share_at_or_above_recorded": 0.005
+   },
+   "pairs": {
+    "usable": 200,
+    "mean": 0.6524528065874212,
+    "sd": 0.07728890113733045,
+    "se": 0.07555995907856083,
+    "reject": 1.0,
+    "largest": 0.8874194043759478,
+    "recorded": 0.6307023397997876,
+    "share_at_or_above_recorded": 0.585
+   }
+  },
+  "RAT3_SESS1": {
+   "trios": {
+    "usable": 200,
+    "mean": 0.006054433962464332,
+    "sd": 0.06300198724949546,
+    "se": 0.07714621503750896,
+    "reject": 0.015,
+    "largest": 0.15219197232669518,
+    "recorded": 0.22875608016436014,
+    "share_at_or_above_recorded": 0.0
+   },
+   "pairs": {
+    "usable": 200,
+    "mean": 0.35006664192514814,
+    "sd": 0.028646311317255233,
+    "se": 0.028456647195830492,
+    "reject": 1.0,
+    "largest": 0.43354008832051494,
+    "recorded": 0.36450624689324396,
+    "share_at_or_above_recorded": 0.305
+   }
+  },
+  "RAT3_SESS2": {
+   "trios": {
+    "usable": 200,
+    "mean": -0.007660341494824259,
+    "sd": 0.41002951313430075,
+    "se": 0.42153199111275363,
+    "reject": 0.025,
+    "largest": 1.1821375451983138,
+    "recorded": 0.11847345616442018,
+    "share_at_or_above_recorded": 0.355
+   },
+   "pairs": {
+    "usable": 200,
+    "mean": 0.4296163990204398,
+    "sd": 0.07872065300882976,
+    "se": 0.08326820009996175,
+    "reject": 1.0,
+    "largest": 0.6846103309423903,
+    "recorded": 0.6182416843909668,
+    "share_at_or_above_recorded": 0.01
+   }
+  },
+  "RAT4_SESS2": {
+   "trios": {
+    "usable": 200,
+    "mean": -0.004787376117336404,
+    "sd": 0.2537963236196157,
+    "se": 0.29683059447391186,
+    "reject": 0.01,
+    "largest": 0.6930589567244483,
+    "recorded": 0.1911472618987297,
+    "share_at_or_above_recorded": 0.235
+   },
+   "pairs": {
+    "usable": 200,
+    "mean": 0.3099518474505815,
+    "sd": 0.06438621083069278,
+    "se": 0.06552425168139864,
+    "reject": 1.0,
+    "largest": 0.4746042230876736,
+    "recorded": 0.31503889327663936,
+    "share_at_or_above_recorded": 0.42
+   }
+  },
+  "RAT5_SESS1": {
+   "trios": {
+    "usable": 200,
+    "mean": 0.006956381481747489,
+    "sd": 0.24790972654231636,
+    "se": 0.26510786950661314,
+    "reject": 0.015,
+    "largest": 0.7122311165580943,
+    "recorded": 0.15794244724958312,
+    "share_at_or_above_recorded": 0.275
+   },
+   "pairs": {
+    "usable": 200,
+    "mean": 0.4852422153646637,
+    "sd": 0.05637742603023788,
+    "se": 0.06224804365083301,
+    "reject": 1.0,
+    "largest": 0.6467571859067641,
+    "recorded": 0.49345403911228103,
+    "share_at_or_above_recorded": 0.415
+   }
+  },
+  "RAT5_SESS2": {
+   "trios": {
+    "usable": 200,
+    "mean": -0.001077289715145232,
+    "sd": 0.1552043645563911,
+    "se": 0.16407344847183808,
+    "reject": 0.05,
+    "largest": 0.36552318665549294,
+    "recorded": 0.6190792960579727,
+    "share_at_or_above_recorded": 0.0
+   },
+   "pairs": {
+    "usable": 200,
+    "mean": 0.39633509886993434,
+    "sd": 0.03300201115389749,
+    "se": 0.03864659605153021,
+    "reject": 1.0,
+    "largest": 0.48149609098173407,
+    "recorded": 0.3886164536960774,
+    "share_at_or_above_recorded": 0.595
+   }
+  }
+ },
+ "rats": {
+  "rat1": {
+   "usable": 2,
+   "mean": -1.9548970224423048,
+   "sd": 0.23413721198139859,
+   "se": 2.483782283764042,
+   "reject": 0.0,
+   "largest": -1.7893370121221457,
+   "recorded": -0.4208159870741402,
+   "share_at_or_above_recorded": 0.0
+  },
+  "rat2": {
+   "usable": 200,
+   "mean": 0.0162675167682973,
+   "sd": 0.14559384271257025,
+   "se": 0.14937774819482455,
+   "reject": 0.045,
+   "largest": 0.3868958552271158,
+   "recorded": 0.5228159725877608,
+   "share_at_or_above_recorded": 0.0
+  },
+  "rat3": {
+   "usable": 200,
+   "mean": 0.005536502616521955,
+   "sd": 0.06298707580931444,
+   "se": 0.07585284475473855,
+   "reject": 0.015,
+   "largest": 0.1576202195571957,
+   "recorded": 0.19828636256841636,
+   "share_at_or_above_recorded": 0.0
+  },
+  "rat4": {
+   "usable": 200,
+   "mean": -0.0010503738869836721,
+   "sd": 0.22173053870503828,
+   "se": 0.26574772492252136,
+   "reject": 0.015,
+   "largest": 0.5966419752271218,
+   "recorded": 0.24799892149786537,
+   "share_at_or_above_recorded": 0.105
+  },
+  "rat5": {
+   "usable": 200,
+   "mean": -0.0024627063709807564,
+   "sd": 0.1312283262838892,
+   "se": 0.13952069644639803,
+   "reject": 0.05,
+   "largest": 0.37577641861363387,
+   "recorded": 0.4874110364279023,
+   "share_at_or_above_recorded": 0.0
+  }
+ },
+ "laws": {
+  "RAT1_SESS1": {
+   "matched": true,
+   "prior_sd": 0.3,
+   "rate_error": 0.0056625999448580155,
+   "a": 0.4325910518393665,
+   "b": -0.0032243359546697235,
+   "sigma": [
+    0.1789342703269341,
+    0.1132539423202047
+   ],
+   "simulated_pair_changes": {
+    "overlapping": 0.41400231448478747,
+    "separate": -0.015277171244809607
+   },
+   "recorded_pair_changes": {
+    "overlapping": 0.39057816796459416,
+    "separate": -0.015368063291523727
+   },
+   "simulated_spread": [
+    1.555313699840377,
+    1.428923966025252
+   ],
+   "recorded_spread": [
+    1.552,
+    1.432
+   ]
+  },
+  "RAT1or4_SESS": {
+   "matched": false,
+   "prior_sd": 0.1,
+   "rate_error": 0.4183587069249988,
+   "a": 0.8149593476597696,
+   "b": 0.0713683659804169,
+   "sigma": [
+    0.5273272524635745,
+    0.47434140757144505
+   ],
+   "simulated_pair_changes": {
+    "overlapping": 0.2448101606984753,
+    "separate": -0.4631613262240551
+   },
+   "recorded_pair_changes": {
+    "overlapping": 0.2530530836924365,
+    "separate": -0.3663283854159178
+   },
+   "simulated_spread": [
+    2.46567569094009,
+    1.34709844908762
+   ],
+   "recorded_spread": [
+    2.15,
+    1.561
+   ]
+  },
+  "RAT2_SESS1": {
+   "matched": true,
+   "prior_sd": 0.1,
+   "rate_error": 0.005944444444444447,
+   "a": 0.4400622529898948,
+   "b": -0.0441092099627723,
+   "sigma": [
+    0.2527790780474159,
+    0.24695979810900828
+   ],
+   "simulated_pair_changes": {
+    "overlapping": 0.4809815552216541,
+    "separate": -0.0469370886261995
+   },
+   "recorded_pair_changes": {
+    "overlapping": 0.4817613549475718,
+    "separate": -0.07320507151190495
+   },
+   "simulated_spread": [
+    1.544589185457324,
+    1.5536552282069007
+   ],
+   "recorded_spread": [
+    1.535,
+    1.557
+   ]
+  },
+  "RAT2_SESS2": {
+   "matched": true,
+   "prior_sd": 0.2,
+   "rate_error": 0.018355205599300095,
+   "a": 0.5604253467613626,
+   "b": -0.03807835565918874,
+   "sigma": [
+    0.2315299438773275,
+    0.17110483065544213
+   ],
+   "simulated_pair_changes": {
+    "overlapping": 0.6093601208030475,
+    "separate": -0.04899368788748385
+   },
+   "recorded_pair_changes": {
+    "overlapping": 0.5883305730029251,
+    "separate": -0.042371766796862484
+   },
+   "simulated_spread": [
+    1.5837196246236016,
+    1.562312375708076
+   ],
+   "recorded_spread": [
+    1.591,
+    1.574
+   ]
+  },
+  "RAT3_SESS1": {
+   "matched": true,
+   "prior_sd": 0.1,
+   "rate_error": 0.007890350877192975,
+   "a": 0.22239775182168836,
+   "b": -0.07833527821774121,
+   "sigma": [
+    0.19481652646921918,
+    0.3291181812450928
+   ],
+   "simulated_pair_changes": {
+    "overlapping": 0.28377986784393233,
+    "separate": -0.07611928175611335
+   },
+   "recorded_pair_changes": {
+    "overlapping": 0.27850025873398115,
+    "separate": -0.08600598815926278
+   },
+   "simulated_spread": [
+    1.6953498202896076,
+    1.7664599930755622
+   ],
+   "recorded_spread": [
+    1.695,
+    1.763
+   ]
+  },
+  "RAT3_SESS2": {
+   "matched": false,
+   "prior_sd": 0.1,
+   "rate_error": 0.21432431457431458,
+   "a": 0.34661457872586826,
+   "b": -0.05827184286955025,
+   "sigma": [
+    0.3135393828817727,
+    0.2484882672426678
+   ],
+   "simulated_pair_changes": {
+    "overlapping": 0.3096765000429564,
+    "separate": -0.11632290811799097
+   },
+   "recorded_pair_changes": {
+    "overlapping": 0.4685398207337703,
+    "separate": -0.14970186365719657
+   },
+   "simulated_spread": [
+    1.7898976178886188,
+    2.194918379104674
+   ],
+   "recorded_spread": [
+    2.104,
+    2.149
+   ]
+  },
+  "RAT4_SESS2": {
+   "matched": true,
+   "prior_sd": 0.2,
+   "rate_error": 0.010548710983274756,
+   "a": 0.21478423938187088,
+   "b": -0.05831464177283003,
+   "sigma": [
+    0.17068612861680207,
+    0.13131312933454087
+   ],
+   "simulated_pair_changes": {
+    "overlapping": 0.22377165545427066,
+    "separate": -0.07930761027395115
+   },
+   "recorded_pair_changes": {
+    "overlapping": 0.22550818373728843,
+    "separate": -0.08953070953935091
+   },
+   "simulated_spread": [
+    1.6292147020838417,
+    1.441092723181195
+   ],
+   "recorded_spread": [
+    1.627,
+    1.43
+   ]
+  },
+  "RAT5_SESS1": {
+   "matched": true,
+   "prior_sd": 0.1,
+   "rate_error": 0.010195297504798473,
+   "a": 0.4390200225898413,
+   "b": -0.05953713757292603,
+   "sigma": [
+    0.3762256990876018,
+    0.33509345914218797
+   ],
+   "simulated_pair_changes": {
+    "overlapping": 0.4042795937463714,
+    "separate": -0.09414736669882529
+   },
+   "recorded_pair_changes": {
+    "overlapping": 0.4003782324246169,
+    "separate": -0.09307580668766416
+   },
+   "simulated_spread": [
+    2.0313992704254975,
+    1.8748311288554194
+   ],
+   "recorded_spread": [
+    2.019,
+    1.866
+   ]
+  },
+  "RAT5_SESS2": {
+   "matched": true,
+   "prior_sd": 0.1,
+   "rate_error": 0.006165708812260529,
+   "a": 0.28222852220593975,
+   "b": -0.08778200521308029,
+   "sigma": [
+    0.2215058126515271,
+    0.35407930922443165
+   ],
+   "simulated_pair_changes": {
+    "overlapping": 0.2957455260498723,
+    "separate": -0.09120882418797471
+   },
+   "recorded_pair_changes": {
+    "overlapping": 0.2763150026765914,
+    "separate": -0.11230145101948595
+   },
+   "simulated_spread": [
+    1.8340326656382515,
+    1.7405256366341126
+   ],
+   "recorded_spread": [
+    1.839,
+    1.735
+   ]
+  }
+ },
+ "cohort": {
+  "trios": {
+   "usable": 200,
+   "mean": 0.005366206921613202,
+   "sd": 0.049622157868870545,
+   "se": 0.059457444175794946,
+   "reject": 0.015,
+   "largest": 0.14343259325108154,
+   "recorded": 0.2956606578873936,
+   "share_at_or_above_recorded": 0.0
+  },
+  "pairs": {
+   "usable": 200,
+   "mean": 0.4153372087110913,
+   "sd": 0.016222071394089158,
+   "se": 0.017360273884681327,
+   "reject": 1.0,
+   "largest": 0.459819090486175,
+   "recorded": 0.452483367710771,
+   "share_at_or_above_recorded": 0.02
+  }
+ },
+ "matched_sessions": {
+  "sessions": [
+   "RAT1_SESS1",
+   "RAT2_SESS1",
+   "RAT2_SESS2",
+   "RAT3_SESS1",
+   "RAT4_SESS2",
+   "RAT5_SESS1",
+   "RAT5_SESS2"
+  ],
+  "trios": {
+   "usable": 200,
+   "mean": 0.005573456177542631,
+   "sd": 0.04982272775641204,
+   "se": 0.06007980615812993,
+   "reject": 0.015,
+   "largest": 0.1399984223292651,
+   "recorded": 0.33455283830408017,
+   "share_at_or_above_recorded": 0.0
+  },
+  "pairs": {
+   "usable": 200,
+   "mean": 0.41461657438994826,
+   "sd": 0.01668079177078052,
+   "se": 0.017761370044683932,
+   "reject": 1.0,
+   "largest": 0.45728405970009556,
+   "recorded": 0.42676419464231485,
+   "share_at_or_above_recorded": 0.2
+  },
+  "recorded_trios_se": 0.06422734321229548
+ },
+ "rule_d2_with_the_article_rats": 0.005
+}
