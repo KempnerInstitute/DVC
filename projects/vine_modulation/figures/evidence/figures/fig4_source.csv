@@ -1,0 +1,37 @@
+panel,quantity,row,count_or_sessions,value_or_estimate,value_2_or_standard_error
+B,overlapping,cell 29,5.69772816795216,1.6600000000000001,
+B,overlapping,cell 30,5.036759875458131,1.74,
+B,overlapping,cell 36,9.792224872913941,1.7,
+B,separate,cell 0,11.990590524381862,0.02,
+B,separate,cell 28,16.420268183731444,1.6600000000000001,
+B,separate,cell 69,2.673138964655716,0.42000000000000004,
+C,ripple,726,33,48,
+C,overlapping trio,000,132,1209,
+C,overlapping trio,100,7,46,
+C,overlapping trio,010,8,85,
+C,overlapping trio,001,6,120,
+C,overlapping trio,110,0,3,
+C,overlapping trio,101,0,9,
+C,overlapping trio,011,1,16,
+C,overlapping trio,111,0,1,
+E,pairs,Achilles (2 sessions),2,0.18399,0.030523
+E,pairs,Cicero (3),3,0.0096206,0.0386
+E,pairs,Buddy (1),1,-0.20381,0.21581
+E,pairs,Achilles and Cicero,5,0.1272,0.024108
+E,pairs,Gatsby (2; development),2,0.1088,0.049446
+E,pairs,Rat 1 (1),1,0.61938,0.18416
+E,pairs,Rat 2 (2),2,0.57522,0.042138
+E,pairs,Rat 3 (2),2,0.43587,0.029489
+E,pairs,Rat 4 (2),2,0.33581,0.058919
+E,pairs,Rat 5 (2),2,0.41708,0.039984
+E,pairs,Five rats (9),9,0.45248,0.019527
+F,trios,Achilles (2 sessions),2,0.2009,0.040205
+F,trios,Cicero (3),3,0.041339,0.065972
+F,trios,Achilles and Cicero,5,0.16015,0.034345
+F,trios,Gatsby (2; development),2,-0.044379,0.093515
+F,trios,Rat 1 (1),1,-0.42082,0.87787
+F,trios,Rat 2 (2),2,0.52282,0.15646
+F,trios,Rat 3 (2),2,0.19829,0.071561
+F,trios,Rat 4 (2),2,0.248,0.26501
+F,trios,Rat 5 (2),2,0.48741,0.14309
+F,trios,Five rats (9),9,0.29566,0.05758

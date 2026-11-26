@@ -21,14 +21,30 @@ Main modules:
 
 __version__ = "0.1.0"
 
-# Import main classes and functions for easy access
-from .core.objects import vine_obj_bin, copula_obj, margin_obj, cop_par_obj
-from .core.vine_model import fit_vine, sample_vine, evaluate_vine
-from .core.nonparametric_vine import fit_nonparametric_vine, evaluate_nonparametric_vine
-from .core.info_estimation import vine_entropy, mutual_information, cond_vine_entropy
+# Resolve the established public API when accessed so the NumPy modulation
+# estimator can also be used without initializing the PyTorch vine backend.
+from importlib import import_module
 
-# Import vine factory functions
-from .core.vine_factory import create_vine, VineType, optimize_vine_type
+_CORE = {
+    **dict.fromkeys(("vine_obj_bin", "copula_obj", "margin_obj", "cop_par_obj"), "objects"),
+    **dict.fromkeys(("fit_vine", "sample_vine", "evaluate_vine"), "vine_model"),
+    **dict.fromkeys(("fit_nonparametric_vine", "evaluate_nonparametric_vine"), "nonparametric_vine"),
+    **dict.fromkeys(("vine_entropy", "mutual_information", "cond_vine_entropy"), "info_estimation"),
+    **dict.fromkeys(("create_vine", "VineType", "optimize_vine_type"), "vine_factory"),
+}
+
+
+def __getattr__(name):
+    if name not in _CORE:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    symbol = getattr(import_module(f".core.{_CORE[name]}", __name__), name)
+    globals()[name] = symbol
+    return symbol
+
+
+def __dir__():
+    return sorted(set(globals()) | set(_CORE))
+
 
 # Lazy imports for optional heavy modules
 def optimize_vine_structure(*args, **kwargs):

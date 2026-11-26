@@ -1,0 +1,125 @@
+cohort	state_from	group	contrast	events_a	events_b	term	difference	se_rule	z	overlapping	separate
+first	the lab's scoring	achilles	maze_sleep	9482	7520	pairs	0.18399	0.030523	6.03	0.14616	-0.037829
+first	the lab's scoring	achilles	maze_sleep	9482	7520	trios	0.2009	0.040205	5	0.23955	0.038645
+first	the lab's scoring	achilles	maze_other	3036	5168	pairs	0.25228	0.04252	5.93	0.19825	-0.054035
+first	the lab's scoring	achilles	maze_other	3036	5168	trios	0.14626	0.063569	2.3	0.17704	0.030779
+first	the lab's scoring	achilles	state_pre	3036	9482	pairs	0.023776	0.036763	0.647	0.0078179	-0.015959
+first	the lab's scoring	achilles	state_pre	3036	9482	trios	0.012174	0.057407	0.212	0.0080073	-0.0041668
+first	the lab's scoring	achilles	state_post	5168	7520	pairs	-0.0062709	0.0373	-0.168	-0.015315	-0.0090437
+first	the lab's scoring	achilles	state_post	5168	7520	trios	0.025431	0.04849	0.524	0.045677	0.020246
+first	the lab's scoring	cicero	maze_sleep	11048	15634	pairs	0.0096206	0.0386	0.249	0.01335	0.0037293
+first	the lab's scoring	cicero	maze_sleep	11048	15634	trios	0.041339	0.065972	0.627	0.080892	0.039553
+first	the lab's scoring	cicero	maze_other	2378	3636	pairs	0.010068	0.0815	0.124	-0.018001	-0.028068
+first	the lab's scoring	cicero	maze_other	2378	3636	trios	0.23784	0.15204	1.56	0.26633	0.028486
+first	the lab's scoring	cicero	state_pre	2378	11048	pairs	-0.034533	0.069759	-0.495	-0.065771	-0.031238
+first	the lab's scoring	cicero	state_pre	2378	11048	trios	0.10827	0.11868	0.912	0.092486	-0.015781
+first	the lab's scoring	cicero	state_post	3636	15634	pairs	-0.010742	0.054918	-0.196	-0.014211	-0.0034694
+first	the lab's scoring	cicero	state_post	3636	15634	trios	-0.045351	0.10002	-0.453	-0.033313	0.012038
+first	the lab's scoring	achilles_cicero	maze_sleep	20530	23154	pairs	0.1272	0.024108	5.28	0.10177	-0.025439
+first	the lab's scoring	achilles_cicero	maze_sleep	20530	23154	trios	0.16015	0.034345	4.66	0.19899	0.038835
+first	the lab's scoring	achilles_cicero	maze_other	5414	8804	pairs	0.20471	0.037695	5.43	0.15471	-0.049997
+first	the lab's scoring	achilles_cicero	maze_other	5414	8804	trios	0.16062	0.0587	2.74	0.1912	0.03058
+first	the lab's scoring	achilles_cicero	state_pre	5414	20530	pairs	0.0091504	0.032459	0.282	-0.0095408	-0.018691
+first	the lab's scoring	achilles_cicero	state_pre	5414	20530	trios	0.030784	0.051653	0.596	0.025374	-0.0054103
+first	the lab's scoring	achilles_cicero	state_post	8804	23154	pairs	-0.0072354	0.031223	-0.232	-0.015039	-0.0078032
+first	the lab's scoring	achilles_cicero	state_post	8804	23154	trios	0.013389	0.043738	0.306	0.032431	0.019041
+first	the lab's scoring	gatsby	maze_sleep	6020	5546	pairs	0.1088	0.049446	2.2	0.076654	-0.032146
+first	the lab's scoring	gatsby	maze_sleep	6020	5546	trios	-0.044379	0.093515	-0.475	-0.013262	0.031117
+first	the lab's scoring	gatsby	maze_other	3218	2528	pairs	0.087074	0.073129	1.19	0.034667	-0.052407
+first	the lab's scoring	gatsby	maze_other	3218	2528	trios	0.028884	0.15866	0.182	0.023717	-0.0051671
+first	the lab's scoring	gatsby	state_pre	3218	6020	pairs	0.010911	0.063095	0.173	-0.050323	-0.061234
+first	the lab's scoring	gatsby	state_pre	3218	6020	trios	-0.1106	0.1455	-0.76	-0.023441	0.087154
+first	the lab's scoring	gatsby	state_post	2528	5546	pairs	0.017299	0.058018	0.298	-0.0085221	-0.025821
+first	the lab's scoring	gatsby	state_post	2528	5546	trios	-0.13146	0.1071	-1.23	-0.06549	0.06597
+first	the lab's scoring	all_three	maze_sleep	26550	28700	pairs	0.12416	0.021889	5.67	0.097788	-0.026372
+first	the lab's scoring	all_three	maze_sleep	26550	28700	trios	0.13991	0.032306	4.33	0.17796	0.038051
+first	the lab's scoring	all_three	maze_other	8632	11332	pairs	0.1822	0.033833	5.39	0.13183	-0.050368
+first	the lab's scoring	all_three	maze_other	8632	11332	trios	0.14366	0.055052	2.61	0.17054	0.026875
+first	the lab's scoring	all_three	state_pre	8632	26550	pairs	0.0075017	0.029109	0.258	-0.018303	-0.025804
+first	the lab's scoring	all_three	state_pre	8632	26550	trios	0.015728	0.048705	0.323	0.019401	0.003673
+first	the lab's scoring	all_three	state_post	11332	28700	pairs	-0.0033296	0.027897	-0.119	-0.013899	-0.01057
+first	the lab's scoring	all_three	state_post	11332	28700	trios	-0.0045101	0.040553	-0.111	0.020376	0.024887
+second	delta level above 0.6	cohort	maze	4009	13427	pairs	0.45248	0.019527	23.2	0.35447	-0.098013
+second	delta level above 0.6	cohort	maze	4009	13427	trios	0.29566	0.05758	5.13	0.36181	0.066153
+second	delta level above 0.6	cohort	maze_sleep	1588	7158	pairs	0.41607	0.028584	14.6	0.32913	-0.086935
+second	delta level above 0.6	cohort	maze_sleep	1588	7158	trios	0.27774	0.098418	2.82	0.29958	0.021842
+second	delta level above 0.6	cohort	maze_other	2413	3713	pairs	0.53349	0.030713	17.4	0.42649	-0.10701
+second	delta level above 0.6	cohort	maze_other	2413	3713	trios	0.27207	0.092426	2.94	0.3472	0.075136
+second	delta level above 0.6	cohort	state_pre	2139	1588	pairs	-0.016267	0.030766	-0.529	-0.038829	-0.022563
+second	delta level above 0.6	cohort	state_pre	2139	1588	trios	0.0013943	0.12535	0.0111	0.02145	0.020056
+second	delta level above 0.6	cohort	state_post	3713	9714	pairs	-0.070772	0.024701	-2.87	-0.082739	-0.011967
+second	delta level above 0.6	cohort	state_post	3713	9714	trios	0.045957	0.0624	0.736	0.01384	-0.032117
+second	delta level above 0.6	cohort	maze_matched	3936	8091	pairs	0.46813	0.022125	21.2	0.36058	-0.10755
+second	delta level above 0.6	cohort	maze_matched	3936	8091	trios	0.33101	0.077294	4.28	0.41044	0.07943
+second	delta level above 0.6	cohort	maze_still	3974	10446	pairs	0.44957	0.020768	21.6	0.35025	-0.099319
+second	delta level above 0.6	cohort	maze_still	3974	10446	trios	0.36331	0.073869	4.92	0.42993	0.06662
+second	delta level above 0.6	rat1	maze	128	2357	pairs	0.61938	0.18416	3.36	0.25305	-0.36633
+second	delta level above 0.6	rat1	maze	128	2357	trios	-0.42082	0.87787	-0.479	-0.27431	0.1465
+second	delta level above 0.6	rat1	maze_sleep			pairs					
+second	delta level above 0.6	rat1	maze_sleep			trios					
+second	delta level above 0.6	rat1	maze_other	121	770	pairs	0.78332	0.20184	3.88	0.34968	-0.43363
+second	delta level above 0.6	rat1	maze_other	121	770	trios	-2.533	1.349	-1.88	-2.0398	0.49322
+second	delta level above 0.6	rat1	state_pre			pairs					
+second	delta level above 0.6	rat1	state_pre			trios					
+second	delta level above 0.6	rat1	state_post	770	1587	pairs	-0.18928	0.075729	-2.5	-0.1345	0.054772
+second	delta level above 0.6	rat1	state_post	770	1587	trios	0.36612	0.19498	1.88	0.27583	-0.090292
+second	delta level above 0.6	rat1	maze_matched	121	705	pairs	0.8055	0.20448	3.94	0.36969	-0.43582
+second	delta level above 0.6	rat1	maze_matched	121	705	trios	-2.4912	1.3593	-1.83	-2.0203	0.47085
+second	delta level above 0.6	rat1	maze_still	103	725	pairs	0.74191	0.23209	3.2	0.33628	-0.40563
+second	delta level above 0.6	rat1	maze_still	103	725	trios	-1.0867	1.1057	-0.983	-1.2245	-0.1378
+second	delta level above 0.6	rat2	maze	1039	2659	pairs	0.57522	0.042138	13.7	0.50874	-0.066483
+second	delta level above 0.6	rat2	maze	1039	2659	trios	0.52282	0.15646	3.34	0.55137	0.028558
+second	delta level above 0.6	rat2	maze_sleep	516	1957	pairs	0.60209	0.059775	10.1	0.53475	-0.067345
+second	delta level above 0.6	rat2	maze_sleep	516	1957	trios	0.045393	0.23803	0.191	0.090012	0.044619
+second	delta level above 0.6	rat2	maze_other	523	702	pairs	0.63874	0.072298	8.83	0.55406	-0.084682
+second	delta level above 0.6	rat2	maze_other	523	702	trios	0.55411	0.25574	2.17	0.61876	0.064648
+second	delta level above 0.6	rat2	state_pre	523	516	pairs	-0.10704	0.06649	-1.61	-0.11713	-0.010098
+second	delta level above 0.6	rat2	state_pre	523	516	trios	0.015991	0.41253	0.0388	-0.089502	-0.10549
+second	delta level above 0.6	rat2	state_post	702	1957	pairs	-0.06561	0.056306	-1.17	-0.077594	-0.011985
+second	delta level above 0.6	rat2	state_post	702	1957	trios	-0.046251	0.14836	-0.312	-0.047064	-0.00081253
+second	delta level above 0.6	rat2	maze_matched	1039	2659	pairs	0.60529	0.048081	12.6	0.51945	-0.085837
+second	delta level above 0.6	rat2	maze_matched	1039	2659	trios	0.32573	0.20887	1.56	0.42221	0.096488
+second	delta level above 0.6	rat2	maze_still	1039	2659	pairs	0.59415	0.046476	12.8	0.51296	-0.081187
+second	delta level above 0.6	rat2	maze_still	1039	2659	trios	0.44928	0.19665	2.28	0.47326	0.023982
+second	delta level above 0.6	rat3	maze	838	3139	pairs	0.43587	0.029489	14.8	0.33061	-0.10526
+second	delta level above 0.6	rat3	maze	838	3139	trios	0.19829	0.071561	2.77	0.29363	0.095342
+second	delta level above 0.6	rat3	maze_sleep	354	1132	pairs	0.3306	0.045304	7.3	0.22935	-0.10125
+second	delta level above 0.6	rat3	maze_sleep	354	1132	trios	0.17008	0.12481	1.36	0.2136	0.043522
+second	delta level above 0.6	rat3	maze_other	483	1038	pairs	0.51674	0.042125	12.3	0.40203	-0.11472
+second	delta level above 0.6	rat3	maze_other	483	1038	trios	0.21927	0.10973	2	0.30623	0.086965
+second	delta level above 0.6	rat3	state_pre	330	354	pairs	-0.017386	0.047464	-0.366	0.0090014	0.026387
+second	delta level above 0.6	rat3	state_pre	330	354	trios	0.19131	0.14895	1.28	0.17451	-0.016797
+second	delta level above 0.6	rat3	state_post	1038	2101	pairs	-0.062936	0.035703	-1.76	-0.065413	-0.0024771
+second	delta level above 0.6	rat3	state_post	1038	2101	trios	0.046505	0.078776	0.59	0.015343	-0.031162
+second	delta level above 0.6	rat3	maze_matched	830	2051	pairs	0.43358	0.032329	13.4	0.31284	-0.12074
+second	delta level above 0.6	rat3	maze_matched	830	2051	trios	0.26534	0.093536	2.84	0.34961	0.084264
+second	delta level above 0.6	rat3	maze_still	838	2591	pairs	0.43281	0.031388	13.8	0.3213	-0.11151
+second	delta level above 0.6	rat3	maze_still	838	2591	trios	0.31448	0.090009	3.49	0.41799	0.10351
+second	delta level above 0.6	rat4	maze	748	3202	pairs	0.33581	0.058919	5.7	0.26514	-0.070676
+second	delta level above 0.6	rat4	maze	748	3202	trios	0.248	0.26501	0.936	0.24454	-0.0034567
+second	delta level above 0.6	rat4	maze_sleep	107	2542	pairs	0.22152	0.14786	1.5	0.13868	-0.082834
+second	delta level above 0.6	rat4	maze_sleep	107	2542	trios	-1.2799	1.2977	-0.986	-1.1384	0.14154
+second	delta level above 0.6	rat4	maze_other	641	660	pairs	0.48074	0.08881	5.41	0.42408	-0.05666
+second	delta level above 0.6	rat4	maze_other	641	660	trios	-0.063911	0.37576	-0.17	-0.082409	-0.018499
+second	delta level above 0.6	rat4	state_pre	641	107	pairs	0.23541	0.16221	1.45	0.22494	-0.010471
+second	delta level above 0.6	rat4	state_pre	641	107	trios	-0.65877	1.6859	-0.391	-0.58158	0.077198
+second	delta level above 0.6	rat4	state_post	660	2542	pairs	-0.11759	0.069427	-1.69	-0.14253	-0.024937
+second	delta level above 0.6	rat4	state_post	660	2542	trios	0.24899	0.23531	1.06	0.30411	0.055113
+second	delta level above 0.6	rat4	maze_matched	716	1105	pairs	0.43206	0.081036	5.33	0.37595	-0.056106
+second	delta level above 0.6	rat4	maze_matched	716	1105	trios	-0.11388	0.3772	-0.302	-0.15756	-0.043676
+second	delta level above 0.6	rat4	maze_still	738	2401	pairs	0.33006	0.06475	5.1	0.27007	-0.059992
+second	delta level above 0.6	rat4	maze_still	738	2401	trios	0.24127	0.37245	0.648	0.2911	0.049829
+second	delta level above 0.6	rat5	maze	1256	2070	pairs	0.41708	0.039984	10.4	0.30996	-0.10712
+second	delta level above 0.6	rat5	maze	1256	2070	trios	0.48741	0.14309	3.41	0.52134	0.033926
+second	delta level above 0.6	rat5	maze_sleep	611	1527	pairs	0.41482	0.048809	8.5	0.33024	-0.084586
+second	delta level above 0.6	rat5	maze_sleep	611	1527	trios	0.61365	0.20038	3.06	0.60893	-0.0047216
+second	delta level above 0.6	rat5	maze_other	645	543	pairs	0.47648	0.078988	6.03	0.37015	-0.10633
+second	delta level above 0.6	rat5	maze_other	645	543	trios	0.69003	0.32008	2.16	0.73653	0.046495
+second	delta level above 0.6	rat5	state_pre	645	611	pairs	-0.0065718	0.053087	-0.124	-0.081285	-0.074713
+second	delta level above 0.6	rat5	state_pre	645	611	trios	-0.61674	0.2802	-2.2	-0.52808	0.088654
+second	delta level above 0.6	rat5	state_post	543	1527	pairs	-0.020523	0.068585	-0.299	-0.091837	-0.071314
+second	delta level above 0.6	rat5	state_post	543	1527	trios	-0.20652	0.24563	-0.841	-0.29974	-0.09322
+second	delta level above 0.6	rat5	maze_matched	1230	1571	pairs	0.42071	0.045753	9.2	0.31733	-0.10339
+second	delta level above 0.6	rat5	maze_matched	1230	1571	trios	0.88781	0.22069	4.02	0.96264	0.074839
+second	delta level above 0.6	rat5	maze_still	1256	2070	pairs	0.39786	0.040848	9.74	0.30159	-0.096266
+second	delta level above 0.6	rat5	maze_still	1256	2070	trios	0.54331	0.1967	2.76	0.55306	0.009751

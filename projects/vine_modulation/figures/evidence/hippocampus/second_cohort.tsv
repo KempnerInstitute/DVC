@@ -1,0 +1,37 @@
+group	sessions	contrast	quantity	delta	se	se_rule	se_blocks	sets	information	design_effect
+cohort	9	maze	pairs_overlapping	0.35447	0.018011		0.018747	1142	4858.5	1.5137
+cohort	9	maze	pairs_separate	-0.098013	0.0070856		0.0077047	11717	42363	2.1542
+cohort	9	maze	pairs_difference	0.45248	0.019527	0.019527	0.019446			
+cohort	9	maze	trios_overlapping	0.36181	0.052384		0.052243	1200	510.15	1.3833
+cohort	9	maze	trios_separate	0.066153	0.014834		0.016794	111862	31184	6.8594
+cohort	9	maze	trios_difference	0.29566	0.051874	0.05758	0.051715			
+rat1	1	maze	pairs_overlapping	0.25305	0.17782		0.22052	50	54.495	1.6637
+rat1	1	maze	pairs_separate	-0.36633	0.083153		0.086307	337	308.08	2.2974
+rat1	1	maze	pairs_difference	0.61938	0.18416	0.18416	0.25988			
+rat1	1	maze	trios_overlapping	-0.27431	0.78481		0.83995	38	2.5004	1.427
+rat1	1	maze	trios_separate	0.1465	0.17021		0.18598	1402	54.169	1.6013
+rat1	1	maze	trios_difference	-0.42082	0.79087	0.87787	0.83897			
+rat2	2	maze	pairs_overlapping	0.50874	0.039142		0.035441	224	980.59	1.3755
+rat2	2	maze	pairs_separate	-0.066483	0.014349		0.013533	2178	7830.9	1.6302
+rat2	2	maze	pairs_difference	0.57522	0.042138	0.042138	0.039221			
+rat2	2	maze	trios_overlapping	0.55137	0.14246		0.12409	201	68.392	1.3178
+rat2	2	maze	trios_separate	0.028558	0.031095		0.027937	18041	4114.5	3.9764
+rat2	2	maze	trios_difference	0.52282	0.14096	0.15646	0.12416			
+rat3	2	maze	pairs_overlapping	0.33061	0.027135		0.027947	494	2245.5	1.5957
+rat3	2	maze	pairs_separate	-0.10526	0.011808		0.0098257	5164	18327	2.5962
+rat3	2	maze	pairs_difference	0.43587	0.029489	0.029489	0.028186			
+rat3	2	maze	trios_overlapping	0.29363	0.065233		0.06969	650	330.37	1.394
+rat3	2	maze	trios_separate	0.095342	0.022546		0.027668	60263	17263	8.7667
+rat3	2	maze	trios_difference	0.19829	0.064469	0.071561	0.067192			
+rat4	2	maze	pairs_overlapping	0.26514	0.056349		0.045793	84	358.55	1.1095
+rat4	2	maze	pairs_separate	-0.070676	0.019672		0.023414	819	3191.6	1.2471
+rat4	2	maze	pairs_difference	0.33581	0.058919	0.058919	0.052602			
+rat4	2	maze	trios_overlapping	0.24454	0.23918		0.20013	43	20.734	1.1949
+rat4	2	maze	trios_separate	-0.0034567	0.043754		0.040422	3362	1044.9	2.0004
+rat4	2	maze	trios_difference	0.248	0.23875	0.26501	0.20403			
+rat5	2	maze	pairs_overlapping	0.30996	0.036587		0.044651	290	1219.4	1.5904
+rat5	2	maze	pairs_separate	-0.10712	0.012708		0.019254	3219	12705	2.0687
+rat5	2	maze	pairs_difference	0.41708	0.039984	0.039984	0.04549			
+rat5	2	maze	trios_overlapping	0.52134	0.12889		0.11615	268	88.149	1.4426
+rat5	2	maze	trios_separate	0.033926	0.024127		0.022717	28794	8707.2	5.0693
+rat5	2	maze	trios_difference	0.48741	0.12891	0.14309	0.12412			
