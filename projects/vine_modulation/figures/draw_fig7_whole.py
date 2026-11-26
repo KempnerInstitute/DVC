@@ -138,7 +138,6 @@ def gains(fig, rect, records):
             ax.set_ylim(-4, 8)
         if k > 1:
             ax.set_yticklabels([])
-    fig.text(x0 + 0.33 * w - 0.045, y0 + h * 1.0, "", fontsize=8)
 
 
 def calibration(fig, rect, records):
