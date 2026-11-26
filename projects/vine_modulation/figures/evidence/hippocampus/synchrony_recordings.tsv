@@ -1,0 +1,221 @@
+recording	group	place_cells	ripples_before	ripples_after	comparison	total_nats	blocked_se
+Achilles-10252013_left	Achilles	34	2974	1908	pairs	857.376301	105.049216
+Achilles-10252013_left	Achilles	34	2974	1908	synchrony	0.157542	0.245512
+Achilles-10252013_left	Achilles	34	2974	1908	modulation_e69	-0.020503	1.594572
+Achilles-10252013_left	Achilles	34	2974	1908	modulation	-0.133990	1.714188
+Achilles-10252013_left	Achilles	34	2974	1908	common_modulation	0.262529	1.470162
+Achilles-10252013_left	Achilles	34	2974	1908	class_difference	-0.396519	0.811546
+Achilles-10252013_left	Achilles	34	2974	1908	time_varying	-0.040815	1.711608
+Achilles-10252013_left	Achilles	34	2974	1908	class_change	0.021357	0.458189
+Achilles-10252013_left	Achilles	34	2974	1908	synchrony_k	4.667475	2.528755
+Achilles-10252013_left	Achilles	34	2974	1908	modulation_k	-0.428495	1.557775
+Achilles-10252013_right	Achilles	33	2879	1907	pairs	917.204454	147.899545
+Achilles-10252013_right	Achilles	33	2879	1907	synchrony	-0.163900	0.531675
+Achilles-10252013_right	Achilles	33	2879	1907	modulation_e69	2.004937	1.586263
+Achilles-10252013_right	Achilles	33	2879	1907	modulation	1.477637	1.545033
+Achilles-10252013_right	Achilles	33	2879	1907	common_modulation	2.989357	1.680399
+Achilles-10252013_right	Achilles	33	2879	1907	class_difference	-1.511720	0.553476
+Achilles-10252013_right	Achilles	33	2879	1907	time_varying	-0.940981	0.862713
+Achilles-10252013_right	Achilles	33	2879	1907	class_change	1.288952	2.050988
+Achilles-10252013_right	Achilles	33	2879	1907	synchrony_k	4.757810	2.693341
+Achilles-10252013_right	Achilles	33	2879	1907	modulation_k	1.572637	1.659696
+Achilles-11012013_left	Achilles	34	1816	1884	pairs	282.201329	44.144712
+Achilles-11012013_left	Achilles	34	1816	1884	synchrony	-0.598538	0.313539
+Achilles-11012013_left	Achilles	34	1816	1884	modulation_e69	0.553465	0.944305
+Achilles-11012013_left	Achilles	34	1816	1884	modulation	0.326603	1.003872
+Achilles-11012013_left	Achilles	34	1816	1884	common_modulation	0.403205	0.979919
+Achilles-11012013_left	Achilles	34	1816	1884	class_difference	-0.076602	0.445278
+Achilles-11012013_left	Achilles	34	1816	1884	time_varying	-0.269748	0.355535
+Achilles-11012013_left	Achilles	34	1816	1884	class_change	-1.476268	0.866340
+Achilles-11012013_left	Achilles	34	1816	1884	synchrony_k	-1.429494	5.213262
+Achilles-11012013_left	Achilles	34	1816	1884	modulation_k	0.151910	0.902265
+Achilles-11012013_right	Achilles	41	1813	1821	pairs	658.736683	44.934323
+Achilles-11012013_right	Achilles	41	1813	1821	synchrony	0.931271	0.347621
+Achilles-11012013_right	Achilles	41	1813	1821	modulation_e69	0.211662	1.745910
+Achilles-11012013_right	Achilles	41	1813	1821	modulation	-0.661104	2.171113
+Achilles-11012013_right	Achilles	41	1813	1821	common_modulation	-0.876145	2.161673
+Achilles-11012013_right	Achilles	41	1813	1821	class_difference	0.215041	0.545319
+Achilles-11012013_right	Achilles	41	1813	1821	time_varying	5.460811	3.489679
+Achilles-11012013_right	Achilles	41	1813	1821	class_change	-1.958755	0.469154
+Achilles-11012013_right	Achilles	41	1813	1821	synchrony_k	3.518264	3.330257
+Achilles-11012013_right	Achilles	41	1813	1821	modulation_k	-0.560648	2.212566
+Cicero-09012014_left	Cicero	10	1778	2157	pairs	1.833318	4.466797
+Cicero-09012014_left	Cicero	10	1778	2157	synchrony	-0.910229	0.625124
+Cicero-09012014_left	Cicero	10	1778	2157	modulation_e69	1.857075	2.229197
+Cicero-09012014_left	Cicero	10	1778	2157	modulation	2.345009	1.859026
+Cicero-09012014_left	Cicero	10	1778	2157	common_modulation	3.918389	1.689505
+Cicero-09012014_left	Cicero	10	1778	2157	class_difference	-1.573380	1.429794
+Cicero-09012014_left	Cicero	10	1778	2157	time_varying	-0.516819	0.462477
+Cicero-09012014_left	Cicero	10	1778	2157	class_change	-5.302853	8.470731
+Cicero-09012014_left	Cicero	10	1778	2157	synchrony_k	-0.727365	1.095769
+Cicero-09012014_left	Cicero	10	1778	2157	modulation_k	2.408840	1.985305
+Cicero-09012014_right	Cicero	9	1973	2175	pairs	17.347455	5.252034
+Cicero-09012014_right	Cicero	9	1973	2175	synchrony	-0.355914	0.458209
+Cicero-09012014_right	Cicero	9	1973	2175	modulation_e69	-0.933819	0.529306
+Cicero-09012014_right	Cicero	9	1973	2175	modulation	-0.711423	0.562162
+Cicero-09012014_right	Cicero	9	1973	2175	common_modulation	-0.711423	0.562162
+Cicero-09012014_right	Cicero	9	1973	2175	class_difference	0.000000	0.000000
+Cicero-09012014_right	Cicero	9	1973	2175	time_varying	-0.730148	1.325815
+Cicero-09012014_right	Cicero	9	1973	2175	class_change	-0.000781	0.000884
+Cicero-09012014_right	Cicero	9	1973	2175	synchrony_k	-0.041008	1.311003
+Cicero-09012014_right	Cicero	9	1973	2175	modulation_k	-0.625830	0.599792
+Cicero-09102014_left	Cicero	13	1721	3308	pairs	47.892150	9.950116
+Cicero-09102014_left	Cicero	13	1721	3308	synchrony	-0.046416	0.320918
+Cicero-09102014_left	Cicero	13	1721	3308	modulation_e69	-1.859702	1.577498
+Cicero-09102014_left	Cicero	13	1721	3308	modulation	-1.677082	1.578193
+Cicero-09102014_left	Cicero	13	1721	3308	common_modulation	-0.815333	1.227300
+Cicero-09102014_left	Cicero	13	1721	3308	class_difference	-0.861749	0.813964
+Cicero-09102014_left	Cicero	13	1721	3308	time_varying	0.341531	0.716898
+Cicero-09102014_left	Cicero	13	1721	3308	class_change	-0.573447	1.666378
+Cicero-09102014_left	Cicero	13	1721	3308	synchrony_k	-0.061687	1.201641
+Cicero-09102014_left	Cicero	13	1721	3308	modulation_k	-1.698344	1.515483
+Cicero-09102014_right	Cicero	30	1794	3385	pairs	293.829730	47.396442
+Cicero-09102014_right	Cicero	30	1794	3385	synchrony	0.521458	1.079194
+Cicero-09102014_right	Cicero	30	1794	3385	modulation_e69	-0.662613	0.552864
+Cicero-09102014_right	Cicero	30	1794	3385	modulation	-0.840398	1.370764
+Cicero-09102014_right	Cicero	30	1794	3385	common_modulation	0.263137	1.033736
+Cicero-09102014_right	Cicero	30	1794	3385	class_difference	-1.103535	0.823060
+Cicero-09102014_right	Cicero	30	1794	3385	time_varying	4.191962	2.636040
+Cicero-09102014_right	Cicero	30	1794	3385	class_change	-0.650865	0.719655
+Cicero-09102014_right	Cicero	30	1794	3385	synchrony_k	2.005329	2.439755
+Cicero-09102014_right	Cicero	30	1794	3385	modulation_k	-0.639650	1.462958
+Cicero-09172014_left	Cicero	12	1899	2282	pairs	65.353536	18.626257
+Cicero-09172014_left	Cicero	12	1899	2282	synchrony	-0.151211	0.370451
+Cicero-09172014_left	Cicero	12	1899	2282	modulation_e69	-0.454866	1.924910
+Cicero-09172014_left	Cicero	12	1899	2282	modulation	-0.080827	2.296725
+Cicero-09172014_left	Cicero	12	1899	2282	common_modulation	0.632240	1.330480
+Cicero-09172014_left	Cicero	12	1899	2282	class_difference	-0.713067	1.644675
+Cicero-09172014_left	Cicero	12	1899	2282	time_varying	-0.028468	1.182871
+Cicero-09172014_left	Cicero	12	1899	2282	class_change	1.293405	2.580554
+Cicero-09172014_left	Cicero	12	1899	2282	synchrony_k	-1.202153	3.269132
+Cicero-09172014_left	Cicero	12	1899	2282	modulation_k	0.094499	2.453335
+Cicero-09172014_right	Cicero	19	1883	2327	pairs	132.423297	23.247528
+Cicero-09172014_right	Cicero	19	1883	2327	synchrony	0.002556	0.508118
+Cicero-09172014_right	Cicero	19	1883	2327	modulation_e69	-0.638590	0.778727
+Cicero-09172014_right	Cicero	19	1883	2327	modulation	-0.494604	0.857728
+Cicero-09172014_right	Cicero	19	1883	2327	common_modulation	-0.683935	0.515465
+Cicero-09172014_right	Cicero	19	1883	2327	class_difference	0.189331	0.726244
+Cicero-09172014_right	Cicero	19	1883	2327	time_varying	-0.748190	0.614478
+Cicero-09172014_right	Cicero	19	1883	2327	class_change	-1.051626	2.645387
+Cicero-09172014_right	Cicero	19	1883	2327	synchrony_k	3.900159	2.119680
+Cicero-09172014_right	Cicero	19	1883	2327	modulation_k	-0.609125	0.390869
+Gatsby-08022013_left	Gatsby	13	2036	1313	pairs	77.063596	14.598546
+Gatsby-08022013_left	Gatsby	13	2036	1313	synchrony	-0.152032	0.678336
+Gatsby-08022013_left	Gatsby	13	2036	1313	modulation_e69	-1.101215	0.978558
+Gatsby-08022013_left	Gatsby	13	2036	1313	modulation	-1.536761	0.725296
+Gatsby-08022013_left	Gatsby	13	2036	1313	common_modulation	-0.688594	0.401969
+Gatsby-08022013_left	Gatsby	13	2036	1313	class_difference	-0.848167	0.439711
+Gatsby-08022013_left	Gatsby	13	2036	1313	time_varying	-2.755832	0.943366
+Gatsby-08022013_left	Gatsby	13	2036	1313	class_change	-9.097476	7.542938
+Gatsby-08022013_left	Gatsby	13	2036	1313	synchrony_k	-0.479757	1.881169
+Gatsby-08022013_left	Gatsby	13	2036	1313	modulation_k	-1.585157	0.713887
+Gatsby-08022013_right	Gatsby	16	1974	1435	pairs	103.945345	13.237846
+Gatsby-08022013_right	Gatsby	16	1974	1435	synchrony	-0.635452	0.332296
+Gatsby-08022013_right	Gatsby	16	1974	1435	modulation_e69	-0.709903	1.958533
+Gatsby-08022013_right	Gatsby	16	1974	1435	modulation	0.063090	2.022125
+Gatsby-08022013_right	Gatsby	16	1974	1435	common_modulation	1.221392	0.985377
+Gatsby-08022013_right	Gatsby	16	1974	1435	class_difference	-1.158302	1.529563
+Gatsby-08022013_right	Gatsby	16	1974	1435	time_varying	-2.200751	0.976999
+Gatsby-08022013_right	Gatsby	16	1974	1435	class_change	-0.394636	0.956759
+Gatsby-08022013_right	Gatsby	16	1974	1435	synchrony_k	-0.588824	0.708570
+Gatsby-08022013_right	Gatsby	16	1974	1435	modulation_k	-0.102498	1.892731
+Gatsby-08282013_left	Gatsby	30	2010	2798	pairs	756.627200	61.779418
+Gatsby-08282013_left	Gatsby	30	2010	2798	synchrony	0.744516	1.032483
+Gatsby-08282013_left	Gatsby	30	2010	2798	modulation_e69	6.418882	3.292390
+Gatsby-08282013_left	Gatsby	30	2010	2798	modulation	8.256305	3.620678
+Gatsby-08282013_left	Gatsby	30	2010	2798	common_modulation	7.770626	3.046202
+Gatsby-08282013_left	Gatsby	30	2010	2798	class_difference	0.485679	1.416037
+Gatsby-08282013_left	Gatsby	30	2010	2798	time_varying	1.194497	1.844984
+Gatsby-08282013_left	Gatsby	30	2010	2798	class_change	-0.353671	1.237266
+Gatsby-08282013_left	Gatsby	30	2010	2798	synchrony_k	0.561556	1.650892
+Gatsby-08282013_left	Gatsby	30	2010	2798	modulation_k	8.208400	3.499668
+RAT1_SESS1	independent cohort	29	403	1116	pairs	90.468891	15.794760
+RAT1_SESS1	independent cohort	29	403	1116	synchrony	0.159345	0.812718
+RAT1_SESS1	independent cohort	29	403	1116	modulation_e69	0.976165	1.397194
+RAT1_SESS1	independent cohort	29	403	1116	modulation	-0.076413	2.448665
+RAT1_SESS1	independent cohort	29	403	1116	common_modulation	2.456692	1.976276
+RAT1_SESS1	independent cohort	29	403	1116	class_difference	-2.533105	1.244674
+RAT1_SESS1	independent cohort	29	403	1116	time_varying	-3.031322	2.312952
+RAT1_SESS1	independent cohort	29	403	1116	class_change	-0.784689	0.560900
+RAT1_SESS1	independent cohort	29	403	1116	synchrony_k	-3.062681	4.657702
+RAT1_SESS1	independent cohort	29	403	1116	modulation_k	-0.000248	2.525196
+RAT1or4_SESS	independent cohort	32	128	2357	pairs	641.553284	89.023776
+RAT1or4_SESS	independent cohort	32	128	2357	synchrony	0.406853	1.701223
+RAT1or4_SESS	independent cohort	32	128	2357	modulation_e69	-1.054770	1.588402
+RAT1or4_SESS	independent cohort	32	128	2357	modulation	-1.573837	0.873889
+RAT1or4_SESS	independent cohort	32	128	2357	common_modulation	-1.239774	0.898080
+RAT1or4_SESS	independent cohort	32	128	2357	class_difference	-0.334063	0.344484
+RAT1or4_SESS	independent cohort	32	128	2357	time_varying	2.290619	2.885313
+RAT1or4_SESS	independent cohort	32	128	2357	class_change	-0.750304	0.873475
+RAT1or4_SESS	independent cohort	32	128	2357	synchrony_k	-0.159919	2.027532
+RAT1or4_SESS	independent cohort	32	128	2357	modulation_k	-1.608313	0.810264
+RAT2_SESS1	independent cohort	71	625	1643	pairs	1144.681810	110.153009
+RAT2_SESS1	independent cohort	71	625	1643	synchrony	-0.187580	1.305327
+RAT2_SESS1	independent cohort	71	625	1643	modulation_e69	1.728366	3.217031
+RAT2_SESS1	independent cohort	71	625	1643	modulation	1.689884	3.006776
+RAT2_SESS1	independent cohort	71	625	1643	common_modulation	-0.487491	1.804359
+RAT2_SESS1	independent cohort	71	625	1643	class_difference	2.177376	1.949361
+RAT2_SESS1	independent cohort	71	625	1643	time_varying	-0.084228	0.634698
+RAT2_SESS1	independent cohort	71	625	1643	class_change	-0.735771	1.377920
+RAT2_SESS1	independent cohort	71	625	1643	synchrony_k	3.092308	3.534612
+RAT2_SESS1	independent cohort	71	625	1643	modulation_k	1.599098	2.957308
+RAT2_SESS2	independent cohort	41	414	1016	pairs	337.067830	43.731510
+RAT2_SESS2	independent cohort	41	414	1016	synchrony	0.696402	0.804997
+RAT2_SESS2	independent cohort	41	414	1016	modulation_e69	5.118215	2.164595
+RAT2_SESS2	independent cohort	41	414	1016	modulation	5.840169	2.775802
+RAT2_SESS2	independent cohort	41	414	1016	common_modulation	1.393810	1.503119
+RAT2_SESS2	independent cohort	41	414	1016	class_difference	4.446359	1.976666
+RAT2_SESS2	independent cohort	41	414	1016	time_varying	-0.625964	1.374757
+RAT2_SESS2	independent cohort	41	414	1016	class_change	-0.538634	0.525602
+RAT2_SESS2	independent cohort	41	414	1016	synchrony_k	0.367510	2.550511
+RAT2_SESS2	independent cohort	41	414	1016	modulation_k	5.576456	2.907300
+RAT3_SESS1	independent cohort	84	684	1650	pairs	1579.233755	97.743447
+RAT3_SESS1	independent cohort	84	684	1650	synchrony	0.567603	1.929648
+RAT3_SESS1	independent cohort	84	684	1650	modulation_e69	7.929832	4.536395
+RAT3_SESS1	independent cohort	84	684	1650	modulation	8.027169	4.059022
+RAT3_SESS1	independent cohort	84	684	1650	common_modulation	3.764240	3.131783
+RAT3_SESS1	independent cohort	84	684	1650	class_difference	4.262929	2.974692
+RAT3_SESS1	independent cohort	84	684	1650	time_varying	-0.314854	0.970209
+RAT3_SESS1	independent cohort	84	684	1650	class_change	-0.417588	2.813870
+RAT3_SESS1	independent cohort	84	684	1650	synchrony_k	4.798232	2.340969
+RAT3_SESS1	independent cohort	84	684	1650	modulation_k	8.830475	4.080224
+RAT3_SESS2	independent cohort	96	154	1489	pairs	1337.688633	101.150486
+RAT3_SESS2	independent cohort	96	154	1489	synchrony	4.375552	2.062679
+RAT3_SESS2	independent cohort	96	154	1489	modulation_e69	17.112813	7.596369
+RAT3_SESS2	independent cohort	96	154	1489	modulation	14.413850	6.175565
+RAT3_SESS2	independent cohort	96	154	1489	common_modulation	0.629679	1.458209
+RAT3_SESS2	independent cohort	96	154	1489	class_difference	13.784171	6.067861
+RAT3_SESS2	independent cohort	96	154	1489	time_varying	0.282138	1.639731
+RAT3_SESS2	independent cohort	96	154	1489	class_change	1.133049	2.089671
+RAT3_SESS2	independent cohort	96	154	1489	synchrony_k	2.641965	3.881111
+RAT3_SESS2	independent cohort	96	154	1489	modulation_k	14.057936	5.669784
+RAT4_SESS2	independent cohort	43	345	2086	pairs	400.824620	54.590164
+RAT4_SESS2	independent cohort	43	345	2086	synchrony	0.160565	0.336144
+RAT4_SESS2	independent cohort	43	345	2086	modulation_e69	0.046195	0.942546
+RAT4_SESS2	independent cohort	43	345	2086	modulation	0.623609	1.286891
+RAT4_SESS2	independent cohort	43	345	2086	common_modulation	-0.426039	0.735693
+RAT4_SESS2	independent cohort	43	345	2086	class_difference	1.049648	1.483725
+RAT4_SESS2	independent cohort	43	345	2086	time_varying	-0.045472	0.210171
+RAT4_SESS2	independent cohort	43	345	2086	class_change	-0.089027	0.271615
+RAT4_SESS2	independent cohort	43	345	2086	synchrony_k	-0.223348	1.028446
+RAT4_SESS2	independent cohort	43	345	2086	modulation_k	0.445384	1.360181
+RAT5_SESS1	independent cohort	67	531	1042	pairs	903.088014	98.406678
+RAT5_SESS1	independent cohort	67	531	1042	synchrony	1.531830	1.465270
+RAT5_SESS1	independent cohort	67	531	1042	modulation_e69	1.158899	4.166267
+RAT5_SESS1	independent cohort	67	531	1042	modulation	-0.610470	3.917971
+RAT5_SESS1	independent cohort	67	531	1042	common_modulation	-3.644425	3.421272
+RAT5_SESS1	independent cohort	67	531	1042	class_difference	3.033955	2.757210
+RAT5_SESS1	independent cohort	67	531	1042	time_varying	6.631998	5.065348
+RAT5_SESS1	independent cohort	67	531	1042	class_change	0.582416	2.093667
+RAT5_SESS1	independent cohort	67	531	1042	synchrony_k	0.585933	2.722762
+RAT5_SESS1	independent cohort	67	531	1042	modulation_k	-0.295835	3.920630
+RAT5_SESS2	independent cohort	76	725	1028	pairs	1246.907036	58.434025
+RAT5_SESS2	independent cohort	76	725	1028	synchrony	2.964072	2.389227
+RAT5_SESS2	independent cohort	76	725	1028	modulation_e69	6.805104	4.710510
+RAT5_SESS2	independent cohort	76	725	1028	modulation	5.153300	3.955251
+RAT5_SESS2	independent cohort	76	725	1028	common_modulation	5.838853	3.419407
+RAT5_SESS2	independent cohort	76	725	1028	class_difference	-0.685553	1.974112
+RAT5_SESS2	independent cohort	76	725	1028	time_varying	-1.534109	1.285907
+RAT5_SESS2	independent cohort	76	725	1028	class_change	-1.073019	2.484489
+RAT5_SESS2	independent cohort	76	725	1028	synchrony_k	1.769503	3.438923
+RAT5_SESS2	independent cohort	76	725	1028	modulation_k	4.947173	3.968436

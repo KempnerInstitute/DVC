@@ -1,12 +1,14 @@
 panel,group_or_recording,comparison_or_boundary,value_or_best_split,se_or_gain,note
 B,achilles,pairs,159.7176,11.2949,4 of 4 recordings positive
 B,cohort,pairs,440.5548,13.8224,9 of 9 recordings positive
-B,achilles,modulation,0.1617,0.1764,3 of 4 recordings positive
-B,cohort,modulation,2.2838,0.6743,8 of 9 recordings positive
-B,achilles,time_varying,0.2350,0.2267,1 of 4 recordings positive
-B,cohort,time_varying,0.2065,0.3941,4 of 9 recordings positive
-B,achilles,class_change,-0.1314,0.1355,2 of 4 recordings positive
-B,cohort,class_change,-0.1629,0.2996,2 of 9 recordings positive
+B,achilles,synchrony,0.0192,0.0441,2 of 4 recordings positive
+B,cohort,synchrony,0.6122,0.2681,8 of 9 recordings positive
+B,achilles,modulation,0.0594,0.1955,2 of 4 recordings positive
+B,cohort,modulation,1.9206,0.6036,6 of 9 recordings positive
+B,achilles,time_varying,0.2476,0.2351,1 of 4 recordings positive
+B,cohort,time_varying,0.2047,0.3930,3 of 9 recordings positive
+B,achilles,class_change,-0.1250,0.1365,2 of 4 recordings positive
+B,cohort,class_change,-0.1533,0.2934,2 of 9 recordings positive
 C,cohort,replay; time_varying,primary,0,24
 C,cohort,replay; time_varying,common count,0,24
 C,cohort,replay; class_change,primary,0,24

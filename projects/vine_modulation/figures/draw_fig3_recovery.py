@@ -164,11 +164,25 @@ def search(fig, worked, records):
         large = by[(law, 1000, 3)] if key else [sum(v[0] for (l, n, o), v in by.items() if o == 4 and n == 1000), 0]
         total = (small[1] + large[1]) if key else sum(v[1] for (l, n, o), v in by.items() if o == 4)
         ax.text(104, y, f"{small[0] + large[0]}/{total}", va="center", fontsize=8, color=fs.INK2)
+    # E80: the fourth-order law with its constant third-order terms removed (fresh seeds, the same fixed estimator)
+    y5 = y4 - 1.0
+    alone = defaultdict(lambda: [0, 0])
+    for r in csv.DictReader((HERE / "evidence" / "e80_episodes.tsv").open(), delimiter="\t"):
+        if r["study"] == "quartets" and r["order"] == "4":
+            alone[int(r["n"])][0] += int(r["success"])
+            alone[int(r["n"])][1] += 1
+    for n, (k, total) in sorted(alone.items()):
+        y = y5 + (0.17 if n == 1000 else -0.17)
+        colour = fs.BLUE if n == 1000 else fs.ORANGE
+        ax.plot([0, 100 * k / total], [y, y], color=colour, lw=1.0, zorder=2)
+        ax.plot(100 * k / total, y, marker="o" if n == 1000 else "s", ms=4.2, mfc=colour if n == 1000 else "white", mec=colour, mew=0.9, zorder=3)
+        records.append(("E", "quartets without constant triples", "", n, 4, k, total, "", ""))
+    ax.text(104, y5, f"{sum(v[0] for v in alone.values())}/{sum(v[1] for v in alone.values())}", va="center", fontsize=8, color=fs.INK2)
     ax.axhline(-0.65, color=fs.GRID, lw=0.8)
-    ax.set_yticks(list(ys.values()) + [y4])
-    ax.set_yticklabels(list(ys) + ["fourth order"])
+    ax.set_yticks(list(ys.values()) + [y4, y5])
+    ax.set_yticklabels(list(ys) + ["fourth order", "without triples"])
     ax.tick_params(axis="y", length=0)
-    ax.set(xlim=(0, 100), ylim=(y4 - 0.55, len(laws) - 0.45), xticks=[0, 50, 100])
+    ax.set(xlim=(0, 100), ylim=(y5 - 0.55, len(laws) - 0.45), xticks=[0, 50, 100])
     ax.set_xlabel("Episodes recovered (%)")
     fs.spines(ax, ("bottom",))
     handles = [Line2D([], [], color=fs.BLUE, marker="o", ms=4.2, mfc=fs.BLUE, mec=fs.BLUE, lw=1.0, label="1,000"),

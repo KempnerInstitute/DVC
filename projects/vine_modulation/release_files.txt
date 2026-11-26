@@ -1,6 +1,9 @@
 LICENSE
 projects/vine_modulation/PROTOCOL.md
 projects/vine_modulation/README.md
+projects/vine_modulation/experiments/E78_SHARED_FACTORS.md
+projects/vine_modulation/experiments/E79_SYNCHRONY.md
+projects/vine_modulation/experiments/E80_QUARTETS_ALONE.md
 projects/vine_modulation/experiments/check_shared_scale.py
 projects/vine_modulation/experiments/common.py
 projects/vine_modulation/experiments/e17_gam_edge.R
@@ -24,6 +27,12 @@ projects/vine_modulation/experiments/e65_pairwise_fit.py
 projects/vine_modulation/experiments/e66_content_law_check.py
 projects/vine_modulation/experiments/e69_replay_vine.py
 projects/vine_modulation/experiments/e71_blind_timing.py
+projects/vine_modulation/experiments/e77_random_effects.py
+projects/vine_modulation/experiments/e78_tables.py
+projects/vine_modulation/experiments/e79_synchrony.py
+projects/vine_modulation/experiments/e80_laws.py
+projects/vine_modulation/experiments/e80_quartets.py
+projects/vine_modulation/experiments/e80_summary.py
 projects/vine_modulation/experiments/e8_directed.py
 projects/vine_modulation/experiments/fold_scale_audit.py
 projects/vine_modulation/experiments/replay_schedule_control.py
@@ -38,6 +47,7 @@ projects/vine_modulation/figures/draw_fig5_checks.py
 projects/vine_modulation/figures/draw_fig6_replay.py
 projects/vine_modulation/figures/draw_fig7_whole.py
 projects/vine_modulation/figures/evidence/challenge_terms.tsv
+projects/vine_modulation/figures/evidence/e80_episodes.tsv
 projects/vine_modulation/figures/evidence/figures/e64_posthoc_states.tsv
 projects/vine_modulation/figures/evidence/figures/e65_intervals.tsv
 projects/vine_modulation/figures/evidence/figures/e65_pairwise_fit.tsv
@@ -71,9 +81,14 @@ projects/vine_modulation/figures/evidence/hippocampus/fixed_fold_recordings.tsv
 projects/vine_modulation/figures/evidence/hippocampus/fixed_fold_summary.tsv
 projects/vine_modulation/figures/evidence/hippocampus/fold_calibration.tsv
 projects/vine_modulation/figures/evidence/hippocampus/fold_calibration_replicates.tsv
+projects/vine_modulation/figures/evidence/hippocampus/random_effects.tsv
 projects/vine_modulation/figures/evidence/hippocampus/schedule_predictions.tsv
 projects/vine_modulation/figures/evidence/hippocampus/second_cohort.tsv
+projects/vine_modulation/figures/evidence/hippocampus/shared_factor_content.tsv
+projects/vine_modulation/figures/evidence/hippocampus/shared_factor_fit.tsv
 projects/vine_modulation/figures/evidence/hippocampus/steps.tsv
+projects/vine_modulation/figures/evidence/hippocampus/synchrony_recordings.tsv
+projects/vine_modulation/figures/evidence/hippocampus/synchrony_summary.json
 projects/vine_modulation/figures/evidence/hippocampus/timing_reference.tsv
 projects/vine_modulation/figures/evidence/hippocampus/whole_ripples.tsv
 projects/vine_modulation/figures/evidence/known_edge_timing.csv
@@ -95,6 +110,7 @@ projects/vine_modulation/real_data/hippocampal_posthoc_content.py
 projects/vine_modulation/real_data/hippocampal_study.py
 projects/vine_modulation/real_data/replay_sequences.py
 projects/vine_modulation/real_data/replay_states.py
+projects/vine_modulation/real_data/shared_factor_content.py
 projects/vine_modulation/real_data/sleep_states.py
 projects/vine_modulation/release_files.txt
 projects/vine_modulation/requirements.txt
@@ -103,6 +119,7 @@ projects/vine_modulation/tests/test_binary_pooled.py
 projects/vine_modulation/tests/test_e69_replay_vine.py
 projects/vine_modulation/tests/test_e71_blind_timing.py
 projects/vine_modulation/tests/test_replay_states.py
+projects/vine_modulation/tests/test_shared_factor_content.py
 projects/vine_modulation/tests/test_trajectory.py
 projects/vine_modulation/tests/test_vinemodel2.py
 projects/vine_modulation/tests/test_vinetraj.py

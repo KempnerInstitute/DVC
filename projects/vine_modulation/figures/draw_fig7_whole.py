@@ -5,7 +5,8 @@ boundary between the rests.
 
 A  the sequential model of a whole ripple and the nested comparisons (schematic).
 B  gain in held-out log probability of each addition, per recording and for each group (95% interval over blocks of
-   consecutive ripples), in nats per 1,000 ripples (evidence/hippocampus/fixed_fold_*.tsv, training-fold scales).
+   consecutive ripples), in nats per 1,000 ripples, with a class-independent synchrony term in every model after the
+   pair edges (E79; evidence/hippocampus/synchrony_recordings.tsv and synchrony_summary.json, training-fold scales).
 C  simulated cohorts matched to each recording design (24 per scenario): how many found a shared or a class-specific
    change (z >= 1.96) on the primary scale and on the common-count scale of S1 Text
    (evidence/hippocampus/fold_calibration.tsv, common_count_scenarios.tsv).
@@ -89,44 +90,46 @@ def schematic(fig, rect):
     ax.text(0.505, yc - 0.064, "a normalized whole-ripple law", ha="left", va="center", fontsize=8, color=fs.INK2)
     # nested models
     lx, lw_ = 0.795, 0.200
-    steps = (("Replay model", fs.BLUE_TINT), ("+ pair edges", fs.PANEL), ("+ persistent modulation", fs.PANEL), ("+ shared change", fs.PANEL),
-             ("+ class-specific change", fs.PANEL))
-    ax.text(lx + lw_ / 2, top - 0.008, "Nested models", ha="center", va="center", fontsize=8, fontweight="bold")
+    steps = (("Replay model", fs.BLUE_TINT), ("+ pair edges", fs.PANEL), ("+ synchrony", fs.PANEL), ("+ three-cell term", fs.PANEL),
+             ("+ shared change", fs.PANEL), ("+ class-specific change", fs.PANEL))
+    ax.text(lx + lw_ / 2, top - 0.006, "Nested models", ha="center", va="center", fontsize=8, fontweight="bold")
     for k, (label, face) in enumerate(steps):
-        yy = top - 0.042 - 0.040 * k
-        fs.card(ax, lx, yy - 0.014, lw_, 0.028, face=face, edge=fs.RULE, radius=0.007, lw=0.6)
+        yy = top - 0.034 - 0.032 * k
+        fs.card(ax, lx, yy - 0.0115, lw_, 0.023, face=face, edge=fs.RULE, radius=0.006, lw=0.6)
         ax.text(lx + lw_ / 2, yy, label, ha="center", va="center", fontsize=8)
         if k:
-            ax.annotate("", xy=(lx + lw_ / 2, yy + 0.014), xytext=(lx + lw_ / 2, yy + 0.026),
+            ax.annotate("", xy=(lx + lw_ / 2, yy + 0.0115), xytext=(lx + lw_ / 2, yy + 0.0205),
                         arrowprops=dict(arrowstyle="-|>", color=fs.INK2, lw=0.7, mutation_scale=5, shrinkA=0, shrinkB=0))
-    ax.text(lx + lw_ / 2, top - 0.042 - 0.040 * 4 - 0.030, "scored on the same held-out", ha="center", va="center", fontsize=8, color=fs.INK2)
-    ax.text(lx + lw_ / 2, top - 0.042 - 0.040 * 4 - 0.050, "blocks of consecutive ripples", ha="center", va="center", fontsize=8, color=fs.INK2)
+    last = top - 0.034 - 0.032 * (len(steps) - 1)
+    ax.text(lx + lw_ / 2, last - 0.026, "scored on the same held-out", ha="center", va="center", fontsize=8, color=fs.INK2)
+    ax.text(lx + lw_ / 2, last - 0.042, "blocks of consecutive ripples", ha="center", va="center", fontsize=8, color=fs.INK2)
 
 
 def gains(fig, rect, records):
+    import json
     x0, y0, w, h = rect
     per = defaultdict(dict)
-    for r in read(HERE / "evidence" / "hippocampus" / "fixed_fold_recordings.tsv"):
-        scale = 1000 / int(r["ripples"])
-        per[r["recording"]][r["comparison"]] = (float(r["training_scaled_nats"]) * scale, float(r["training_scaled_se"]) * scale, int(r["ripples"]))
-    summary = {(r["group"], r["comparison"]): r for r in read(HERE / "evidence" / "hippocampus" / "fixed_fold_summary.tsv")}
-    totals = {(r["group"], r["comparison"]): int(r["ripples"]) for r in read(HERE / "evidence" / "hippocampus" / "whole_ripples.tsv")}
-    comparisons = (("pairs", "+ pair edges"), ("modulation", "+ persistent\nmodulation"), ("time_varying", "+ shared\nchange"),
-                   ("class_change", "+ class-specific\nchange"))
+    for r in read(HERE / "evidence" / "hippocampus" / "synchrony_recordings.tsv"):
+        scale = 1000 / (int(r["ripples_before"]) + int(r["ripples_after"]))
+        per[r["recording"]][r["comparison"]] = (float(r["total_nats"]) * scale, float(r["blocked_se"]) * scale)
+    groups = json.loads((HERE / "evidence" / "hippocampus" / "synchrony_summary.json").read_text())["groups"]
+    comparisons = (("pairs", "+ pair edges"), ("synchrony", "+ synchrony"), ("modulation", "+ three-cell\nterm"),
+                   ("time_varying", "+ shared\nchange"), ("class_change", "+ class-specific\nchange"))
     for k, (comparison, label) in enumerate(comparisons):
         big = comparison == "pairs"
-        ax = fig.add_axes([x0 + (0.085 if big else 0.33 + (k - 1) * 0.235) * w, y0, (0.15 if big else 0.17) * w, h])
+        ax = fig.add_axes([x0 + (0.085 if big else 0.305 + (k - 1) * 0.178) * w, y0, (0.14 if big else 0.135) * w, h])
         ax.axhline(0, color=fs.INK2, lw=0.6, zorder=1)
         for j, (group, colour, marker, members) in enumerate((("achilles", fs.BLUE, "o", FIRST),
                                                                ("cohort", fs.ORANGE, "^", [r for r in per if r.startswith("RAT")]))):
             values = [per[r][comparison][0] for r in members if comparison in per[r]]
             jitter = np.linspace(-0.13, 0.13, len(values))
             ax.plot(j + jitter, values, ls="none", marker=marker, ms=3.8, mfc="white", mec=colour, mew=0.8, zorder=2)
-            s = summary[(group, comparison)]
-            scale = 1000 / totals[(group, comparison)]
-            value, se = float(s["training_scaled_nats"]) * scale, float(s["training_scaled_se"]) * scale
+            g = groups[group]
+            scale = 1000 / g["ripples"]
+            value, se = g[comparison]["total"] * scale, g[comparison]["se"] * scale
             ax.errorbar(j + 0.33, value, yerr=1.96 * se, marker="D", ms=4.8, color=colour, mfc=colour, capsize=0, lw=1.3, zorder=3)
-            records.append(("B", group, comparison, f"{value:.4f}", f"{se:.4f}", f"{s['recordings_positive']} of {s['recordings']} recordings positive"))
+            records.append(("B", group, comparison, f"{value:.4f}", f"{se:.4f}",
+                            f"{g[comparison]['recordings_positive']} of {g['recordings']} recordings positive"))
         ax.set(xlim=(-0.45, 1.6), xticks=[0.1, 1.1])
         ax.set_xticklabels(["Achilles", "5 rats"])
         ax.tick_params(axis="x", length=0, pad=3)

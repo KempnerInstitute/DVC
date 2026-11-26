@@ -93,6 +93,8 @@ def export(output):
     plants = [dict(law=r["law"],n=r["n"],seed=r["seed"],plant_index=i,**t)
               for r in worked["challenge"] for i,t in enumerate(r["terms"],1)]
     sheet("Fig3 plants","All plants, including constant terms","Term within one simulated dataset",plants)
+    sheet("SI fourth order alone","Episodes of the fourth-order law with and without its constant third-order terms",
+          "Planted term within one simulated 50-variable dataset",read_table(DATA/"e80_episodes.tsv","\t"))
     hippo = DATA/"hippocampus"
     rats = [float(r["delta"]) for r in read_table(hippo/"second_cohort.tsv","\t")
             if str(r["group"]).startswith("rat") and r["contrast"]=="maze" and r["quantity"]=="trios_difference"]
@@ -114,6 +116,10 @@ def export(output):
         ("common_count_scenarios", "SI per-pair calibration", "Change in log odds per additional active pair", "24 simulated cohorts per geometry and scenario"),
         ("common_count_populations", "SI per-pair prediction", "Increment in whole-ripple log score using a common count unit", "Cohort and model increment, in nats"),
         ("common_count_scale_reference", "SI count units", "Size of the planted shared shift in training-fold units", "Absolute discrepancy across recordings, replicates and folds"),
+        ("random_effects", "SI across animals", "Fixed- and random-effects summaries of the per-animal class contrasts", "Set of animals and term, in log units"),
+        ("synchrony_recordings", "SI synchrony", "Held-out gains with a class-independent synchrony term in every model", "Recording and model increment, in nats"),
+        ("shared_factor_content", "SI shared factors", "Recorded contrasts and cohorts simulated from replay models with one factor per cell for both rests", "Cohort, group, estimate and term, in log units"),
+        ("shared_factor_fit", "SI shared factor fits", "In-sample fit of replay models with separate and shared cell factors", "Session or hemisphere"),
     )
     for filename, tab, description, unit in comparisons:
         sheet(tab, description, unit, read_table(hippo/(filename+".tsv"),"\t"))

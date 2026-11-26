@@ -57,6 +57,19 @@ The workbook includes the plotted estimates, the simulated example trajectories,
 | 6 | The two `*_posthoc_content.py` drivers fit and simulate the track-stretch replay model. The exported recording examples identify the source session, trios and ripples. |
 | 7 | `experiments/e69_replay_vine.py` scores whole held-out ripples. `experiments/e71_blind_timing.py` fits the change-point profiles. The fold and schedule audits described above supply the held-out comparisons. |
 
+## Analyses added after review (E77 to E80)
+
+Each driver states its question, design and decision rule in its header. The three that fit models (E78 to E80) wrote their expectations and decision rules, in the notes beside them, before they were run.
+
+| Analysis | Driver | Question |
+| --- | --- | --- |
+| E77 | `experiments/e77_random_effects.py EVIDENCE OUT.json OUT.tsv` with `EVIDENCE=figures/evidence/hippocampus` | How large is the class contrast across animals, treated as a random sample rather than as fixed? |
+| E78 | `real_data/shared_factor_content.py fit/study/simulate/summary COHORT ...`, then `experiments/e78_tables.py RESULTS_ROOT VERIFICATION` ([note](experiments/E78_SHARED_FACTORS.md)) | Does the replay model still reproduce the rise when each cell keeps one rate factor for both rests? |
+| E79 | `experiments/e79_synchrony.py study_all/check/summary ...` ([note](experiments/E79_SYNCHRONY.md)) | Is the persistent whole-ripple three-cell term population synchrony? |
+| E80 | `experiments/e80_quartets.py OUT.json quartets N G SEED WORKERS`, then `experiments/e80_summary.py RESULTS_ROOT WORKED_JSON VERIFICATION` ([note](experiments/E80_QUARTETS_ALONE.md)) | Were fourth-order episodes hard to find because of their order, or because each shared its pair with a constant third-order term? |
+
+Their small results tables are in `figures/evidence` (`e80_episodes.tsv` and, under `hippocampus`, `random_effects.tsv`, `shared_factor_content.tsv`, `shared_factor_fit.tsv`, `synchrony_recordings.tsv` and `synchrony_summary.json`); Figs 3, 6 and 7 and S1 Data read them.
+
 ## Repeat one population fit
 
 Run this example from the study folder after the quick-start setup. It simulates a 50-variable population, searches for the interacting variables, selects trajectories and scores the complete distribution on the held-out data. Use fewer workers on a small machine without changing the seed or the number of half-sample fits.

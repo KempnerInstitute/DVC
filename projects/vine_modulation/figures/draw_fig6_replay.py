@@ -12,7 +12,8 @@ B  three ripples of the rest after the tracks (rat 3, second session; evidence/f
    state is a stretch of about 40 cm or 1 m with probability at least 0.8.
 C  fitted share of ripples on a stretch of at most about 1 m, in each rest (evidence/hippocampus/content_laws_*.tsv).
 D  change after minus before, overlapping minus separate trios: recorded (95% interval), mean and central 95% of 200
-   cohorts simulated from the fitted models, and relative to the models' prediction from the other cells (95%
+   cohorts simulated from the fitted models, the same with one rate factor per cell shared by both rests (E78;
+   evidence/hippocampus/shared_factor_content.tsv), and relative to the models' prediction from the other cells (95%
    interval); evidence/hippocampus/content_*.tsv.
 E  simulated populations with the second cohort's cells and ripples (32 cohorts per scenario): the main estimate and
    the replay-relative estimate of the three-way change, mean and central 95% (evidence/figures/e66_check.tsv).  The
@@ -174,7 +175,9 @@ def changes(fig, rect, records):
     x0, y0, w, h = rect
     folder = HERE / "evidence" / "hippocampus"
     tables = {c: {(r["group"], r["estimate"], r["term"]): r for r in read(folder / f"content_{c}.tsv")} for c in ("first", "second")}
-    rows = (("recorded", "recorded", "o", True), ("law", "simulated from the model", "s", False), ("adjusted", "relative to replay", "^", True))
+    shared = {(r["cohort"], r["group"], r["estimate"], r["term"]): r for r in read(folder / "shared_factor_content.tsv")}   # E78
+    rows = (("recorded", "recorded", "o", True), ("law", "simulated from the model", "s", False),
+            ("shared", "simulated, one factor per cell", "D", False), ("adjusted", "relative to replay", "^", True))
     layout = []
     y = 0.0
     for cohort, group, label, colour in (("first", "achilles", "Achilles", fs.BLUE), ("second", "cohort", "Five rats", fs.ORANGE)):
@@ -198,13 +201,16 @@ def changes(fig, rect, records):
             r = tables[cohort][(group, "adjusted" if estimate == "adjusted" else "plain", term)]
             if estimate == "law":
                 value, low, high = float(r["their_mean"]), float(r["their_2.5th_percentile"]), float(r["their_97.5th_percentile"])
+            elif estimate == "shared":
+                q = shared[(cohort, group, "plain", term)]
+                value, low, high = float(q["shared_mean"]), float(q["shared_low"]), float(q["shared_high"])
             else:
                 value, se = float(r["recorded_difference"]), float(r["se"])
                 low, high = value - 1.96 * se, value + 1.96 * se
             if estimate == "recorded":
                 ax.axhspan(yy - 0.5, yy + 0.5, color=fs.PANEL, lw=0, zorder=0)
             ax.plot([low, high], [yy, yy], color=colour, lw=1.2, zorder=2, solid_capstyle="butt")
-            ax.plot(value, yy, marker=marker, ms=5.0, mfc=colour if filled else "white", mec=colour, mew=1.0, zorder=3)
+            ax.plot(value, yy, marker=marker, ms=5.0 if marker != "D" else 4.4, mfc=colour if filled else "white", mec=colour, mew=1.0, zorder=3)
             ax.text(1.04, yy, fs.minus(f"{value:.2f}"), transform=ax.get_yaxis_transform(), ha="left", va="center", fontsize=8)
             if k == 0:
                 ax.text(-0.06, yy, name, transform=ax.get_yaxis_transform(), ha="right", va="center", fontsize=8)
