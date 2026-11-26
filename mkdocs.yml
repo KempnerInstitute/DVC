@@ -15,6 +15,9 @@ nav:
       - Evaluation: user-guide/evaluation.md
       - Time-Dependent Models: user-guide/time-dependent.md
       - Changing Neural Dependence: user-guide/vine-modulation.md
+      - Shared excitability across rests: user-guide/experiments/E78_SHARED_FACTORS.md
+      - Population synchrony: user-guide/experiments/E79_SYNCHRONY.md
+      - Fourth-order simulation design: user-guide/experiments/E80_QUARTETS_ALONE.md
       - Experiments: user-guide/experiments.md
   - How To:
       - Experiment Runner: howto/runner.md
