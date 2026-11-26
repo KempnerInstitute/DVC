@@ -1,19 +1,9 @@
-"""The shared style of the manuscript's seven figures.
+"""Shared print style for the seven study figures.
 
-Text.  Helvetica, a PDF core font, at 8 to 12 pt at print size (panel letters 12 pt bold, panel titles 9 pt bold, most
-labels 8 pt), as PLOS Computational Biology asks; nothing is embedded, and the TIFFs for submission are rasterised
-by prepare_figures.py, which checks the font and the sizes.  Formulas are drawn as vector outlines in a sans-serif math
-face (smath), so they add no font to the file.  Minus signs are en dashes, which the core font has.
-
-Colour.  Two series colours, checked with a palette validator for a white print surface (lightness band, chroma floor,
-separation under simulated protanopia and deuteranopia and for normal vision, contrast): blue #1c5cab and orange
-#d95926 pass every check.  Each has a dark shade, a mid tone and a light tint for fills.  Greys carry structure,
-models and references.  Colour never identifies a series alone: every series also has its own marker shape or line
-style and a legend or a direct label.
-
-Helpers.  pro() sets the style; letter_title() writes a panel letter and title in figure coordinates; canvas() gives
-an axis with equal aspect for drawing; card(), arrow(), pyramidal(), rodent() and parity_cube() draw schematic
-elements; gaussian_density() and density_panel() draw copula densities; save_pro() writes a PDF without time stamps.
+Labels use the standard PDF Times family at 8 to 12 points. Equations are drawn
+as vector outlines with STIX math glyphs. Series are distinguished by markers,
+line styles or direct labels as well as by their blue and orange colours.
+The figure PDFs omit time stamps for reproducible builds.
 """
 import matplotlib
 matplotlib.use("Agg")
@@ -35,7 +25,7 @@ def pro():
     """The print style of the redrawn figures."""
     plt.rcParams.update(plt.rcParamsDefault)
     plt.rcParams.update({
-        "font.family": "sans-serif", "font.sans-serif": ["Helvetica"], "pdf.use14corefonts": True, "axes.unicode_minus": False,
+        "font.family": "serif", "font.serif": ["Times"], "pdf.use14corefonts": True, "axes.unicode_minus": False,
         "font.size": 8, "axes.labelsize": 8, "axes.titlesize": 9, "xtick.labelsize": 8, "ytick.labelsize": 8, "legend.fontsize": 8,
         "axes.linewidth": 0.6, "axes.edgecolor": INK2, "axes.labelcolor": INK, "xtick.color": INK2, "ytick.color": INK2,
         "xtick.labelcolor": INK, "ytick.labelcolor": INK, "xtick.major.width": 0.6, "ytick.major.width": 0.6,
@@ -43,7 +33,7 @@ def pro():
         "axes.spines.top": False, "axes.spines.right": False, "axes.titlepad": 4, "axes.labelpad": 2,
         "lines.linewidth": 1.3, "lines.markersize": 4.5, "legend.frameon": False, "legend.handlelength": 1.8,
         "legend.borderaxespad": 0.2, "legend.handletextpad": 0.4, "legend.columnspacing": 1.2, "hatch.linewidth": 0.6,
-        "savefig.dpi": 300, "text.color": INK, "mathtext.fontset": "dejavusans",
+        "savefig.dpi": 300, "text.color": INK, "mathtext.fontset": "stix",
     })
 
 
@@ -68,14 +58,14 @@ def letter_title(fig, x, y, letter_text, title_text=None, gap=0.024, size=9):
 
 
 def smath(ax, x, y, tex, size=9, ha="left", va="baseline", color=INK, transform=None, zorder=6, rotation=0):
-    """Mathtext as vector outlines in the sans-serif math face (DejaVu Sans), to sit beside Helvetica text."""
+    """Draw a mathematical expression as vector outlines in the print serif style."""
     from matplotlib.textpath import TextPath
     from matplotlib.patches import PathPatch
     from matplotlib.font_manager import FontProperties
     from matplotlib import transforms
     import matplotlib as mpl
-    with mpl.rc_context({"mathtext.fontset": "dejavusans", "mathtext.default": "it"}):
-        path = TextPath((0, 0), tex, size=size, prop=FontProperties(family="DejaVu Sans"))
+    with mpl.rc_context({"mathtext.fontset": "stix", "mathtext.default": "it"}):
+        path = TextPath((0, 0), tex, size=size, prop=FontProperties(family="STIXGeneral"))
     box = path.get_extents()
     dx = {"left": -box.x0, "center": -(box.x0 + box.x1) / 2, "right": -box.x1}[ha]
     dy = {"baseline": 0.0, "bottom": -box.y0, "center": -(box.y0 + box.y1) / 2, "top": -box.y1}[va]

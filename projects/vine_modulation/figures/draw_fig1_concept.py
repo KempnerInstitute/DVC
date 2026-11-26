@@ -122,9 +122,9 @@ def trajectories(fig, worked, records):
     data = worked["examples"]["constant"]
     true, fitted = np.asarray(data["true"]), np.asarray(data["fitted"])
     windows = np.arange(1, len(true) + 1)
-    for k, (name, column, colour, tint, note) in enumerate((("baseline", 0, fs.BLUE, fs.BLUE_TINT, "the baseline moves"),
-                                                            ("modulation", 1, fs.ORANGE, fs.ORANGE_TINT, "the modulation persists"))):
-        ax = fig.add_axes([x0 + 0.07, inch(3.22 - 0.68 * k), w - 0.08, inch(0.52)])
+    paths = (("baseline", fs.BLUE, fs.BLUE_TINT), ("modulation", fs.ORANGE, fs.ORANGE_TINT))
+    for column, (name, colour, tint) in enumerate(paths):
+        ax = fig.add_axes([x0 + 0.07, inch(3.22 - 0.68 * column), w - 0.08, inch(0.52)])
         ax.axvspan(4.5, 8.5, color="#f1f1ef", lw=0, zorder=0)
         steps_x = np.repeat(np.arange(0.5, 13.0, 1.0), 2)[1:-1]
         steps_y = np.repeat(true[:, column], 2)
@@ -135,9 +135,9 @@ def trajectories(fig, worked, records):
         ax.set(xlim=(0.5, 12.5), ylim=(-0.3, 0.72), yticks=[0, 0.5], xticks=[1, 4, 8, 12])
         fs.ticks_minus(ax, "y")
         fs.smath(ax, -0.075, 0.5, r"$b_t$" if column == 0 else r"$g_t$", size=10, ha="right", va="center")
-        ax.text(0.99, 0.56 if column == 0 else 0.97, note, transform=ax.transAxes, ha="right", va="center" if column == 0 else "top", fontsize=8,
+        ax.text(0.015, 0.96, name.capitalize(), transform=ax.transAxes, ha="left", va="top", fontsize=8,
                 color=fs.INK2)
-        if k == 0:
+        if column == 0:
             ax.set_xticklabels([])
         else:
             ax.set_xlabel("Window")
@@ -195,7 +195,7 @@ def draw(output, source):
     vine(fig)
     fs.letter_title(fig, 0.52, inch(4.52), "C", "One edge, two coefficient paths")
     trajectories(fig, worked, records)
-    fs.letter_title(fig, 0.0, inch(2.42), "D", "A reversed modulation changes the conditional law, not the pairwise law")
+    fs.letter_title(fig, 0.0, inch(2.42), "D", "Reversing modulation preserves all three pair distributions")
     densities(fig, records)
     fs.save_pro(fig, output)
     with Path(source).open("w", newline="") as handle:

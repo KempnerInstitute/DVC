@@ -155,9 +155,9 @@ def nested(fig):
         ax.text(x + 0.45, top - 0.20, first, ha="left", va="center", fontsize=8, fontweight="bold")
         ax.text(x + 0.45, top - 0.40, second, ha="left", va="center", fontsize=8, color=fs.INK2)
         t = np.linspace(0, 1, 100)
-        base = 0.28
-        level = {"zero": np.zeros_like(t), "flat": np.full_like(t, 0.16), "step": np.where((t > 0.4) & (t < 0.7), 0.30, 0.16)}[shape]
-        ax.add_patch(plt.Rectangle((x + 0.35 + 0.4 * 1.4, base - 0.02), 0.3 * 1.4, 0.36, facecolor=BAND, edgecolor="none", zorder=1))
+        base = 0.16
+        level = {"zero": np.zeros_like(t), "flat": np.full_like(t, 0.09), "step": np.where((t > 0.4) & (t < 0.7), 0.23, 0.09)}[shape]
+        ax.add_patch(plt.Rectangle((x + 0.35 + 0.4 * 1.4, base - 0.02), 0.3 * 1.4, 0.27, facecolor=BAND, edgecolor="none", zorder=1))
         ax.plot([x + 0.35, x + 1.75], [base, base], color=fs.MUTED, lw=0.6, zorder=2)
         ax.plot(x + 0.35 + 1.4 * t, base + level, color=fs.ORANGE, lw=1.6, zorder=3)
         fs.smath(ax, x + 1.85, base + 0.02, r"$\eta_t$", size=8, transform=ax.transData)
