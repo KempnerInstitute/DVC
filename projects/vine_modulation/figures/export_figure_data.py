@@ -2,7 +2,7 @@
 
     export_figure_data.py RESULTS_ROOT OUT_FOLDER
 
-RESULTS_ROOT contains the outputs of the study drivers.  Writes to
+RESULTS_ROOT is the study's results folder (netscratch: .../DVC_order_revision/vine_modulation_20261109).  Writes to
 OUT_FOLDER (evidence/figures):
 
   known_edge_examples.tsv   the true baseline and modulation of two simulated edges of the known-edge study (E17/E17b)
@@ -18,7 +18,8 @@ OUT_FOLDER (evidence/figures):
                             stretch of about 40 cm or 1 m with posterior probability at least 0.8, each with its place
                             cells' spikes in ten 10-ms steps, the posterior over positions and the running maps of its
                             active cells on the decoded direction; and the share of ripples after the tracks by the kind of
-                            their most probable state.
+                            their most probable state; and the maps on the overlapping trio's running direction of
+                            every place cell whose field peaks there.
   timing_profiles.tsv       for every recording, the fit of two replay laws split at each candidate change point minus
                             the fit of one law (E71, in sample), with the rank of the experience.
   e64_..., e65_..., e66_... copies of the project's verification tables for the hippocampal checks (sleep state and
@@ -37,7 +38,8 @@ from pathlib import Path
 import numpy as np
 
 PAPER = Path(__file__).resolve().parent
-# Resolve the project in either supported distribution layout.
+# the study code: projects/vine_modulation_20261109 beside the manuscript (drafts repository), or the folder above
+# figures/ in the DVC repository's projects/vine_modulation
 PROJECT = next(p for p in (PAPER.parents[1] / "projects" / "vine_modulation_20261109", PAPER.parent) if (p / "real_data").is_dir())
 MODELS = ("joint", "switching", "smooth_x", "gamml")          # the four estimators of the paper's comparison
 EXAMPLES = (("abrupt", 0.6, 100, 980000), ("recurring", 0.6, 100, 980000))
@@ -90,6 +92,13 @@ def map_blocks(kinds):
             blocks.append((-1, -1, 4))
         k_prev = kind
     return blocks
+
+
+def direction_maps(maps, peak_map, peak_bin, m):
+    """The 4-cm rate maps on running direction m of every place cell whose field peaks there, ordered by peak."""
+    cells = [int(c) for c in np.flatnonzero(peak_map == m)]
+    cells.sort(key=lambda c: (int(peak_bin[c]), c))
+    return dict(map=int(m), cells=cells, rates=[maps[m][c].tolist() for c in cells])
 
 
 def hippocampus(root, out, inputs):
@@ -164,6 +173,7 @@ def hippocampus(root, out, inputs):
     report = dict(session=SESSION, rest="after the tracks", place_cells=int(len(cells)), bin_cm=4, maps=[m.shape[1] for m in maps],
                   order=order.tolist(), peak_map=peak_map[order].tolist(), peak_bin=peak_bin[order].tolist(),
                   overlapping=trio(over), separate=trio(separate), ripples=ripples, decoded_kinds_after=decoded_kinds,
+                  direction_maps=direction_maps(maps, peak_map, peak_bin, int(peak_map[over[0]])),
                   rules=dict(session="the second-cohort session with the most place cells",
                              overlapping="the overlapping trio whose smallest pairwise map correlation is largest",
                              separate="the first separate trio in the stored sample whose three fields peak on one running direction",

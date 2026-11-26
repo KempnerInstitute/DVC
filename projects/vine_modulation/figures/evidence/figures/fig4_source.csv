@@ -1,19 +1,53 @@
 panel,quantity,row,count_or_sessions,value_or_estimate,value_2_or_standard_error
-B,overlapping,cell 29,5.69772816795216,1.6600000000000001,
-B,overlapping,cell 30,5.036759875458131,1.74,
-B,overlapping,cell 36,9.792224872913941,1.7,
-B,separate,cell 0,11.990590524381862,0.02,
-B,separate,cell 28,16.420268183731444,1.6600000000000001,
-B,separate,cell 69,2.673138964655716,0.42000000000000004,
-C,ripple,726,33,48,
-C,overlapping trio,000,132,1209,
-C,overlapping trio,100,7,46,
-C,overlapping trio,010,8,85,
-C,overlapping trio,001,6,120,
-C,overlapping trio,110,0,3,
-C,overlapping trio,101,0,9,
-C,overlapping trio,011,1,16,
-C,overlapping trio,111,0,1,
+B,"rate map, direction of the trio",cell 9,1,4.135425513382145,0.13999999999999999
+B,"rate map, direction of the trio",cell 19,2,17.838163257089633,0.13999999999999999
+B,"rate map, direction of the trio",cell 78,3,4.987428158362285,0.38
+B,"rate map, direction of the trio",cell 10,4,14.495457027816869,0.5800000000000001
+B,"rate map, direction of the trio",cell 38,5,7.3206177358386455,0.74
+B,"rate map, direction of the trio",cell 17,6,2.391038738097496,0.9
+B,"rate map, direction of the trio",cell 63,7,4.882061114773286,0.9
+B,"rate map, direction of the trio",cell 41,8,2.290645404004419,0.9400000000000001
+B,"rate map, direction of the trio",cell 23,9,25.631624118089007,0.98
+B,"rate map, direction of the trio",cell 20,10,4.84403112439616,1.06
+B,"rate map, direction of the trio",cell 46,11,2.4113026559404567,1.06
+B,"rate map, direction of the trio",cell 48,12,19.711417662504672,1.1
+B,"rate map, direction of the trio",cell 53,13,26.349129229181216,1.1
+B,"rate map, direction of the trio",cell 11,14,8.509763469575716,1.34
+B,"rate map, direction of the trio",cell 27,15,2.5687183877005033,1.34
+B,"rate map, direction of the trio",cell 56,16,15.186096299096135,1.34
+B,"rate map, direction of the trio",cell 91,17,21.32973237701958,1.34
+B,"rate map, direction of the trio",cell 7,18,2.708591955910798,1.3800000000000001
+B,"rate map, direction of the trio",cell 74,19,20.726268227976604,1.4200000000000002
+B,"rate map, direction of the trio",cell 82,20,1.6475672422779386,1.4200000000000002
+B,"rate map, direction of the trio",cell 67,21,7.732021072545265,1.5
+B,"rate map, direction of the trio",cell 29,22,5.69772816795216,1.6600000000000001
+B,"rate map, direction of the trio",cell 36,23,9.792224872913941,1.7
+B,"rate map, direction of the trio",cell 30,24,5.036759875458131,1.74
+B,overlapping trio,cell 29,41,5.69772816795216,1.6600000000000001
+B,overlapping trio,cell 30,43,5.036759875458131,1.74
+B,overlapping trio,cell 36,42,9.792224872913941,1.7
+B,separate trio,cell 0,0,11.990590524381862,0.02
+B,separate trio,cell 28,41,16.420268183731444,1.6600000000000001
+B,separate trio,cell 69,10,2.673138964655716,0.42000000000000004
+C,"ripple: place cells fired, spike steps",ripple 726,33,48,
+C,pattern of the overlapping trio in this ripple,011,,,
+D,counts_before,000,132,-1,
+D,counts_before,100,7,1,
+D,counts_before,010,8,1,
+D,counts_before,001,6,1,
+D,counts_before,110,0,-1,
+D,counts_before,101,0,-1,
+D,counts_before,011,1,-1,
+D,counts_before,111,0,1,
+D,counts_after,000,1209,-1,
+D,counts_after,100,46,1,
+D,counts_after,010,85,1,
+D,counts_after,001,120,1,
+D,counts_after,110,3,-1,
+D,counts_after,101,9,-1,
+D,counts_after,011,16,-1,
+D,counts_after,111,1,1,
+D,admissible shifts u,overlapping trio of B,1,0,0
 E,pairs,Achilles (2 sessions),2,0.18399,0.030523
 E,pairs,Cicero (3),3,0.0096206,0.0386
 E,pairs,Buddy (1),1,-0.20381,0.21581

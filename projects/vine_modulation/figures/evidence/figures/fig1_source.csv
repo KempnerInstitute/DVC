@@ -1,4 +1,8 @@
-panel,quantity,window_or_cloud,value,value_2,count
+panel,quantity,window_or_set,value,value_2,count
+A,rates,Rates,,,
+A,pair,Pair coupling,,,
+A,modulated,Modulated coupling,,,
+A,input,Shared input,,,
 C,baseline,1,-0.15,-0.1246416118544642,
 C,baseline,2,-0.15,-0.12356115353772525,
 C,baseline,3,-0.15,-0.1224806952209863,
@@ -23,9 +27,9 @@ C,modulation,9,0.42,0.4055536070235371,
 C,modulation,10,0.42,0.402161349493067,
 C,modulation,11,0.42,0.4014468890009034,
 C,modulation,12,0.42,0.40203070908935945,
-D,window 3,lowest third of Z,0.58,-0.3712693202948076,667
-D,window 3,highest third of Z,0.58,0.3794274034154094,667
-D,window 3,all values of Z,0.58,-0.0030145072536268136,2000
-D,window 6,lowest third of Z,-0.58,0.39904822363592973,667
-D,window 6,highest third of Z,-0.58,-0.3524769146958052,667
-D,window 6,all values of Z,-0.58,0.016660330165082542,2000
+D,window 3,Z in its lowest third,0.58,-0.364175608780439,33334
+D,window 3,Z in its highest third,0.58,0.36661569078453915,33334
+D,window 3,all values of Z,0.58,-0.0012270313515675784,100000
+D,window 6,Z in its lowest third,-0.58,0.3522893044652232,33334
+D,window 6,Z in its highest third,-0.58,-0.3582642632131606,33334
+D,window 6,all values of Z,-0.58,-0.003994769738486924,100000

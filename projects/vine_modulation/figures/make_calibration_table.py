@@ -14,9 +14,9 @@ def render(folder):
     standard = counts("fold_calibration.tsv","training_scaled_exceedances")
     common = counts("common_count_scenarios.tsv","crossings")
     lines = [r"\begin{tabular}{@{}llrrr@{}}", r"\toprule",
-             r"Recording geometry & Count unit & Replay alone & Shared change & Overlap change \\", r"\midrule"]
+             r"Matched to & Count unit & Replay alone & Shared change & Overlap change \\", r"\midrule"]
     for group, label in (("cohort","Independent cohort"),("achilles","Achilles")):
-        for unit, data in (("Class-specific",standard),("Common",common)):
+        for unit, data in (("Per class SD",standard),("Per active pair",common)):
             cells = " & ".join(str(data[group,condition]) for condition in ("replay","apart","class"))
             lines.append(f"{label} & {unit} & {cells} " + r"\\")
     lines.extend((r"\bottomrule",r"\end{tabular}"))
